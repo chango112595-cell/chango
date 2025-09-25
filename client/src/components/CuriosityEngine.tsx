@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +7,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { CuriosityLog } from "@shared/schema";
+
+interface CuriositySettings {
+  userId: string;
+  curiosityLevel: number;
+  personalityVariance: number;
+  learningRate: number;
+}
 
 export default function CuriosityEngine() {
   const [curiosityLevel, setCuriosityLevel] = useState([75]);
@@ -206,4 +214,67 @@ export default function CuriosityEngine() {
       </CardContent>
     </Card>
   );
+}
+
+export function useCuriosityEngine() {
+  const [currentResponse, setCurrentResponse] = useState<string>("");
+  const { toast } = useToast();
+
+  // Fetch current settings
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/settings"],
+    queryFn: () => apiRequest("GET", "/api/settings"),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
+  // Update settings mutation
+  const updateSettingsMutation = useMutation({
+    mutationFn: async (settings: {
+      curiosityLevel: number;
+      personalityVariance: number;
+      learningRate: number;
+    }) => {
+      return apiRequest("POST", "/api/settings", {
+        userId: "default",
+        ...settings,
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Curiosity Settings Updated",
+        description: "The AI's personality parameters have been adjusted.",
+      });
+    },
+  });
+
+  // Generate curiosity responses based on context
+  const generateCuriousResponse = () => {
+    const responses = [
+      "I noticed a pacing change—should we save this as a style preset?",
+      "Curious: want me to try a softer pitch for this topic?",
+      "I can summarize our last 3 steps into a note—do it?",
+      "I think your last assumption conflicts with earlier notes. Want a quick check?",
+      "Should I adapt my response style based on the current conversation context?",
+      "I've detected some interesting patterns in your voice preferences. Explore them?",
+    ];
+
+    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+    setCurrentResponse(randomResponse);
+    
+    // Trigger curiosity notification
+    toast({
+      title: "Curiosity Triggered",
+      description: randomResponse,
+      duration: 5000,
+    });
+  };
+
+  return {
+    settings: data,
+    isLoading,
+    currentResponse,
+    updateSettings: updateSettingsMutation.mutate,
+    generateCuriousResponse,
+    isUpdating: updateSettingsMutation.isPending,
+  };
 }

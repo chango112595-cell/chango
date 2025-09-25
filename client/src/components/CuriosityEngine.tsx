@@ -34,6 +34,46 @@ export default function CuriosityEngine() {
     },
   });
 
+  import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { queryClient } from "@/lib/queryClient";
+
+interface CuriositySettings {
+  userId: string;
+  curiosityLevel: number;
+  personalityVariance: number;
+  learningRate: number;
+}
+
+// Mock API request function (replace with actual implementation)
+const apiRequest = async (method: string, url: string, data?: any) => {
+  const response = await fetch(url, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: data ? JSON.stringify(data) : undefined,
+  });
+  
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.statusText}`);
+  }
+  
+  return response.json();
+};
+
+export function useCuriosityEngine() {
+  const [currentResponse, setCurrentResponse] = useState<string>("");
+  const { toast } = useToast();
+
+  // Fetch current settings
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/settings"],
+    queryFn: () => apiRequest("GET", "/api/settings"),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
   // Update settings mutation
   const updateSettingsMutation = useMutation({
     mutationFn: async (settings: {
@@ -68,6 +108,24 @@ export default function CuriosityEngine() {
 
     const randomResponse = responses[Math.floor(Math.random() * responses.length)];
     setCurrentResponse(randomResponse);
+    
+    // Trigger curiosity notification
+    toast({
+      title: "Curiosity Triggered",
+      description: randomResponse,
+      duration: 5000,
+    });
+  };
+
+  return {
+    settings: data,
+    isLoading,
+    currentResponse,
+    updateSettings: updateSettingsMutation.mutate,
+    generateCuriousResponse,
+    isUpdating: updateSettingsMutation.isPending,
+  };
+}se);
 
     // Log the curiosity response
     addLogMutation.mutate({

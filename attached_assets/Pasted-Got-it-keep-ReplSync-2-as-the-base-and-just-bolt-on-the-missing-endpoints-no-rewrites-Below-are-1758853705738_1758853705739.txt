@@ -1,0 +1,198 @@
+Got it — keep ReplSync 2 as the base and just bolt on the missing endpoints (no rewrites). Below are drop-in, isolated patches you can paste into that repo. They won’t collide with existing code; if a feature already exists, these safely coexist.
+
+⸻
+
+0) Install minimal deps
+
+npm i express body-parser multer archiver wav-decoder
+
+
+⸻
+
+1) Utils (safe, standalone)
+
+server/utils/paths.js
+
+const path = require('path'); const fs = require('fs');
+const ROOT = process.cwd();
+const DATA = path.join(ROOT, 'data');
+const PROFILES = path.join(DATA, 'profiles');
+const LOGS = path.join(ROOT, 'logs');
+const CHECKPOINTS = path.join(ROOT, 'checkpoints');
+function ensureDirs(){ [DATA, PROFILES, LOGS, CHECKPOINTS].forEach(d=>{ if(!fs.existsSync(d)) fs.mkdirSync(d,{recursive:true}); }); }
+module.exports = { ROOT, DATA, PROFILES, LOGS, CHECKPOINTS, ensureDirs };
+
+server/utils/jsonl.js
+
+const fs = require('fs'); const path = require('path');
+function appendJSONL(file, obj){ fs.mkdirSync(path.dirname(file), {recursive:true}); fs.appendFileSync(file, JSON.stringify(obj)+'\n', 'utf8'); }
+function readJSONL(file){ if(!fs.existsSync(file)) return []; return fs.readFileSync(file,'utf8').split('\n').filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean); }
+module.exports = { appendJSONL, readJSONL };
+
+server/utils/zip.js
+
+const archiver = require('archiver'); const fs = require('fs'); const path = require('path');
+async function zipPaths(outPath, paths){
+  await new Promise((resolve,reject)=>{
+    const out=fs.createWriteStream(outPath); const ar=archiver('zip',{zlib:{level:9}});
+    out.on('close',()=>resolve()); ar.on('error',reject); ar.pipe(out);
+    for(const p of paths){ if(fs.existsSync(p)){ const st=fs.statSync(p); st.isDirectory()? ar.directory(p, path.basename(p)) : ar.file(p,{name:path.basename(p)}); } }
+    ar.finalize();
+  });
+}
+module.exports = { zipPaths };
+
+
+⸻
+
+2) Routes (mount anywhere; all under “/”)
+
+server/routes/health.js
+
+const { Router } = require('express'); const r = Router();
+r.get('/', (_req,res)=> res.json({ ok:true, service:'ChangoAI unified shim' }));
+module.exports = r;
+
+server/routes/feedback.js
+
+const { Router } = require('express'); const path = require('path');
+const { DATA } = require('../utils/paths'); const { appendJSONL } = require('../utils/jsonl');
+const r = Router(); const FEEDBACK = path.join(DATA,'accents_log.jsonl');
+r.post('/accent_feedback',(req,res)=>{ try{ appendJSONL(FEEDBACK, { ...(req.body||{}), ts:new Date().toISOString() }); res.json({ok:true}); } catch(e){ res.status(500).json({ok:false,error:String(e.message||e)}) }});
+module.exports = r;
+
+server/routes/checkpoints.js
+
+const { Router } = require('express'); const path = require('path'); const fs = require('fs');
+const { zipPaths } = require('../utils/zip'); const { CHECKPOINTS, ROOT } = require('../utils/paths');
+const r = Router();
+r.post('/checkpoint', async (_req,res)=>{ try{
+  const ts=new Date().toISOString().replace(/[:.]/g,'-'); const out=path.join(CHECKPOINTS,`ChangoAI_checkpoint_${ts}.zip`);
+  await zipPaths(out, [ path.join(ROOT,'client'), path.join(ROOT,'server'), path.join(ROOT,'data'), path.join(ROOT,'logs'), path.join(ROOT,'TASKS.md'), path.join(ROOT,'EVOLUTION.md') ]);
+  res.json({ok:true, checkpoint:path.basename(out)});
+} catch(e){ res.status(500).json({ok:false,error:String(e.message||e)}) }});
+r.get('/checkpoint/latest',(req,res)=>{ try{
+  if(!fs.existsSync(CHECKPOINTS)) return res.status(404).json({ok:false,error:'no checkpoints yet'});
+  const files=fs.readdirSync(CHECKPOINTS).filter(f=>f.endsWith('.zip')).sort(); if(!files.length) return res.status(404).json({ok:false,error:'no checkpoints yet'});
+  const latest=files[files.length-1]; res.download(path.join(CHECKPOINTS, latest), latest);
+} catch(e){ res.status(500).json({ok:false,error:String(e.message||e)}) }});
+module.exports = r;
+
+server/routes/voiceProfiles.js
+
+const { Router } = require('express'); const multer = require('multer'); const path = require('path'); const fs = require('fs');
+const { spawnSync } = require('child_process'); const { decode } = require('wav-decoder'); const { PROFILES } = require('../utils/paths');
+const r = Router();
+const upload = multer({ storage: multer.diskStorage({ destination:(_q,_f,cb)=>{fs.mkdirSync(PROFILES,{recursive:true});cb(null,PROFILES)}, filename:(_q,f,cb)=>cb(null,Date.now()+'_'+f.originalname.replace(/\s+/g,'_')) })});
+const ffmpegExists=()=>{ try{ return spawnSync('ffmpeg',['-version']).status===0; }catch{ return false; } };
+
+function mapToAccent(f){ let profile='neutral', intensity=0.5, rate=1,pitch=1,vol=1;
+  if(f.wpm>170) rate=1.15; else if(f.wpm<120) rate=0.9; if(f.f0<110) pitch=0.9; else if(f.f0>200) pitch=1.1;
+  intensity=Math.max(0.1,Math.min(1,0.5 + (f.pauseRatio<0.12?0.3:-0.1)));
+  if(f.rhoticity<0.95 && f.wpm<=140) profile='brit_rp';
+  else if(f.rhoticity>=1.2 && f.wpm<130) profile='southern_us';
+  if(f.sibilance>0.75 && f.wpm>=130) profile='spanish_en';
+  if(f.sibilance>0.85) profile='caribbean';
+  return { mapped:{profile,intensity}, rate,pitch,vol };
+}
+async function analyzeWav(p){
+  const buf=fs.readFileSync(p); const wav=await decode(buf);
+  const ch=wav.channelData?.[0]||new Float32Array(); const sr=wav.sampleRate||22050; const N=ch.length||1;
+  const win=Math.max(256,Math.floor(0.03*sr)), hop=Math.max(128,Math.floor(0.01*sr));
+  let s2=0; for(let i=0;i<N;i++) s2+=ch[i]*ch[i]; const gRMS=Math.sqrt(s2/N), thr=gRMS*0.25; let low=0,frames=0;
+  for(let i=0;i+win<=N;i+=hop){ frames++; let e=0; for(let j=0;j<win;j++) e+=ch[i+j]*ch[i+j]; if(Math.sqrt(e/win)<thr) low++; }
+  let zc=0; for(let i=1;i<N;i++) if((ch[i-1]<0&&ch[i]>=0)||(ch[i-1]>0&&ch[i]<=0)) zc++;
+  const f0=(zc/(N/sr))/2;
+  const step=Math.max(1,Math.floor(sr/4000)); let hi=0,lo=0,c=0;
+  for(let i=0;i<N;i+=step){ const v=Math.abs(ch[i]); if(i%(step*4)===0) hi+=v; else lo+=v; c++; }
+  let peaks=0, prev=false; for(let i=0;i<N;i+=hop){ let s=0; for(let j=0;j<Math.min(win,N-i);j++) s+=Math.abs(ch[i+j]); const e=s/win; const pk=e>(gRMS*0.6); if(pk && !prev) peaks++; prev=pk; }
+  const dur=N/sr, sylPerSec=peaks/Math.max(1,dur), wpm=(sylPerSec*60)/1.5;
+  return { duration:+dur.toFixed(2), pauseRatio:+(low/Math.max(frames,1)).toFixed(3), f0:isFinite(f0)?+f0.toFixed(1):undefined, wpm:+wpm.toFixed(1), sibilance:+(hi/(hi+lo+1e-9)).toFixed(3), rhoticity:+((lo+1e-9)/(hi+1e-9)).toFixed(3) };
+}
+
+r.post('/voice_profile/learn', upload.single('audio'), async (req,res)=>{
+  try{
+    if(!req.file) return res.status(400).json({ok:false,error:'no audio'});
+    if(!ffmpegExists()) return res.status(501).json({ok:false,error:'ffmpeg not installed'});
+    const raw=(req.body?.name||('profile_'+Date.now())).toString().replace(/\s+/g,'_'); const id=raw.replace(/[^a-zA-Z0-9_\-]/g,'');
+    const src=req.file.path, wav=path.join(PROFILES,`${id}.wav`), json=path.join(PROFILES,`${id}.json`);
+    const conv = require('child_process').spawnSync('ffmpeg',['-y','-i',src,'-ac','1','-ar','22050',wav],{stdio:'ignore'});
+    if(conv.status!==0 || !fs.existsSync(wav)) return res.status(501).json({ok:false,error:'ffmpeg failed'});
+    const feat=await analyzeWav(wav); const map=mapToAccent(feat);
+    const profile={ id, features:feat, mapped:map.mapped, base_rate:map.rate, base_pitch:map.pitch, base_volume:map.vol, created:new Date().toISOString(),
+      summary:`${map.mapped.profile}@${map.mapped.intensity.toFixed(2)} rate=${map.rate.toFixed(2)} pitch=${map.pitch.toFixed(2)}` };
+    fs.writeFileSync(json, JSON.stringify(profile,null,2),'utf8');
+    res.json({ok:true, profile});
+  }catch(e){ res.status(500).json({ok:false,error:String(e.message||e)}) }
+});
+
+r.get('/voice_profile/list',(_q,res)=>{ try{
+  const items = fs.existsSync(PROFILES)? fs.readdirSync(PROFILES).filter(f=>f.endsWith('.json')).map(f=>{ try{const p=JSON.parse(fs.readFileSync(path.join(PROFILES,f),'utf8')); return {id:p.id,summary:p.summary};}catch{return null} }).filter(Boolean) : [];
+  res.json({ok:true, profiles:items});
+}catch(e){ res.status(500).json({ok:false,error:String(e.message||e)}) }});
+
+r.get('/voice_profile/get/:id',(req,res)=>{ const id=(req.params.id||'').toString().replace(/[^a-zA-Z0-9_\-]/g,''); const j=path.join(PROFILES,`${id}.json`);
+  if(!fs.existsSync(j)) return res.status(404).json({ok:false,error:'not found'}); try{ res.json({ok:true, profile: JSON.parse(fs.readFileSync(j,'utf8'))}); }catch(e){ res.status(500).json({ok:false,error:String(e.message||e)}) }
+});
+
+module.exports = r;
+
+server/routes/diagnostics.js
+
+const { Router } = require('express'); const os = require('os'); const { spawnSync } = require('child_process');
+const r = Router();
+r.get('/diagnostics', (_req,res)=> {
+  const ff = (()=>{ try{ return spawnSync('ffmpeg',['-version']).status===0; }catch{ return false; } })();
+  res.json({
+    ok:true,
+    uptime_s: Math.floor(process.uptime()),
+    node: process.version,
+    cpu_load: os.loadavg()[0],
+    mem: { free: os.freemem(), total: os.totalmem() },
+    ffmpeg: ff ? 'available' : 'missing'
+  });
+});
+module.exports = r;
+
+
+⸻
+
+3) Mount them (minimal change)
+
+Open your main server file (commonly server/index.js or similar) and add:
+
+const express = require('express');
+const bodyParser = require('body-parser');
+const { ensureDirs } = require('./utils/paths');
+
+ensureDirs();
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// mount new routes
+app.use('/', require('./routes/health'));
+app.use('/', require('./routes/feedback'));
+app.use('/', require('./routes/checkpoints'));
+app.use('/', require('./routes/voiceProfiles'));
+app.use('/', require('./routes/diagnostics'));
+
+If your app variable isn’t app, use whatever your Express instance is named. If you already have JSON parsers, skip the duplicates.
+
+⸻
+
+4) Quick verification (Replit Shell)
+
+curl -sS $REPLIT_URL/ | jq .
+curl -sS $REPLIT_URL/diagnostics | jq .
+curl -sS $REPLIT_URL/voice_profile/list | jq .
+curl -sS -X POST $REPLIT_URL/checkpoint | jq .
+
+
+⸻
+
+Why this works with your “more sophisticated” base
+	•	Everything is namespaced at root but avoids clobbering existing feature paths.
+	•	No global state; only writes under data/, logs/, checkpoints/.
+	•	Graceful failures (e.g., no ffmpeg → 501) without bringing the app down.
+
+If you want, I can also output a one-file bootstrap that detects your app and auto-mounts these routers (good for complex monorepos).

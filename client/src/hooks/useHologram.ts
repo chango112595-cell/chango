@@ -145,7 +145,7 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     if (!state.wander) return;
 
     const now = Date.now();
-    const deltaTime = (now - lastUpdateRef.current) / 1000; // Convert to seconds
+    const deltaTime = Math.min((now - lastUpdateRef.current) / 1000, 0.05); // Convert to seconds, cap at 50ms
     lastUpdateRef.current = now;
 
     setState(prev => {
@@ -244,6 +244,10 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
 
   const updateWander = useCallback((wander: boolean) => {
     setState(prev => ({ ...prev, wander }));
+    if (wander) {
+      // Reset deltaTime reference to prevent large initial jump
+      lastUpdateRef.current = Date.now();
+    }
   }, []);
 
   const updatePosition = useCallback((x: number, y: number) => {

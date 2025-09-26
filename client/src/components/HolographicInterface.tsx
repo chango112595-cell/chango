@@ -74,7 +74,8 @@ export default function HolographicInterface() {
         >
           <div className={`hologram-canvas ${
             mode === "awakened" ? "hologram-awakened" : "hologram-sentinel"
-          } flex items-center justify-center transition-all duration-500 relative`}>
+          } flex items-center justify-center transition-all duration-500 relative`}
+          style={{ width: `${size[0]}px`, height: `${size[0]}px` }}>
             
             {/* Floating Canvas */}
             <canvas 
@@ -118,39 +119,50 @@ export default function HolographicInterface() {
           </div>
         </CardHeader>
         <CardContent>
-        {/* Hologram Display */}
-        <div className="relative flex justify-center mb-6">
-          <div className={`hologram-canvas ${
-            mode === "awakened" ? "hologram-awakened" : "hologram-sentinel"
-          } flex items-center justify-center transition-all duration-500`} 
-          style={{ width: `${size[0]}px`, height: `${size[0]}px` }}>
-            
-            {/* Canvas for 3D rendering */}
-            <canvas 
-              ref={canvasRef}
-              width={size[0]} 
-              height={size[0]}
-              className="absolute inset-0"
-              style={{ display: isVisible ? 'block' : 'none' }}
-              data-testid="canvas-hologram"
-            />
-            
-            {/* Animated particles */}
-            {isVisible && (
-              <>
-                <div className="particle" style={{ top: '20%', left: '30%', animationDelay: '0s' }}></div>
-                <div className="particle" style={{ top: '60%', left: '70%', animationDelay: '1s' }}></div>
-                <div className="particle" style={{ top: '40%', left: '20%', animationDelay: '2s' }}></div>
-                <div className="particle" style={{ top: '80%', left: '50%', animationDelay: '1.5s' }}></div>
-              </>
-            )}
-            
-            {/* Central core */}
-            {isVisible && (
-              <div className="w-12 h-12 rounded-full bg-gradient-to-r from-accent to-primary animate-hologram-pulse"></div>
-            )}
+        {/* Hologram Display - only render when NOT wandering */}
+        {!wander && (
+          <div className="relative flex justify-center mb-6">
+            <div className={`hologram-canvas ${
+              mode === "awakened" ? "hologram-awakened" : "hologram-sentinel"
+            } flex items-center justify-center transition-all duration-500`} 
+            style={{ width: `${size[0]}px`, height: `${size[0]}px` }}>
+              
+              {/* Canvas for 3D rendering */}
+              <canvas 
+                ref={canvasRef}
+                width={size[0]} 
+                height={size[0]}
+                className="absolute inset-0"
+                style={{ display: isVisible ? 'block' : 'none' }}
+                data-testid="canvas-hologram"
+              />
+              
+              {/* Animated particles */}
+              {isVisible && (
+                <>
+                  <div className="particle" style={{ top: '20%', left: '30%', animationDelay: '0s' }}></div>
+                  <div className="particle" style={{ top: '60%', left: '70%', animationDelay: '1s' }}></div>
+                  <div className="particle" style={{ top: '40%', left: '20%', animationDelay: '2s' }}></div>
+                  <div className="particle" style={{ top: '80%', left: '50%', animationDelay: '1.5s' }}></div>
+                </>
+              )}
+              
+              {/* Central core */}
+              {isVisible && (
+                <div className="w-12 h-12 rounded-full bg-gradient-to-r from-accent to-primary animate-hologram-pulse"></div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Message when wandering */}
+        {wander && isVisible && (
+          <div className="text-center mb-6 p-4 bg-muted/20 rounded-lg">
+            <p className="text-sm text-muted-foreground">
+              🌟 Chango is wandering around your screen! Look for the floating hologram.
+            </p>
+          </div>
+        )}
 
         {/* Hologram Controls */}
         <div className="space-y-4">

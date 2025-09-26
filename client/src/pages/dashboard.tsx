@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import VoiceControls from "@/components/VoiceControls";
-import TTSRoutes from "@/components/TTSRoutes";
+import VoiceRouteSelector from "@/components/VoiceRouteSelector";
 import AccentEmulator from "@/components/AccentEmulator";
 import VoiceScanner from "@/components/VoiceScanner";
 import TextToSpeech from "@/components/TextToSpeech";
@@ -92,7 +92,7 @@ export default function Dashboard() {
           {/* Left Column - Main Controls */}
           <div className="lg:col-span-2 space-y-6">
             <VoiceControls />
-            <TTSRoutes />
+            <VoiceRouteSelector />
             <AccentEmulator />
             <VoiceScanner />
             <TextToSpeech />

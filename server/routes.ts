@@ -6,6 +6,9 @@ import multer from "multer";
 import { z } from "zod";
 import * as os from "os";
 import { spawnSync } from "child_process";
+import { appendJSONL } from "./utils/jsonl";
+import { ensureDirs } from "./utils/paths";
+import path from "path";
 
 // Configure multer for audio file uploads
 const upload = multer({
@@ -283,6 +286,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid log data", details: error.errors });
       }
       res.status(500).json({ error: "Failed to add curiosity log" });
+    }
+  });
+
+  // Accent Feedback logging endpoint
+  app.post("/api/accent_feedback", async (req, res) => {
+    try {
+      // Ensure the data directory exists
+      await ensureDirs();
+      
+      // Add timestamp to the data
+      const dataWithTimestamp = {
+        ...req.body,
+        ts: new Date().toISOString()
+      };
+      
+      // Define the log file path
+      const logFilePath = path.join('data', 'accents_log.jsonl');
+      
+      // Append the data to the JSONL file
+      await appendJSONL(logFilePath, dataWithTimestamp);
+      
+      res.json({ ok: true });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      res.status(500).json({ ok: false, error: errorMessage });
     }
   });
 

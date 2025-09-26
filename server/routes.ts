@@ -4,6 +4,8 @@ import { storage } from "./storage";
 import { insertVoiceProfileSchema, insertSystemSettingsSchema, insertCuriosityLogSchema } from "@shared/schema";
 import multer from "multer";
 import { z } from "zod";
+import * as os from "os";
+import { spawnSync } from "child_process";
 
 // Configure multer for audio file uploads
 const upload = multer({
@@ -26,6 +28,59 @@ const ttsRequestSchema = z.object({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Health check endpoint
+  app.get("/", async (req, res) => {
+    try {
+      res.json({ ok: true, service: "ChangoAI unified shim" });
+    } catch (error) {
+      res.status(500).json({ error: "Health check failed" });
+    }
+  });
+
+  // Diagnostics endpoint
+  app.get("/api/diagnostics", async (req, res) => {
+    try {
+      // Get system information
+      const uptime_s = process.uptime();
+      const node = process.version;
+      const loadAvg = os.loadavg();
+      const cpu_load = loadAvg[0]; // 1-minute load average
+      const totalMem = os.totalmem();
+      const freeMem = os.freemem();
+      
+      // Check if ffmpeg is available
+      let ffmpeg: "available" | "missing" = "missing";
+      try {
+        const result = spawnSync("ffmpeg", ["-version"], { 
+          encoding: "utf8",
+          timeout: 3000 // 3 second timeout
+        });
+        if (result.status === 0) {
+          ffmpeg = "available";
+        }
+      } catch (error) {
+        // ffmpeg not found or error executing
+        ffmpeg = "missing";
+      }
+
+      const diagnostics = {
+        ok: true,
+        uptime_s,
+        node,
+        cpu_load,
+        mem: {
+          free: freeMem,
+          total: totalMem
+        },
+        ffmpeg
+      };
+
+      res.json(diagnostics);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch diagnostics" });
+    }
+  });
+
   // Voice Profile routes
   app.get("/api/voice-profiles", async (req, res) => {
     try {

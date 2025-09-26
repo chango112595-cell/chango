@@ -11,6 +11,7 @@ import { ensureDirs, CHECKPOINTS } from "./utils/paths";
 import { zipPaths } from "./utils/zip";
 import { promises as fs } from "fs";
 import path from "path";
+import { voiceProfileRouter } from "./voiceProfiles";
 
 // Configure multer for audio file uploads
 const upload = multer({
@@ -85,6 +86,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to fetch diagnostics" });
     }
   });
+
+  // Mount voice profile learning/analysis routes
+  app.use("/api/voice_profile", voiceProfileRouter);
 
   // Voice Profile routes
   app.get("/api/voice-profiles", async (req, res) => {

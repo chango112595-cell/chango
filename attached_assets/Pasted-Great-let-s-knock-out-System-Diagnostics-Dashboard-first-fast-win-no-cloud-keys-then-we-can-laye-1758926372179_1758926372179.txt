@@ -1,0 +1,175 @@
+Great—let’s knock out System Diagnostics Dashboard first (fast win, no cloud keys), then we can layer voice routes or advanced audio next.
+
+Below are tight, isolated patches you can copy-paste into your current Replit project. They don’t disturb your existing features.
+
+⸻
+
+1) Server: richer diagnostics (live stats + route health)
+
+Create: server/utils/lag.js
+
+// Simple event-loop lag sampler
+let last = Date.now(), lagMs = 0;
+setInterval(() => {
+  const now = Date.now();
+  const drift = now - last - 100;
+  lagMs = Math.max(0, drift);
+  last = now;
+}, 100);
+function getLag(){ return lagMs; }
+module.exports = { getLag };
+
+Replace contents of: server/routes/diagnostics.js
+
+const { Router } = require('express');
+const os = require('os');
+const { spawnSync } = require('child_process');
+const { getLag } = require('../utils/lag');
+const r = Router();
+
+// local in-memory session counters (reset on reboot)
+let session = { start: Date.now(), ttsClientUtterances: 0, profilesLearned: 0, checkpointsMade: 0 };
+
+// lightweight pingers for route health
+async function ping(url, init){ try{
+  const t0 = Date.now(); const res = await fetch(url, init);
+  return { ok: res.ok, ms: Date.now()-t0 };
+}catch{ return { ok:false, ms:null };}}
+
+r.get('/diagnostics', async (req, res) => {
+  // ffmpeg presence
+  let ff=false; try{ ff = spawnSync('ffmpeg',['-version']).status===0; }catch{}
+
+  // Construct a response without blocking
+  const cpuLoad = os.loadavg()[0];
+  const mem = { free: os.freemem(), total: os.totalmem(), rss: process.memoryUsage().rss };
+  const env = { node: process.version, pid: process.pid, uptime_s: Math.floor(process.uptime()) };
+  const loop = { lag_ms: getLag() };
+
+  // TTS route “status” (client=always up; others are stubs until enabled)
+  const routes = {
+    client: { enabled: true, healthy: true, note: 'WebSpeech (browser)' },
+    local_neural: { enabled: false, healthy: false, note: 'planned' },
+    elevenlabs: { enabled: false, healthy: false, note: 'stub' },
+    azure: { enabled: false, healthy: false, note: 'stub' }
+  };
+
+  // Optional self-ping to confirm server responsiveness (non-blocking timeout)
+  let selfPing = { ok:true, ms:0 };
+  try { const t0 = Date.now(); await fetch(req.protocol+'://'+req.get('host')+'/'); selfPing = { ok:true, ms: Date.now()-t0 }; } catch {}
+
+  res.json({
+    ok: true,
+    env, cpuLoad, mem, loop,
+    ffmpeg: ff? 'available':'missing',
+    routes,
+    selfPing,
+    session
+  });
+});
+
+// Hooks for session counters (call from existing routes if you want granular counts)
+r.post('/diagnostics/incr', (req,res)=>{
+  const k = (req.body?.key||'').toString();
+  if (k && Object.prototype.hasOwnProperty.call(session,k)) session[k] += 1;
+  return res.json({ ok:true, session });
+});
+
+module.exports = r;
+
+(Optional) In places where you want the dashboard to reflect activity, POST to /diagnostics/incr with {key:"ttsClientUtterances"} or "profilesLearned" or "checkpointsMade" after those actions succeed.
+
+⸻
+
+2) Client: Diagnostics panel (polls every 3s)
+
+Add file: client/diagnostics.js
+
+(function(){
+  const el = id => document.getElementById(id);
+  async function fetchDiag(){
+    try{
+      const r = await fetch('/diagnostics'); const j = await r.json();
+      if(!j.ok) throw new Error('diag not ok');
+      el('diagUptime').textContent = j.env.uptime_s + 's';
+      el('diagNode').textContent = j.env.node;
+      el('diagCPU').textContent = (j.cpuLoad||0).toFixed(2);
+      el('diagMem').textContent = Math.round((j.mem.rss||0)/1048576) + ' MB';
+      el('diagLoop').textContent = (j.loop.lag_ms||0).toFixed(1)+' ms';
+      el('diagFF').textContent = j.ffmpeg;
+      const routes = j.routes||{};
+      el('diagRClient').textContent = routes.client?.enabled ? 'on' : 'off';
+      el('diagRLocal').textContent = routes.local_neural?.enabled ? 'on' : 'off';
+      el('diagRE11').textContent = routes.elevenlabs?.enabled ? 'on' : 'off';
+      el('diagRAzure').textContent = routes.azure?.enabled ? 'on' : 'off';
+      el('diagPing').textContent = (j.selfPing?.ms ?? 0) + ' ms';
+      el('diagSess').textContent = JSON.stringify(j.session||{}, null, 0);
+    }catch(e){ /* silent */ }
+  }
+  setInterval(fetchDiag, 3000);
+  window.addEventListener('load', fetchDiag);
+})();
+
+Patch into: client/index.html
+Add this card above the closing </main> (just before scripts):
+
+  <div class="card">
+    <label>Diagnostics</label>
+    <div class="row" style="gap:18px">
+      <div class="badge">uptime: <span id="diagUptime">—</span></div>
+      <div class="badge">node: <span id="diagNode">—</span></div>
+      <div class="badge">cpu(1m): <span id="diagCPU">—</span></div>
+      <div class="badge">mem(rss): <span id="diagMem">—</span></div>
+      <div class="badge">loop lag: <span id="diagLoop">—</span></div>
+      <div class="badge">ffmpeg: <span id="diagFF">—</span></div>
+      <div class="badge">ping: <span id="diagPing">—</span></div>
+    </div>
+    <div class="row">
+      <div class="badge">route: client=<span id="diagRClient">—</span></div>
+      <div class="badge">local_neural=<span id="diagRLocal">—</span></div>
+      <div class="badge">elevenlabs=<span id="diagRE11">—</span></div>
+      <div class="badge">azure=<span id="diagRAzure">—</span></div>
+    </div>
+    <p class="small">session: <span id="diagSess">—</span></p>
+  </div>
+
+Include script: add one line with the others at the bottom:
+
+<script src="diagnostics.js"></script>
+
+
+⸻
+
+3) (Optional) Increment session counters
+	•	After successful client speak, add:
+
+fetch('/diagnostics/incr',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'ttsClientUtterances'})}).catch(()=>{});
+
+(Place at the end of speak() in client/app.js.)
+
+	•	After a successful profile learn in app.js:
+
+fetch('/diagnostics/incr',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'profilesLearned'})}).catch(()=>{});
+
+
+	•	After a successful checkpoint (where you call it), similarly increment checkpointsMade.
+
+⸻
+
+What this delivers now
+	•	Live system truth: uptime, Node version, CPU 1m load, memory RSS, event-loop lag.
+	•	Route health view: shows which TTS routes are enabled (client on; others pending).
+	•	Self-ping: quick responsiveness check of the server.
+	•	Session analytics: rough counts you can display and reset on restart.
+
+⸻
+
+Next choices (your call)
+	1.	Enhanced Voice Routes
+	•	Add Audio Export (client-side MediaRecorder on TTS playback)
+	•	Switchable ElevenLabs/Azure routes behind keys
+	2.	Advanced Audio Analysis
+	•	Replace hand-rolled features with librosa-like metrics (Node alternatives)
+	•	Stronger accent detection + confidence scores
+
+Say the word and I’ll drop in the Audio Export + route toggles next, or start the librosa-grade analysis path.

@@ -153,12 +153,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
           break;
           
         case "elevenlabs":
-          // TODO: Implement ElevenLabs integration
           const elevenLabsKey = process.env.ELEVENLABS_API_KEY;
           if (!elevenLabsKey) {
             return res.status(501).json({ error: "ElevenLabs API key not configured" });
           }
-          res.status(501).json({ error: "ElevenLabs integration not implemented" });
+          
+          try {
+            // Dynamic import to handle potential missing dependency
+            const { ElevenLabsClient } = await import("./utils/elevenLabs.js");
+            const client = new ElevenLabsClient(elevenLabsKey);
+            
+            const audioBuffer = await client.synthesize({
+              text,
+              voice_settings: voiceProfile ? {
+                stability: 0.75,
+                similarity_boost: 0.8,
+                style: 0.2,
+                use_speaker_boost: true
+              } : undefined
+            });
+
+            res.set({
+              'Content-Type': 'audio/mpeg',
+              'Content-Length': audioBuffer.length,
+              'Content-Disposition': 'inline; filename="speech.mp3"'
+            });
+            
+            res.send(audioBuffer);
+          } catch (error) {
+            console.error("ElevenLabs synthesis error:", error);
+            res.status(500).json({ error: "ElevenLabs synthesis failed" });
+          }
           break;
           
         case "azure":

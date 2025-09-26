@@ -24,6 +24,8 @@ export default function HolographicInterface() {
     updateSize, 
     updateSpeed, 
     updateWander,
+    updatePosition,
+    position,
     isRunning 
   } = useHologram(canvasRef);
 
@@ -57,7 +59,52 @@ export default function HolographicInterface() {
   };
 
   return (
-    <Card>
+    <>
+      {/* Floating Hologram - appears when wandering is enabled */}
+      {isVisible && wander && (
+        <div 
+          className="fixed z-50 pointer-events-none"
+          style={{ 
+            left: `${position.x}px`, 
+            top: `${position.y}px`,
+            width: `${size[0]}px`,
+            height: `${size[0]}px`
+          }}
+          data-testid="floating-hologram"
+        >
+          <div className={`hologram-canvas ${
+            mode === "awakened" ? "hologram-awakened" : "hologram-sentinel"
+          } flex items-center justify-center transition-all duration-500 relative`}
+          style={{ width: `${size[0]}px`, height: `${size[0]}px` }}>
+            
+            {/* Floating Canvas */}
+            <canvas 
+              ref={canvasRef}
+              width={size[0]} 
+              height={size[0]}
+              className="absolute inset-0"
+              data-testid="canvas-hologram-floating"
+            />
+            
+            {/* Floating Particles */}
+            <div className="particle" style={{ top: '20%', left: '30%', animationDelay: '0s' }}></div>
+            <div className="particle" style={{ top: '60%', left: '70%', animationDelay: '1s' }}></div>
+            <div className="particle" style={{ top: '40%', left: '20%', animationDelay: '2s' }}></div>
+            <div className="particle" style={{ top: '80%', left: '50%', animationDelay: '1.5s' }}></div>
+            
+            {/* Floating Central core */}
+            <div className="w-12 h-12 rounded-full bg-gradient-to-r from-accent to-primary animate-hologram-pulse"></div>
+            
+            {/* Floating Status Chip */}
+            <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-muted/80 rounded-full text-xs backdrop-blur-sm">
+              <span className={`inline-block w-2 h-2 rounded-full mr-2 ${isRunning ? 'bg-green-400' : 'bg-red-400'}`}></span>
+              {mode === "awakened" ? "CHANGO • ONLINE" : "SENTINEL • OFFLINE"}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Holographic Interface</CardTitle>
@@ -172,5 +219,6 @@ export default function HolographicInterface() {
         </div>
       </CardContent>
     </Card>
+    </>
   );
 }

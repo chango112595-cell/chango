@@ -6,6 +6,8 @@ interface HologramState {
   size: number;
   speed: number;
   wander: boolean;
+  position: { x: number; y: number };
+  velocity: { x: number; y: number };
 }
 
 export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
@@ -15,9 +17,12 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     size: 200,
     speed: 50,
     wander: false,
+    position: { x: window.innerWidth - 320, y: window.innerHeight - 320 },
+    velocity: { x: 0, y: 0 },
   });
 
   const animationRef = useRef<number>(0);
+  const lastUpdateRef = useRef<number>(Date.now());
   const particlesRef = useRef<Array<{
     x: number;
     y: number;
@@ -136,6 +141,64 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     
   }, [state]);
 
+  const updateWanderingMovement = useCallback(() => {
+    if (!state.wander) return;
+
+    const now = Date.now();
+    const deltaTime = (now - lastUpdateRef.current) / 1000; // Convert to seconds
+    lastUpdateRef.current = now;
+
+    setState(prev => {
+      const { position, velocity } = prev;
+      
+      // Add some randomness to velocity
+      const maxSpeed = 30; // pixels per second
+      const acceleration = 15; // pixels per second squared
+      
+      // Add random acceleration
+      const newVelX = velocity.x + (Math.random() - 0.5) * acceleration * deltaTime;
+      const newVelY = velocity.y + (Math.random() - 0.5) * acceleration * deltaTime;
+      
+      // Limit velocity
+      const limitedVelX = Math.max(-maxSpeed, Math.min(maxSpeed, newVelX));
+      const limitedVelY = Math.max(-maxSpeed, Math.min(maxSpeed, newVelY));
+      
+      // Update position
+      let newX = position.x + limitedVelX * deltaTime;
+      let newY = position.y + limitedVelY * deltaTime;
+      
+      // Bounce off screen edges
+      const margin = 50;
+      const maxX = window.innerWidth - prev.size - margin;
+      const maxY = window.innerHeight - prev.size - margin;
+      
+      let bounceVelX = limitedVelX;
+      let bounceVelY = limitedVelY;
+      
+      if (newX < margin) {
+        newX = margin;
+        bounceVelX = Math.abs(limitedVelX);
+      } else if (newX > maxX) {
+        newX = maxX;
+        bounceVelX = -Math.abs(limitedVelX);
+      }
+      
+      if (newY < margin) {
+        newY = margin;
+        bounceVelY = Math.abs(limitedVelY);
+      } else if (newY > maxY) {
+        newY = maxY;
+        bounceVelY = -Math.abs(limitedVelY);
+      }
+      
+      return {
+        ...prev,
+        position: { x: newX, y: newY },
+        velocity: { x: bounceVelX, y: bounceVelY }
+      };
+    });
+  }, [state.wander]);
+
   const animate = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !state.isRunning) return;
@@ -143,11 +206,14 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
+    // Update wandering movement
+    updateWanderingMovement();
+    
     const time = Date.now();
     drawHologram(ctx, time);
     
     animationRef.current = requestAnimationFrame(animate);
-  }, [state.isRunning, drawHologram, canvasRef]);
+  }, [state.isRunning, drawHologram, canvasRef, updateWanderingMovement]);
 
   const initializeHologram = useCallback(() => {
     initializeParticles();
@@ -180,6 +246,14 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     setState(prev => ({ ...prev, wander }));
   }, []);
 
+  const updatePosition = useCallback((x: number, y: number) => {
+    setState(prev => ({ 
+      ...prev, 
+      position: { x, y },
+      velocity: { x: 0, y: 0 } // Reset velocity when manually positioning
+    }));
+  }, []);
+
   // Start/stop animation based on isRunning state
   useEffect(() => {
     if (state.isRunning) {
@@ -199,5 +273,6 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     updateSize,
     updateSpeed,
     updateWander,
+    updatePosition,
   };
 }

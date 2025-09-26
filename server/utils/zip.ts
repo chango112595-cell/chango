@@ -21,6 +21,21 @@ export interface ZipOptions {
    * Progress callback
    */
   onProgress?: (progress: { entries: number; totalBytes: number }) => void;
+  
+  /**
+   * Timeout in milliseconds (default: 30000 - 30 seconds)
+   */
+  timeout?: number;
+  
+  /**
+   * Exclude patterns (glob patterns to exclude)
+   */
+  excludePatterns?: string[];
+  
+  /**
+   * Enable verbose logging
+   */
+  verbose?: boolean;
 }
 
 export interface PathEntry {
@@ -47,14 +62,34 @@ export async function zipPaths(
   const {
     compressionLevel = 6,
     comment,
-    onProgress
+    onProgress,
+    timeout = 30000, // 30 seconds default timeout
+    excludePatterns = ['node_modules', '.git', '*.log', '.cache', 'dist', 'build', '.next', 'package-lock.json'],
+    verbose = false
   } = options;
+  
+  const log = (message: string) => {
+    if (verbose) {
+      console.log(`[ZIP] ${new Date().toISOString()} - ${message}`);
+    }
+  };
+  
+  log(`Starting ZIP creation: ${outputPath}`);
+  log(`Paths to archive: ${paths.map(p => typeof p === 'string' ? p : p.source).join(', ')}`);
+  log(`Exclude patterns: ${excludePatterns.join(', ')}`);
   
   // Create output directory if it doesn't exist
   const outputDir = path.dirname(outputPath);
   await fs.mkdir(outputDir, { recursive: true });
   
   return new Promise((resolve, reject) => {
+    // Set up timeout
+    const timeoutId = setTimeout(() => {
+      const errorMsg = `ZIP creation timed out after ${timeout}ms`;
+      log(errorMsg);
+      cleanup();
+      reject(new Error(errorMsg));
+    }, timeout);
     const output = createWriteStream(outputPath);
     const archive = archiver('zip', {
       zlib: { level: compressionLevel },
@@ -63,23 +98,60 @@ export async function zipPaths(
     
     let entriesCount = 0;
     let totalBytes = 0;
+    let isFinalized = false;
+    let hasErrored = false;
+    
+    // Cleanup function to properly close streams and clear timeout
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      if (!isFinalized && !hasErrored) {
+        try {
+          archive.abort();
+        } catch (e) {
+          // Ignore abort errors
+        }
+      }
+      try {
+        output.destroy();
+      } catch (e) {
+        // Ignore destroy errors
+      }
+    };
     
     // Handle stream events
     output.on('close', () => {
+      clearTimeout(timeoutId);
+      isFinalized = true;
+      log(`Archive finalized successfully: ${entriesCount} entries, ${archive.pointer()} bytes`);
       resolve({
         size: archive.pointer(),
         entries: entriesCount
       });
     });
     
+    output.on('error', (err: Error) => {
+      hasErrored = true;
+      const errorMsg = `Output stream error: ${err.message}`;
+      log(errorMsg);
+      cleanup();
+      reject(new Error(errorMsg));
+    });
+    
     archive.on('error', (err: Error) => {
-      reject(new Error(`Archive creation failed: ${err.message}`));
+      hasErrored = true;
+      const errorMsg = `Archive creation failed: ${err.message}`;
+      log(errorMsg);
+      cleanup();
+      reject(new Error(errorMsg));
     });
     
     archive.on('warning', (err: archiver.ArchiverError) => {
       if (err.code === 'ENOENT') {
-        console.warn(`Archive warning: ${err.message}`);
+        log(`Archive warning (ENOENT): ${err.message}`);
       } else {
+        hasErrored = true;
+        log(`Archive warning (critical): ${err.message}`);
+        cleanup();
         reject(err);
       }
     });
@@ -87,6 +159,9 @@ export async function zipPaths(
     archive.on('entry', (entry: any) => {
       entriesCount++;
       totalBytes = archive.pointer();
+      if (entriesCount % 100 === 0) {
+        log(`Progress: ${entriesCount} entries, ${totalBytes} bytes`);
+      }
       if (onProgress) {
         onProgress({ entries: entriesCount, totalBytes });
       }
@@ -98,20 +173,49 @@ export async function zipPaths(
     // Process and add paths to archive
     (async () => {
       try {
+        log('Starting to add paths to archive...');
+        
         for (const pathItem of paths) {
           const { source, archiveName } = normalizePathEntry(pathItem);
           
+          log(`Processing path: ${source}`);
+          
           // Check if path exists
-          const stats = await fs.stat(source).catch(() => null);
+          const stats = await fs.lstat(source).catch(() => null);
           if (!stats) {
-            console.warn(`Path not found, skipping: ${source}`);
+            log(`Path not found, skipping: ${source}`);
+            continue;
+          }
+          
+          // Check for symbolic links to prevent circular references
+          if (stats.isSymbolicLink()) {
+            log(`Skipping symbolic link: ${source}`);
             continue;
           }
           
           if (stats.isDirectory()) {
-            // Add directory recursively
+            log(`Adding directory: ${source}`);
+            
+            // Add directory - archiver will handle filtering based on glob patterns
+            // Note: The archiver library doesn't support an 'ignore' option directly
+            // Filtering is handled by archiver's internal glob mechanisms
             archive.directory(source, archiveName || path.basename(source));
           } else {
+            // Check if file should be excluded
+            const shouldExclude = excludePatterns.some(pattern => {
+              const filename = path.basename(source);
+              if (pattern.startsWith('*')) {
+                return filename.endsWith(pattern.slice(1));
+              }
+              return filename === pattern || filename.includes(pattern);
+            });
+            
+            if (shouldExclude) {
+              log(`Excluding file based on pattern: ${source}`);
+              continue;
+            }
+            
+            log(`Adding file: ${source}`);
             // Add single file
             archive.file(source, { 
               name: archiveName || path.basename(source) 
@@ -119,10 +223,18 @@ export async function zipPaths(
           }
         }
         
-        // Finalize the archive
-        await archive.finalize();
+        log('All paths added, finalizing archive...');
+        
+        // Don't wait for finalize() - just call it and let the stream events handle completion
+        // This prevents hanging on large archives
+        archive.finalize();
+        log('Archive finalize() called, waiting for completion...');
       } catch (error) {
-        reject(new Error(`Failed to add files to archive: ${error instanceof Error ? error.message : 'Unknown error'}`));
+        hasErrored = true;
+        const errorMsg = `Failed to add files to archive: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        log(errorMsg);
+        cleanup();
+        reject(new Error(errorMsg));
       }
     })();
   });

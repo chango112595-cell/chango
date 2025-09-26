@@ -34,8 +34,8 @@ const ttsRequestSchema = z.object({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Health check endpoint
-  app.get("/", async (req, res) => {
+  // Health check endpoint (moved from "/" to "/api/health" to allow frontend serving at root)
+  app.get("/api/health", async (req, res) => {
     try {
       res.json({ ok: true, service: "ChangoAI unified shim" });
     } catch (error) {
@@ -87,85 +87,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Mount voice profile learning/analysis routes
-  app.use("/api/voice_profile", voiceProfileRouter);
-
-  // Voice Profile routes
-  app.get("/api/voice-profiles", async (req, res) => {
-    try {
-      const profiles = await storage.getAllVoiceProfiles();
-      res.json({ profiles });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch voice profiles" });
-    }
-  });
-
-  app.get("/api/voice-profiles/:id", async (req, res) => {
-    try {
-      const profile = await storage.getVoiceProfile(req.params.id);
-      if (!profile) {
-        return res.status(404).json({ error: "Voice profile not found" });
-      }
-      res.json({ profile });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch voice profile" });
-    }
-  });
-
-  app.post("/api/voice-profiles", upload.single("audio"), async (req, res) => {
-    try {
-      const profileData = insertVoiceProfileSchema.parse(req.body);
-      
-      // If audio file is provided, analyze it
-      if (req.file) {
-        // TODO: Implement audio analysis with librosa
-        // For now, store basic info
-        profileData.audioFeatures = {
-          originalFormat: req.file.mimetype,
-          size: req.file.size,
-          analysisTimestamp: new Date().toISOString()
-        };
-      }
-
-      const profile = await storage.createVoiceProfile(profileData);
-      res.json({ profile });
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid profile data", details: error.errors });
-      }
-      res.status(500).json({ error: "Failed to create voice profile" });
-    }
-  });
-
-  app.put("/api/voice-profiles/:id", async (req, res) => {
-    try {
-      const updates = insertVoiceProfileSchema.partial().parse(req.body);
-      const profile = await storage.updateVoiceProfile(req.params.id, updates);
-      
-      if (!profile) {
-        return res.status(404).json({ error: "Voice profile not found" });
-      }
-      
-      res.json({ profile });
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid profile data", details: error.errors });
-      }
-      res.status(500).json({ error: "Failed to update voice profile" });
-    }
-  });
-
-  app.delete("/api/voice-profiles/:id", async (req, res) => {
-    try {
-      const deleted = await storage.deleteVoiceProfile(req.params.id);
-      if (!deleted) {
-        return res.status(404).json({ error: "Voice profile not found" });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to delete voice profile" });
-    }
-  });
+  // Mount consolidated voice profile routes
+  // This handles all voice profile operations: learning, listing, and retrieval
+  app.use("/api/voice-profiles", voiceProfileRouter);
 
   // System Settings routes
   app.get("/api/settings", async (req, res) => {
@@ -323,6 +247,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Checkpoint/Backup endpoints
   app.post("/api/checkpoint", async (req, res) => {
     try {
+      console.log('[CHECKPOINT] Starting checkpoint creation');
+      
       // Ensure the checkpoints directory exists
       await ensureDirs();
       
@@ -334,23 +260,90 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const filename = `ChangoAI_checkpoint_${timestamp}.zip`;
       const outputPath = path.join(CHECKPOINTS, filename);
       
+      console.log('[CHECKPOINT] Output file:', filename);
+      
       // Define paths to include in the backup
-      const pathsToBackup = [
+      const pathsToConsider = [
         'client',
         'server', 
-        'data',
-        'logs',
-        'replit.md'
+        'data/profiles',     // Only include profiles subdirectory
+        'data/logs',         // Only include logs subdirectory
+        'data/accents_log.jsonl', // Include the accents log file
+        'shared',
+        'types',
+        'replit.md',
+        'package.json',
+        'tsconfig.json',
+        'vite.config.ts',
+        'tailwind.config.ts',
+        'postcss.config.js',
+        'components.json',
+        'drizzle.config.ts'
       ];
       
-      // Create the ZIP archive
-      await zipPaths(outputPath, pathsToBackup);
+      // Filter to only include existing paths
+      const pathsToBackup: string[] = [];
+      for (const p of pathsToConsider) {
+        try {
+          await fs.stat(p);
+          pathsToBackup.push(p);
+          console.log(`[CHECKPOINT] Including path: ${p}`);
+        } catch (err) {
+          console.log(`[CHECKPOINT] Path not found, skipping: ${p}`);
+        }
+      }
       
-      res.json({ ok: true, checkpoint: filename });
+      if (pathsToBackup.length === 0) {
+        throw new Error('No valid paths found to backup');
+      }
+      
+      console.log(`[CHECKPOINT] Creating archive with ${pathsToBackup.length} paths...`);
+      
+      // Create the ZIP archive with timeout and progress logging
+      const result = await zipPaths(outputPath, pathsToBackup, {
+        timeout: 15000, // 15 second timeout
+        compressionLevel: 0, // Use store-only mode (no compression) for speed
+        verbose: true, // Enable verbose logging
+        excludePatterns: [
+          'node_modules',
+          '.git',
+          '.next',
+          '.cache',
+          'dist',
+          'build',
+          '*.log',
+          '.DS_Store',
+          'temp',
+          'tmp',
+          '*.zip',
+          'package-lock.json',
+          '.env*',
+          '*.tmp'
+        ],
+        onProgress: (progress) => {
+          if (progress.entries % 50 === 0) {
+            console.log(`[CHECKPOINT] Progress: ${progress.entries} entries, ${Math.round(progress.totalBytes / 1024)} KB`);
+          }
+        }
+      });
+      
+      console.log(`[CHECKPOINT] Archive created successfully: ${result.entries} entries, ${Math.round(result.size / 1024)} KB`);
+      
+      res.json({ ok: true, checkpoint: filename, entries: result.entries, size: result.size });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      console.error('Checkpoint creation failed:', errorMessage);
-      res.status(500).json({ ok: false, error: errorMessage });
+      console.error('[CHECKPOINT] Checkpoint creation failed:', errorMessage);
+      
+      // If it's a timeout error, return a specific message
+      if (errorMessage.includes('timed out')) {
+        res.status(504).json({ 
+          ok: false, 
+          error: 'Checkpoint creation timed out. The archive may be too large.',
+          suggestion: 'Try again with fewer files or contact support.'
+        });
+      } else {
+        res.status(500).json({ ok: false, error: errorMessage });
+      }
     }
   });
 

@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { VoiceProfile } from "@shared/schema";
+import { trackProfileLearned } from "@/lib/sessionTracking";
 
 export default function VoiceScanner() {
   const [profileName, setProfileName] = useState("");
@@ -59,6 +60,8 @@ export default function VoiceScanner() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/voice-profiles"] });
       setProfileName("");
+      // Track profile learning for session analytics
+      trackProfileLearned();
       toast({
         title: "Voice Profile Saved",
         description: `Profile "${profileName}" has been analyzed and saved successfully.`,

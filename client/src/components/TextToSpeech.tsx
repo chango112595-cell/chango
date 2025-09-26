@@ -6,6 +6,7 @@ import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { trackTtsUtterance } from "@/lib/sessionTracking";
 
 export default function TextToSpeech() {
   const [text, setText] = useState("Hello, I'm Chango AI. I can synthesize speech with multiple accents and voices.");
@@ -44,6 +45,8 @@ export default function TextToSpeech() {
   const handleSpeak = () => {
     if (text.trim()) {
       speak(text.trim());
+      // Track TTS usage for session analytics
+      trackTtsUtterance();
     }
   };
 

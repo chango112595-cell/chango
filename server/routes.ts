@@ -7,7 +7,9 @@ import { z } from "zod";
 import * as os from "os";
 import { spawnSync } from "child_process";
 import { appendJSONL } from "./utils/jsonl";
-import { ensureDirs } from "./utils/paths";
+import { ensureDirs, CHECKPOINTS } from "./utils/paths";
+import { zipPaths } from "./utils/zip";
+import { promises as fs } from "fs";
 import path from "path";
 
 // Configure multer for audio file uploads
@@ -310,6 +312,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ ok: true });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      res.status(500).json({ ok: false, error: errorMessage });
+    }
+  });
+
+  // Checkpoint/Backup endpoints
+  app.post("/api/checkpoint", async (req, res) => {
+    try {
+      // Ensure the checkpoints directory exists
+      await ensureDirs();
+      
+      // Generate timestamp-based filename
+      const now = new Date();
+      const timestamp = now.toISOString()
+        .replace(/:/g, '-')  // Replace colons with hyphens
+        .replace(/\./g, '-'); // Replace dots with hyphens
+      const filename = `ChangoAI_checkpoint_${timestamp}.zip`;
+      const outputPath = path.join(CHECKPOINTS, filename);
+      
+      // Define paths to include in the backup
+      const pathsToBackup = [
+        'client',
+        'server', 
+        'data',
+        'logs',
+        'replit.md'
+      ];
+      
+      // Create the ZIP archive
+      await zipPaths(outputPath, pathsToBackup);
+      
+      res.json({ ok: true, checkpoint: filename });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      console.error('Checkpoint creation failed:', errorMessage);
+      res.status(500).json({ ok: false, error: errorMessage });
+    }
+  });
+
+  app.get("/api/checkpoint/latest", async (req, res) => {
+    try {
+      // Ensure the checkpoints directory exists
+      await ensureDirs();
+      
+      // Read all files in the checkpoints directory
+      const files = await fs.readdir(CHECKPOINTS);
+      
+      // Filter for ZIP files that match our naming pattern
+      const checkpointFiles = files.filter(file => 
+        file.startsWith('ChangoAI_checkpoint_') && file.endsWith('.zip')
+      );
+      
+      // If no checkpoints exist, return 404
+      if (checkpointFiles.length === 0) {
+        return res.status(404).json({ ok: false, error: 'no checkpoints yet' });
+      }
+      
+      // Sort files by name (which includes timestamp) to get the latest
+      checkpointFiles.sort((a, b) => b.localeCompare(a));
+      const latestCheckpoint = checkpointFiles[0];
+      const checkpointPath = path.join(CHECKPOINTS, latestCheckpoint);
+      
+      // Send the file as a download
+      res.download(checkpointPath, latestCheckpoint, (err) => {
+        if (err) {
+          console.error('Error sending checkpoint file:', err);
+          if (!res.headersSent) {
+            res.status(500).json({ ok: false, error: 'Failed to download checkpoint' });
+          }
+        }
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      console.error('Failed to retrieve latest checkpoint:', errorMessage);
       res.status(500).json({ ok: false, error: errorMessage });
     }
   });

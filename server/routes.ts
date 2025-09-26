@@ -152,7 +152,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // TTS routes
+  // TTS routes - JSON responses for testing/status
   app.post("/api/tts/synthesize", async (req, res) => {
     try {
       const { text, voiceProfileId, route = "client" } = ttsRequestSchema.parse(req.body);
@@ -166,11 +166,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
       switch (route) {
         case "client":
           // Client-side synthesis, just return success
-          res.json({ success: true, message: "Use client-side synthesis" });
+          res.json({ success: true, message: "Use client-side synthesis", route });
           break;
           
         case "local_neural":
-          // TODO: Implement local neural TTS
+          res.status(501).json({ error: "Local neural TTS not implemented", route });
+          break;
+          
+        case "elevenlabs":
+          const elevenLabsKey = process.env.ELEVENLABS_API_KEY;
+          if (!elevenLabsKey) {
+            return res.status(501).json({ error: "ElevenLabs API key not configured", route });
+          }
+          
+          try {
+            const { ElevenLabsClient } = await import("./utils/elevenLabs.js");
+            const client = new ElevenLabsClient(elevenLabsKey);
+            
+            // Test connection by getting user info
+            await client.getUserInfo();
+            res.json({ success: true, message: "ElevenLabs route is ready", route });
+          } catch (error) {
+            console.error("ElevenLabs test error:", error);
+            res.status(500).json({ error: "ElevenLabs route test failed", route });
+          }
+          break;
+          
+        case "azure":
+          const azureKey = process.env.AZURE_TTS_KEY;
+          const azureRegion = process.env.AZURE_TTS_REGION;
+          if (!azureKey || !azureRegion) {
+            return res.status(501).json({ error: "Azure TTS credentials not configured", route });
+          }
+          
+          try {
+            const { AzureTTSClient } = await import("./utils/azureTTS.js");
+            const client = new AzureTTSClient(azureKey, azureRegion);
+            
+            // Test connection by getting access token
+            await client.getAccessToken();
+            res.json({ success: true, message: "Azure TTS route is ready", route });
+          } catch (error) {
+            console.error("Azure TTS test error:", error);
+            res.status(500).json({ error: "Azure TTS route test failed", route });
+          }
+          break;
+          
+        default:
+          res.status(400).json({ error: "Invalid TTS route" });
+      }
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid TTS request", details: error.errors });
+      }
+      res.status(500).json({ error: "TTS synthesis failed" });
+    }
+  });
+
+  // Audio synthesis endpoint - returns binary audio
+  app.post("/api/tts/audio", async (req, res) => {
+    try {
+      const { text, voiceProfileId, route = "client" } = ttsRequestSchema.parse(req.body);
+      
+      // Get voice profile if specified
+      let voiceProfile = null;
+      if (voiceProfileId) {
+        voiceProfile = await storage.getVoiceProfile(voiceProfileId);
+      }
+
+      switch (route) {
+        case "client":
+          res.status(400).json({ error: "Client route does not support server-side audio generation" });
+          break;
+          
+        case "local_neural":
           res.status(501).json({ error: "Local neural TTS not implemented" });
           break;
           
@@ -181,7 +250,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           
           try {
-            // Dynamic import to handle potential missing dependency
             const { ElevenLabsClient } = await import("./utils/elevenLabs.js");
             const client = new ElevenLabsClient(elevenLabsKey);
             
@@ -216,7 +284,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           
           try {
-            // Dynamic import to handle potential missing dependency
             const { AzureTTSClient } = await import("./utils/azureTTS.js");
             const client = new AzureTTSClient(azureKey, azureRegion);
             
@@ -246,7 +313,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid TTS request", details: error.errors });
       }
-      res.status(500).json({ error: "TTS synthesis failed" });
+      res.status(500).json({ error: "TTS audio synthesis failed" });
     }
   });
 

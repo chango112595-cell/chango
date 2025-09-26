@@ -4,6 +4,9 @@ import { storage } from "./storage";
 import { insertVoiceProfileSchema, insertSystemSettingsSchema, insertCuriosityLogSchema } from "@shared/schema";
 import multer from "multer";
 import { z } from "zod";
+import os from "os";
+import { spawnSync } from "child_process";
+import { getLag, sessionCounters, incrementCounter } from "./utils/lag.js";
 
 // Configure multer for audio file uploads
 const upload = multer({
@@ -228,6 +231,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid log data", details: error.errors });
       }
       res.status(500).json({ error: "Failed to add curiosity log" });
+    }
+  });
+
+  // System Diagnostics routes
+  app.get("/api/diagnostics", async (req, res) => {
+    try {
+      // Check ffmpeg availability
+      let ffmpegAvailable = false;
+      try {
+        ffmpegAvailable = spawnSync('ffmpeg', ['-version']).status === 0;
+      } catch {
+        // ffmpeg not available
+      }
+
+      // System stats
+      const cpuLoad = os.loadavg()[0];
+      const mem = { 
+        free: os.freemem(), 
+        total: os.totalmem(), 
+        rss: process.memoryUsage().rss 
+      };
+      const env = { 
+        node: process.version, 
+        pid: process.pid, 
+        uptime_s: Math.floor(process.uptime()) 
+      };
+      const loop = { lag_ms: getLag() };
+
+      // TTS route status
+      const routes = {
+        client: { enabled: true, healthy: true, note: 'WebSpeech (browser)' },
+        local_neural: { enabled: false, healthy: false, note: 'planned' },
+        elevenlabs: { 
+          enabled: !!process.env.ELEVENLABS_API_KEY, 
+          healthy: false, 
+          note: process.env.ELEVENLABS_API_KEY ? 'stub' : 'no key' 
+        },
+        azure: { 
+          enabled: !!(process.env.AZURE_TTS_KEY && process.env.AZURE_TTS_REGION), 
+          healthy: false, 
+          note: (process.env.AZURE_TTS_KEY && process.env.AZURE_TTS_REGION) ? 'stub' : 'no key' 
+        }
+      };
+
+      // Self-ping for responsiveness check
+      let selfPing = { ok: true, ms: 0 };
+      try {
+        const startTime = Date.now();
+        const protocol = req.secure ? 'https' : 'http';
+        const host = req.get('host') || 'localhost';
+        await fetch(`${protocol}://${host}/api/diagnostics/ping`);
+        selfPing = { ok: true, ms: Date.now() - startTime };
+      } catch {
+        selfPing = { ok: false, ms: 0 };
+      }
+
+      res.json({
+        ok: true,
+        env,
+        cpuLoad,
+        mem,
+        loop,
+        ffmpeg: ffmpegAvailable ? 'available' : 'missing',
+        routes,
+        selfPing,
+        session: sessionCounters
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get diagnostics" });
+    }
+  });
+
+  // Simple ping endpoint for self-diagnostics
+  app.get("/api/diagnostics/ping", (req, res) => {
+    res.json({ ok: true, timestamp: Date.now() });
+  });
+
+  // Session counter increment endpoint
+  app.post("/api/diagnostics/incr", (req, res) => {
+    try {
+      const { key } = z.object({ key: z.string() }).parse(req.body);
+      if (key && key in sessionCounters && key !== 'start') {
+        incrementCounter(key as keyof typeof sessionCounters);
+      }
+      res.json({ ok: true, session: sessionCounters });
+    } catch {
+      res.status(400).json({ error: "Invalid increment request" });
     }
   });
 

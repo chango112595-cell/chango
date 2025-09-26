@@ -55,15 +55,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const profileData = insertVoiceProfileSchema.parse(req.body);
       
-      // If audio file is provided, analyze it
+      // If audio file is provided, analyze it with OpenAI
       if (req.file) {
-        // TODO: Implement audio analysis with librosa
-        // For now, store basic info
-        profileData.audioFeatures = {
-          originalFormat: req.file.mimetype,
-          size: req.file.size,
-          analysisTimestamp: new Date().toISOString()
-        };
+        try {
+          // Use OpenAI for advanced audio analysis
+          const { OpenAIAudioAnalyzer } = await import("./utils/openaiAudio.js");
+          const analyzer = new OpenAIAudioAnalyzer();
+          
+          const voiceProfile = await analyzer.generateVoiceProfile(req.file.buffer);
+          
+          // Merge AI analysis with provided data
+          profileData.audioFeatures = {
+            ...voiceProfile.audioFeatures,
+            originalFormat: req.file.mimetype,
+            size: req.file.size,
+          };
+          
+          // Update accent type from AI analysis if not provided
+          if (!profileData.accentType || profileData.accentType === 'custom') {
+            profileData.accentType = voiceProfile.accentType;
+          }
+          
+        } catch (error) {
+          console.error("OpenAI audio analysis error:", error);
+          // Fallback to basic analysis
+          profileData.audioFeatures = {
+            originalFormat: req.file.mimetype,
+            size: req.file.size,
+            analysisTimestamp: new Date().toISOString(),
+            analysisError: "AI analysis failed, using basic profile"
+          };
+        }
       }
 
       const profile = await storage.createVoiceProfile(profileData);
@@ -187,13 +209,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
           break;
           
         case "azure":
-          // TODO: Implement Azure TTS integration
           const azureKey = process.env.AZURE_TTS_KEY;
           const azureRegion = process.env.AZURE_TTS_REGION;
           if (!azureKey || !azureRegion) {
             return res.status(501).json({ error: "Azure TTS credentials not configured" });
           }
-          res.status(501).json({ error: "Azure TTS integration not implemented" });
+          
+          try {
+            // Dynamic import to handle potential missing dependency
+            const { AzureTTSClient } = await import("./utils/azureTTS.js");
+            const client = new AzureTTSClient(azureKey, azureRegion);
+            
+            const audioBuffer = await client.synthesize({
+              text,
+              voice: voiceProfile ? 'en-US-JennyNeural' : 'en-US-AriaNeural',
+              rate: voiceProfile ? '+10%' : '0%'
+            });
+
+            res.set({
+              'Content-Type': 'audio/mpeg',
+              'Content-Length': audioBuffer.length,
+              'Content-Disposition': 'inline; filename="speech.mp3"'
+            });
+            
+            res.send(audioBuffer);
+          } catch (error) {
+            console.error("Azure TTS synthesis error:", error);
+            res.status(500).json({ error: "Azure TTS synthesis failed" });
+          }
           break;
           
         default:
@@ -214,22 +257,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No audio file provided" });
       }
 
-      // TODO: Implement audio analysis with librosa
-      // For now, return mock analysis
-      const analysis = {
-        duration: 0,
-        sampleRate: 44100,
-        channels: 1,
-        pitchMean: 0,
-        pitchStd: 0,
-        energyMean: 0,
-        spectralCentroid: 0,
-        mfcc: [],
-        detectedAccent: "neutral",
-        confidence: 0.85
-      };
+      try {
+        // Use OpenAI for advanced audio analysis
+        const { OpenAIAudioAnalyzer } = await import("./utils/openaiAudio.js");
+        const analyzer = new OpenAIAudioAnalyzer();
+        
+        const voiceAnalysis = await analyzer.analyzeVoiceCharacteristics(req.file.buffer);
+        const transcriptionResult = await analyzer.transcribeAudio(req.file.buffer);
+        
+        const analysis = {
+          duration: transcriptionResult.duration,
+          transcription: transcriptionResult.text,
+          sampleRate: 44100,
+          channels: 1,
+          pitchMean: voiceAnalysis.characteristics.pitch * 200 + 100, // Convert to Hz estimate
+          pitchStd: 15,
+          energyMean: voiceAnalysis.characteristics.intensity,
+          spectralCentroid: voiceAnalysis.characteristics.formants[0] || 1200,
+          mfcc: voiceAnalysis.characteristics.formants,
+          detectedAccent: voiceAnalysis.accentType,
+          confidence: voiceAnalysis.confidence,
+          aiRecommendations: voiceAnalysis.recommendations,
+          characteristics: voiceAnalysis.characteristics
+        };
 
-      res.json({ analysis });
+        res.json({ analysis });
+      } catch (error) {
+        console.error("OpenAI audio analysis error:", error);
+        
+        // Fallback to basic analysis
+        const analysis = {
+          duration: 0,
+          sampleRate: 44100,
+          channels: 1,
+          pitchMean: 150,
+          pitchStd: 15,
+          energyMean: 0.5,
+          spectralCentroid: 1200,
+          mfcc: [800, 1200, 2400],
+          detectedAccent: "neutral",
+          confidence: 0.3,
+          analysisError: "AI analysis failed, using basic profile"
+        };
+
+        res.json({ analysis });
+      }
     } catch (error) {
       res.status(500).json({ error: "Audio analysis failed" });
     }

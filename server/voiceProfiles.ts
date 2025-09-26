@@ -1,21 +1,34 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { promises as fs } from 'fs';
+import fs_sync from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { PROFILES, ensureDirs } from './utils/paths';
 import * as wavDecoder from 'wav-decoder';
+import { storage, type LearnedVoiceProfile } from './storage';
+
+// UUID v4 validation regex
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Validate UUID v4 format
+function isValidUuidV4(uuid: string): boolean {
+  return UUID_V4_REGEX.test(uuid);
+}
 
 // Configure multer for audio file uploads
 const upload = multer({
   storage: multer.diskStorage({
-    destination: async (req, file, cb) => {
-      // Ensure the profiles directory exists
-      await ensureDirs();
-      const tempDir = path.join(PROFILES, 'temp');
-      await fs.mkdir(tempDir, { recursive: true });
-      cb(null, tempDir);
+    destination: (req, file, cb) => {
+      try {
+        // Ensure the profiles directory exists - using synchronous version
+        const tempDir = path.join(PROFILES, 'temp');
+        fs_sync.mkdirSync(tempDir, { recursive: true });
+        cb(null, tempDir);
+      } catch (error) {
+        cb(error as Error, '');
+      }
     },
     filename: (req, file, cb) => {
       const uniqueName = `${randomUUID()}_${file.originalname}`;
@@ -43,29 +56,128 @@ interface AccentProfile {
   caribbean: number;
 }
 
-// Voice profile structure
-interface VoiceProfileData {
-  id: string;
-  features: {
-    duration: number;
-    pauseRatio: number;
-    f0: number;
-    wpm: number;
-    sibilance: number;
-    rhoticity: number;
-    rms: number;
-    spectralCentroid: number;
+// Use the VoiceProfileData type from storage as LearnedVoiceProfile
+type VoiceProfileData = LearnedVoiceProfile;
+
+// WAV file header validation result
+interface WavValidationResult {
+  isValid: boolean;
+  error?: string;
+  details?: {
+    format?: string;
+    audioFormat?: number;
+    numChannels?: number;
+    sampleRate?: number;
+    bitsPerSample?: number;
   };
-  mappedAccent: string;
-  accentConfidences: AccentProfile;
-  parameters: {
-    rate: number;
-    pitch: number;
-    volume: number;
-    emphasis: number;
-  };
-  createdAt: string;
-  originalFilename?: string;
+}
+
+// Validate WAV file header and format
+async function validateWavFile(filePath: string): Promise<WavValidationResult> {
+  try {
+    // Read the first 44 bytes (standard WAV header size)
+    const fileHandle = await fs.open(filePath, 'r');
+    const headerBuffer = Buffer.alloc(44);
+    await fileHandle.read(headerBuffer, 0, 44, 0);
+    await fileHandle.close();
+
+    // Check RIFF header (bytes 0-3)
+    const riffHeader = headerBuffer.toString('ascii', 0, 4);
+    if (riffHeader !== 'RIFF') {
+      return {
+        isValid: false,
+        error: `Invalid RIFF header. Expected 'RIFF', got '${riffHeader}'. File may not be a valid WAV file.`
+      };
+    }
+
+    // Skip file size (bytes 4-7)
+
+    // Check WAVE format (bytes 8-11)
+    const waveFormat = headerBuffer.toString('ascii', 8, 12);
+    if (waveFormat !== 'WAVE') {
+      return {
+        isValid: false,
+        error: `Invalid WAVE format. Expected 'WAVE', got '${waveFormat}'. File is not a WAV audio file.`
+      };
+    }
+
+    // Check fmt chunk (bytes 12-15)
+    const fmtChunk = headerBuffer.toString('ascii', 12, 16);
+    if (fmtChunk !== 'fmt ') {
+      return {
+        isValid: false,
+        error: `Invalid format chunk. Expected 'fmt ', got '${fmtChunk}'. WAV file structure is corrupted.`
+      };
+    }
+
+    // Skip subchunk1 size (bytes 16-19)
+
+    // Audio format (bytes 20-21)
+    const audioFormat = headerBuffer.readUInt16LE(20);
+    // 1 = PCM (uncompressed), other values indicate compression
+    if (audioFormat !== 1) {
+      const formatName = audioFormat === 3 ? 'IEEE float' : 
+                        audioFormat === 6 ? 'A-law' : 
+                        audioFormat === 7 ? 'μ-law' : 
+                        `format code ${audioFormat}`;
+      return {
+        isValid: false,
+        error: `Audio is compressed or non-PCM format (${formatName}). Only uncompressed PCM WAV files are supported.`
+      };
+    }
+
+    // Number of channels (bytes 22-23)
+    const numChannels = headerBuffer.readUInt16LE(22);
+    
+    // Sample rate (bytes 24-27)
+    const sampleRate = headerBuffer.readUInt32LE(24);
+    
+    // Skip byte rate (bytes 28-31) and block align (bytes 32-33)
+    
+    // Bits per sample (bytes 34-35)
+    const bitsPerSample = headerBuffer.readUInt16LE(34);
+
+    // Validate reasonable values
+    if (numChannels < 1 || numChannels > 8) {
+      return {
+        isValid: false,
+        error: `Invalid number of channels: ${numChannels}. Expected 1-8 channels.`
+      };
+    }
+
+    if (sampleRate < 8000 || sampleRate > 192000) {
+      return {
+        isValid: false,
+        error: `Unusual sample rate: ${sampleRate}Hz. Expected 8000-192000 Hz.`
+      };
+    }
+
+    if (bitsPerSample !== 8 && bitsPerSample !== 16 && bitsPerSample !== 24 && bitsPerSample !== 32) {
+      return {
+        isValid: false,
+        error: `Invalid bits per sample: ${bitsPerSample}. Expected 8, 16, 24, or 32 bits.`
+      };
+    }
+
+    console.log(`WAV validation successful: ${numChannels} channel(s), ${sampleRate}Hz, ${bitsPerSample}-bit PCM`);
+
+    return {
+      isValid: true,
+      details: {
+        format: 'PCM',
+        audioFormat,
+        numChannels,
+        sampleRate,
+        bitsPerSample
+      }
+    };
+  } catch (error) {
+    console.error('Error validating WAV file:', error);
+    return {
+      isValid: false,
+      error: `Failed to read WAV file header: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
 }
 
 // Check if ffmpeg is available
@@ -105,18 +217,78 @@ async function convertToWav(inputPath: string, outputPath: string): Promise<void
   });
 }
 
+// Audio analysis error class
+class AudioAnalysisError extends Error {
+  constructor(message: string, public readonly code: string) {
+    super(message);
+    this.name = 'AudioAnalysisError';
+  }
+}
+
 // Analyze audio features from WAV file
 async function analyzeAudio(wavPath: string): Promise<VoiceProfileData['features']> {
+  // First validate the WAV file structure
+  const validation = await validateWavFile(wavPath);
+  if (!validation.isValid) {
+    throw new AudioAnalysisError(
+      validation.error || 'Invalid WAV file format',
+      'INVALID_WAV_FORMAT'
+    );
+  }
+
   try {
     // Read the WAV file
     const audioData = await fs.readFile(wavPath);
     const audioBuffer = audioData.buffer.slice(audioData.byteOffset, audioData.byteOffset + audioData.byteLength);
     
     // Decode the WAV file
-    const decoded = await wavDecoder.decode(audioBuffer);
+    let decoded;
+    try {
+      decoded = await wavDecoder.decode(audioBuffer);
+    } catch (decodeError) {
+      console.error('WAV decoder error:', decodeError);
+      throw new AudioAnalysisError(
+        `Failed to decode WAV file: ${decodeError instanceof Error ? decodeError.message : 'Unknown decode error'}`,
+        'DECODE_ERROR'
+      );
+    }
+
+    if (!decoded || !decoded.channelData || decoded.channelData.length === 0) {
+      throw new AudioAnalysisError(
+        'Decoded audio has no channel data',
+        'NO_CHANNEL_DATA'
+      );
+    }
     const samples = decoded.channelData[0]; // Get first channel (mono)
+    if (!samples || samples.length === 0) {
+      throw new AudioAnalysisError(
+        'Audio file has no samples or is empty',
+        'EMPTY_AUDIO'
+      );
+    }
+
     const sampleRate = decoded.sampleRate;
+    if (!sampleRate || sampleRate < 8000 || sampleRate > 192000) {
+      throw new AudioAnalysisError(
+        `Invalid sample rate: ${sampleRate}Hz. Expected 8000-192000 Hz.`,
+        'INVALID_SAMPLE_RATE'
+      );
+    }
+
     const duration = samples.length / sampleRate;
+    if (duration < 0.1) {
+      throw new AudioAnalysisError(
+        `Audio too short: ${duration.toFixed(2)} seconds. Minimum 0.1 seconds required.`,
+        'AUDIO_TOO_SHORT'
+      );
+    }
+
+    if (duration > 300) {
+      throw new AudioAnalysisError(
+        `Audio too long: ${duration.toFixed(2)} seconds. Maximum 5 minutes allowed.`,
+        'AUDIO_TOO_LONG'
+      );
+    }
 
     // Calculate RMS (Root Mean Square) for volume/energy
     let sumSquares = 0;
@@ -235,18 +407,17 @@ async function analyzeAudio(wavPath: string): Promise<VoiceProfileData['features
       spectralCentroid
     };
   } catch (error) {
-    console.error('Audio analysis error:', error);
-    // Return default values on error
-    return {
-      duration: 0,
-      pauseRatio: 0.2,
-      f0: 150,
-      wpm: 150,
-      sibilance: 0.1,
-      rhoticity: 0.1,
-      rms: 0.1,
-      spectralCentroid: 1500
-    };
+    // Re-throw AudioAnalysisError to be handled by the caller
+    if (error instanceof AudioAnalysisError) {
+      throw error;
+    }
+    
+    // For unexpected errors, wrap them in AudioAnalysisError
+    console.error('Unexpected audio analysis error:', error);
+    throw new AudioAnalysisError(
+      `Unexpected error during audio analysis: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      'ANALYSIS_ERROR'
+    );
   }
 }
 
@@ -336,12 +507,14 @@ function mapToAccentProfile(features: VoiceProfileData['features']): {
 // Create router
 export const voiceProfileRouter = Router();
 
-// POST /api/voice_profile/learn - Learn from uploaded audio
-voiceProfileRouter.post('/learn', upload.single('audio'), async (req, res) => {
+// POST /api/voice-profiles - Learn from uploaded audio (matches frontend expectation)
+voiceProfileRouter.post('/', upload.single('audio'), async (req, res) => {
   let tempFilePath: string | null = null;
   let wavFilePath: string | null = null;
   
   try {
+    // Ensure directories exist at runtime
+    await ensureDirs();
     // Check if ffmpeg is available
     if (!checkFfmpeg()) {
       return res.status(501).json({ 
@@ -372,8 +545,49 @@ voiceProfileRouter.post('/learn', upload.single('audio'), async (req, res) => {
       await convertToWav(tempFilePath, wavFilePath);
     }
 
+    // Validate the WAV file after conversion
+    const validation = await validateWavFile(wavFilePath);
+    if (!validation.isValid) {
+      console.error('WAV validation failed:', validation.error);
+      return res.status(400).json({
+        error: 'Invalid audio file format',
+        details: validation.error
+      });
+    }
+
     // Analyze audio features
-    const features = await analyzeAudio(wavFilePath);
+    let features: VoiceProfileData['features'];
+    try {
+      features = await analyzeAudio(wavFilePath);
+    } catch (analysisError) {
+      if (analysisError instanceof AudioAnalysisError) {
+        console.error(`Audio analysis failed [${analysisError.code}]:`, analysisError.message);
+        
+        // Return specific error codes for different failure types
+        const statusCode = 
+          analysisError.code === 'INVALID_WAV_FORMAT' ? 400 :
+          analysisError.code === 'EMPTY_AUDIO' ? 400 :
+          analysisError.code === 'AUDIO_TOO_SHORT' ? 400 :
+          analysisError.code === 'AUDIO_TOO_LONG' ? 400 :
+          analysisError.code === 'INVALID_SAMPLE_RATE' ? 400 :
+          analysisError.code === 'NO_CHANNEL_DATA' ? 400 :
+          analysisError.code === 'DECODE_ERROR' ? 422 : // Unprocessable entity
+          500; // Generic error
+        
+        return res.status(statusCode).json({
+          error: 'Audio analysis failed',
+          details: analysisError.message,
+          code: analysisError.code
+        });
+      }
+      
+      // Unexpected error
+      console.error('Unexpected analysis error:', analysisError);
+      return res.status(500).json({
+        error: 'Failed to analyze audio',
+        details: analysisError instanceof Error ? analysisError.message : 'Unknown error'
+      });
+    }
 
     // Map to accent profile
     const { accent, confidences, parameters } = mapToAccentProfile(features);
@@ -389,60 +603,52 @@ voiceProfileRouter.post('/learn', upload.single('audio'), async (req, res) => {
       originalFilename: req.file.originalname
     };
 
-    // Save profile to JSON file
-    const profilePath = path.join(PROFILES, `${profileId}.json`);
-    await fs.writeFile(profilePath, JSON.stringify(profile, null, 2));
+    // Save profile using storage interface
+    const savedProfile = await storage.learnVoiceProfile(profile);
 
-    // Clean up temp files
-    if (tempFilePath) await fs.unlink(tempFilePath).catch(() => {});
-    if (wavFilePath) await fs.unlink(wavFilePath).catch(() => {});
-
-    res.json({ profile });
+    res.json({ profile: savedProfile });
   } catch (error) {
-    // Clean up temp files on error
-    if (tempFilePath) await fs.unlink(tempFilePath).catch(() => {});
-    if (wavFilePath) await fs.unlink(wavFilePath).catch(() => {});
-    
     console.error('Voice profile learning error:', error);
     res.status(500).json({ 
       error: 'Failed to process audio file',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
+  } finally {
+    // Always clean up temp files, even if an error occurred
+    if (tempFilePath) {
+      try {
+        await fs.unlink(tempFilePath);
+      } catch (cleanupError) {
+        console.error('Failed to clean up temp file:', tempFilePath, cleanupError);
+      }
+    }
+    if (wavFilePath) {
+      try {
+        await fs.unlink(wavFilePath);
+      } catch (cleanupError) {
+        console.error('Failed to clean up WAV file:', wavFilePath, cleanupError);
+      }
+    }
   }
 });
 
-// GET /api/voice_profile/list - List all voice profiles
-voiceProfileRouter.get('/list', async (req, res) => {
+// GET /api/voice-profiles - List all voice profiles
+voiceProfileRouter.get('/', async (req, res) => {
   try {
-    await ensureDirs();
+    // Get all profiles using storage interface
+    const profiles = await storage.getAllLearnedVoiceProfiles();
     
-    // Read all JSON files from profiles directory
-    const files = await fs.readdir(PROFILES);
-    const jsonFiles = files.filter(file => file.endsWith('.json'));
-    
-    const profiles = [];
-    for (const file of jsonFiles) {
-      try {
-        const profilePath = path.join(PROFILES, file);
-        const data = await fs.readFile(profilePath, 'utf-8');
-        const profile = JSON.parse(data) as VoiceProfileData;
-        
-        // Return summary for each profile
-        profiles.push({
-          id: profile.id,
-          mappedAccent: profile.mappedAccent,
-          createdAt: profile.createdAt,
-          originalFilename: profile.originalFilename,
-          duration: profile.features.duration,
-          wpm: profile.features.wpm
-        });
-      } catch (err) {
-        console.error(`Error reading profile ${file}:`, err);
-        // Skip invalid files
-      }
-    }
+    // Return summary for each profile
+    const profileSummaries = profiles.map(profile => ({
+      id: profile.id,
+      mappedAccent: profile.mappedAccent,
+      createdAt: profile.createdAt,
+      originalFilename: profile.originalFilename,
+      duration: profile.features.duration,
+      wpm: profile.features.wpm
+    }));
 
-    res.json({ profiles });
+    res.json({ profiles: profileSummaries });
   } catch (error) {
     console.error('Error listing voice profiles:', error);
     res.status(500).json({ 
@@ -452,22 +658,22 @@ voiceProfileRouter.get('/list', async (req, res) => {
   }
 });
 
-// GET /api/voice_profile/get/:id - Get specific profile
-voiceProfileRouter.get('/get/:id', async (req, res) => {
+// GET /api/voice-profiles/:id - Get specific profile
+voiceProfileRouter.get('/:id', async (req, res) => {
   try {
     const profileId = req.params.id;
-    const profilePath = path.join(PROFILES, `${profileId}.json`);
     
-    // Check if profile exists
-    try {
-      await fs.access(profilePath);
-    } catch {
+    // Validate UUID v4 format to prevent path traversal
+    if (!isValidUuidV4(profileId)) {
+      return res.status(400).json({ error: 'Invalid profile ID format. Must be a valid UUID v4.' });
+    }
+    
+    // Get profile using storage interface
+    const profile = await storage.getLearnedVoiceProfile(profileId);
+    
+    if (!profile) {
       return res.status(404).json({ error: 'Voice profile not found' });
     }
-
-    // Read and return profile
-    const data = await fs.readFile(profilePath, 'utf-8');
-    const profile = JSON.parse(data) as VoiceProfileData;
     
     res.json({ profile });
   } catch (error) {

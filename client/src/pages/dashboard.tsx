@@ -7,7 +7,7 @@ import VoiceScanner from "@/components/VoiceScanner";
 import TextToSpeech from "@/components/TextToSpeech";
 import HolographicInterface from "@/components/HolographicInterface";
 import CuriosityEngine from "@/components/CuriosityEngine";
-import SystemStats from "@/components/SystemStats";
+import { SystemDiagnostics } from "@/components/SystemDiagnostics";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import type { SystemSettings } from "@shared/schema";
@@ -102,7 +102,7 @@ export default function Dashboard() {
           <div className="space-y-6">
             <HolographicInterface />
             <CuriosityEngine />
-            <SystemStats />
+            <SystemDiagnostics />
           </div>
         </div>
       </div>

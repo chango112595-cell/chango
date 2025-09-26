@@ -66,3 +66,6 @@ args = "npm run build"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npm run start"
+
+[agent]
+integrations = ["javascript_openai:1.0.0"]

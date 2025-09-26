@@ -145,15 +145,15 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     if (!state.wander) return;
 
     const now = Date.now();
-    const deltaTime = Math.min((now - lastUpdateRef.current) / 1000, 0.05); // Convert to seconds, cap at 50ms
+    const deltaTime = Math.min((now - lastUpdateRef.current) / 1000, 0.03); // Convert to seconds, cap at 30ms for smoother updates
     lastUpdateRef.current = now;
 
     setState(prev => {
       const { position, velocity } = prev;
       
       // Add some randomness to velocity
-      const maxSpeed = 30; // pixels per second
-      const acceleration = 15; // pixels per second squared
+      const maxSpeed = 80; // pixels per second (increased for faster movement)
+      const acceleration = 40; // pixels per second squared (increased for smoother response)
       
       // Add random acceleration
       const newVelX = velocity.x + (Math.random() - 0.5) * acceleration * deltaTime;

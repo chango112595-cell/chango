@@ -4,7 +4,6 @@ hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["ffmpeg"]
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -16,10 +15,6 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 34031
-externalPort = 5173
-
-[[ports]]
 localPort = 38851
 externalPort = 3000
 
@@ -28,24 +23,12 @@ localPort = 39971
 externalPort = 3001
 
 [[ports]]
-localPort = 42001
-externalPort = 3003
-
-[[ports]]
-localPort = 42151
-externalPort = 5000
-
-[[ports]]
-localPort = 42287
-externalPort = 6000
-
-[[ports]]
-localPort = 43211
+localPort = 43109
 externalPort = 3002
 
 [[ports]]
-localPort = 46735
-externalPort = 4200
+localPort = 44451
+externalPort = 3003
 
 [env]
 PORT = "5000"

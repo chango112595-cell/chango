@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
+import { useVoiceSynthesisWithExport } from "@/hooks/useVoiceSynthesisWithExport";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -10,7 +10,7 @@ import { trackTtsUtterance } from "@/lib/sessionTracking";
 
 export default function TextToSpeech() {
   const [text, setText] = useState("Hello, I'm Chango AI. I can synthesize speech with multiple accents and voices.");
-  const { speak, isPlaying } = useVoiceSynthesis();
+  const { speak, isPlaying, isRecording, exportAudio, downloadAudio } = useVoiceSynthesisWithExport();
   const { toast } = useToast();
 
   const previewMutation = useMutation({
@@ -30,13 +30,22 @@ export default function TextToSpeech() {
 
   const exportMutation = useMutation({
     mutationFn: async () => {
-      // TODO: Implement audio export functionality
-      throw new Error("Export functionality not yet implemented");
+      const audioBlob = await exportAudio(text.trim());
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+      const filename = `chango-speech-${timestamp}.webm`;
+      downloadAudio(audioBlob, filename);
+      return { success: true };
     },
-    onError: () => {
+    onSuccess: () => {
       toast({
-        title: "Export Not Available",
-        description: "Audio export feature is coming soon.",
+        title: "Audio Exported",
+        description: "Speech has been saved as an audio file.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Export Failed",
+        description: error.message || "Failed to export audio",
         variant: "destructive",
       });
     },
@@ -82,10 +91,10 @@ export default function TextToSpeech() {
             <Button 
               onClick={handleSpeak}
               className="flex-1"
-              disabled={!text.trim() || isPlaying}
+              disabled={!text.trim() || isPlaying || isRecording}
               data-testid="button-speak"
             >
-              Speak
+              {isRecording ? "Recording..." : "Speak"}
             </Button>
             <Button 
               onClick={handlePreview}
@@ -98,10 +107,10 @@ export default function TextToSpeech() {
             <Button 
               onClick={handleExport}
               variant="outline"
-              disabled={!text.trim()}
+              disabled={!text.trim() || isPlaying || isRecording || exportMutation.isPending}
               data-testid="button-export"
             >
-              Export
+              {exportMutation.isPending ? "Exporting..." : "Export"}
             </Button>
           </div>
         </div>

@@ -52,24 +52,18 @@ export default function VoiceRouteSelector() {
         route: route
       });
 
-      // Handle audio response for cloud routes
-      if (route === "elevenlabs" || route === "azure") {
-        // Response should be audio buffer
-        return { success: true, hasAudio: true };
-      }
-
       return response;
     },
-    onSuccess: (data, route) => {
-      if (data && typeof data === 'object' && 'hasAudio' in data && data.hasAudio) {
+    onSuccess: (data: any, route) => {
+      if (data && data.success) {
         toast({
-          title: "Voice Synthesis Success",
-          description: `${route.toUpperCase()} route is working correctly.`,
+          title: "Route Test Success",
+          description: `${route.toUpperCase()}: ${data.message || 'Route is working correctly'}`,
         });
       } else {
         toast({
           title: "Route Test Complete",
-          description: `${route.toUpperCase()} route responded successfully.`,
+          description: `${route.toUpperCase()} route responded.`,
         });
       }
     },

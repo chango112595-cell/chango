@@ -192,90 +192,44 @@ export function useVoiceSynthesisWithExport() {
     }
   }, [state.isEnabled, state.accentConfig, toast]);
 
-  const exportAudio = useCallback(async (text: string): Promise<Blob> => {
-    if (!state.isEnabled || !text.trim()) {
-      throw new Error("Speech synthesis not enabled or no text provided");
+  const exportAudio = useCallback(async (text: string, route: string = "client"): Promise<Blob> => {
+    if (!text.trim()) {
+      throw new Error("No text provided for export");
     }
 
     try {
       setState(prev => ({ ...prev, isRecording: true }));
       
-      // Setup audio recording
-      const destination = await setupAudioRecording();
-      
-      if (!mediaRecorderRef.current || !audioContextRef.current) {
-        throw new Error("Failed to setup recording");
+      // For cloud TTS routes, get audio from server
+      if (route === "elevenlabs" || route === "azure") {
+        const response = await fetch("/api/tts/audio", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: text.trim(),
+            route: route
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server audio synthesis failed: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        setState(prev => ({ ...prev, isRecording: false }));
+        return blob;
       }
 
-      // Start recording
-      mediaRecorderRef.current.start();
-
-      // Create a promise that resolves when recording is complete
-      const recordingPromise = new Promise<Blob>((resolve, reject) => {
-        if (!mediaRecorderRef.current) {
-          reject(new Error("MediaRecorder not available"));
-          return;
-        }
-
-        mediaRecorderRef.current.onstop = () => {
-          const blob = new Blob(recordedChunksRef.current, { 
-            type: 'audio/webm;codecs=opus' 
-          });
-          recordedChunksRef.current = [];
-          setState(prev => ({ ...prev, isRecording: false }));
-          resolve(blob);
-        };
-
-        // Setup speech synthesis with recording
-        const processedText = applyAccentToText(text, state.accentConfig);
-        const utterance = new SpeechSynthesisUtterance(processedText);
-
-        const voices = speechSynthesis.getVoices();
-        if (voices.length > 0) {
-          utterance.voice = voices.find(voice => voice.default) || voices[0];
-        }
-
-        utterance.rate = Math.max(0.1, Math.min(10, state.accentConfig.rate));
-        utterance.pitch = Math.max(0, Math.min(2, state.accentConfig.pitch));
-        utterance.volume = 1.0;
-
-        utterance.onend = () => {
-          // Stop recording after a short delay to ensure all audio is captured
-          setTimeout(() => {
-            if (mediaRecorderRef.current?.state === 'recording') {
-              mediaRecorderRef.current.stop();
-            }
-          }, 500);
-        };
-
-        utterance.onerror = (event) => {
-          console.error("Export speech error:", event.error);
-          if (mediaRecorderRef.current?.state === 'recording') {
-            mediaRecorderRef.current.stop();
-          }
-          reject(new Error(`Speech synthesis failed: ${event.error}`));
-        };
-
-        // Connect speech synthesis to recording destination
-        // Note: This is a simplified approach. In practice, we'd need to route 
-        // the speech synthesis output through the audio context
-        speechSynthesis.speak(utterance);
-
-        // Fallback timeout
-        setTimeout(() => {
-          if (mediaRecorderRef.current?.state === 'recording') {
-            mediaRecorderRef.current.stop();
-          }
-        }, 10000); // 10 second timeout
-      });
-
-      return await recordingPromise;
+      // For client route, Web Speech API cannot be reliably captured
+      throw new Error("Audio export is not supported for browser-based speech synthesis. Use ElevenLabs or Azure routes for audio export.");
 
     } catch (error) {
       setState(prev => ({ ...prev, isRecording: false }));
       throw error;
     }
-  }, [state.isEnabled, state.accentConfig, setupAudioRecording]);
+  }, []);
 
   const downloadAudio = useCallback((audioBlob: Blob, filename: string = 'chango-speech.webm') => {
     const url = URL.createObjectURL(audioBlob);

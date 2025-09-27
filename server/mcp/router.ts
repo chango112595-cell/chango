@@ -2,49 +2,57 @@ import express, { Router, Request, Response } from "express";
 import * as fs from "fs";
 import * as path from "path";
 
-// Types for MCP endpoints
-interface MCPTool {
+// JSON-RPC 2.0 Types
+interface JSONRPCRequest {
+  jsonrpc: "2.0";
+  method: string;
+  params?: any;
+  id: string | number;
+}
+
+interface JSONRPCResponse {
+  jsonrpc: "2.0";
+  result?: any;
+  error?: {
+    code: number;
+    message: string;
+    data?: any;
+  };
+  id: string | number;
+}
+
+// MCP Tool Types
+interface Tool {
   name: string;
-  path: string;
   description: string;
+  inputSchema: {
+    type: string;
+    properties?: Record<string, any>;
+    required?: string[];
+  };
 }
 
-interface MCPDiscoveryResponse {
-  tools: MCPTool[];
+interface ToolsListResult {
+  tools: Tool[];
 }
 
-interface WriteFileRequest {
-  path: string;
-  content: string;
+interface ToolCallParams {
+  name: string;
+  arguments: Record<string, any>;
 }
 
-interface WriteFileResponse {
-  ok: boolean;
-  error?: string;
-  written?: number;
-}
-
-interface SearchRequest {
-  query: string;
-}
-
-interface SearchResponse {
-  results: string[];
-}
-
-interface FetchRequest {
-  id: string;
-}
-
-interface FetchResponse {
-  id: string;
-  title: string;
-  content: string;
-  metadata?: Record<string, any>;
+interface ToolCallResult {
+  content: Array<{
+    type: string;
+    text?: string;
+  }>;
 }
 
 // Create router instance
 export const mcpRouter: Router = express.Router();
+
+// MCP data storage
+const safeBasePath = path.resolve(process.cwd(), "data", "mcp");
 
 // Authentication function that supports both Bearer token and query parameter
 function getToken(req: Request): string | undefined {
@@ -67,113 +75,63 @@ function authenticate(req: Request, res: Response): boolean {
   return true;
 }
 
-// GET /mcp - Discovery endpoint
-mcpRouter.get("/", (req: Request, res: Response<MCPDiscoveryResponse | { error: string }>) => {
-  if (!authenticate(req, res)) return;
-  
-  console.log(`[MCP] Discovery endpoint called`);
-  
-  const response: MCPDiscoveryResponse = {
-    tools: [
-      {
-        name: "search",
-        path: "/mcp/search",
-        description: "Search for files and content in the MCP storage. Takes a query string and returns matching file IDs."
+// Tool definitions
+const TOOLS: Tool[] = [
+  {
+    name: "search",
+    description: "Search for files and content in the MCP storage. Returns matching file IDs.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query to find matching files"
+        }
       },
-      {
-        name: "fetch",
-        path: "/mcp/fetch",
-        description: "Fetch the complete content of a file by its ID. Returns the full file data for analysis."
-      },
-      {
-        name: "mcp_token_write_file",
-        path: "/mcp/write_file",
-        description: "Create or overwrite a UTF-8 text file in the MCP storage"
-      }
-    ]
-  };
-  
-  res.json(response);
-});
-
-// POST /mcp/write_file - Write file endpoint
-mcpRouter.post("/write_file", express.json({ limit: "1mb" }), async (req: Request<{}, {}, WriteFileRequest>, res: Response<WriteFileResponse | { error: string }>) => {
-  if (!authenticate(req, res)) return;
-  
-  const { path: filePath, content } = req.body || {};
-  
-  // Validate request parameters
-  if (!filePath || typeof content !== "string") {
-    return res.status(400).json({ error: "invalid_args: path and content are required" });
-  }
-  
-  console.log(`[MCP] Write file request: ${filePath} (${content.length} bytes)`);
-  
-  try {
-    // Create safe directory path - restrict writes to ./data/mcp/
-    const safeBasePath = path.resolve(process.cwd(), "data", "mcp");
-    
-    // Normalize and resolve the requested path
-    const requestedFileName = path.basename(filePath);
-    const fullPath = path.join(safeBasePath, requestedFileName);
-    
-    // Security check: ensure the resolved path is within the safe directory
-    if (!fullPath.startsWith(safeBasePath)) {
-      console.error(`[MCP] Security violation: attempted to write outside safe directory: ${filePath}`);
-      return res.status(400).json({ error: "invalid_args: path traversal detected" });
+      required: ["query"]
     }
-    
-    // Ensure the directory exists
-    await fs.promises.mkdir(safeBasePath, { recursive: true });
-    
-    // Write the file
-    await fs.promises.writeFile(fullPath, content, "utf-8");
-    
-    console.log(`[MCP] Successfully wrote file: ${fullPath}`);
-    
-    const response: WriteFileResponse = {
-      ok: true,
-      written: content.length
-    };
-    
-    res.json(response);
-  } catch (error) {
-    console.error(`[MCP] Error writing file:`, error);
-    
-    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-    const response: WriteFileResponse = {
-      ok: false,
-      error: `Failed to write file: ${errorMessage}`
-    };
-    
-    res.status(500).json(response);
+  },
+  {
+    name: "fetch",
+    description: "Fetch the complete content of a file by its ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "File ID to fetch content for"
+        }
+      },
+      required: ["id"]
+    }
+  },
+  {
+    name: "write_file",
+    description: "Create or overwrite a UTF-8 text file in the MCP storage.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "File path to write to"
+        },
+        content: {
+          type: "string",
+          description: "Content to write to the file"
+        }
+      },
+      required: ["path", "content"]
+    }
   }
-});
+];
 
-// POST /mcp/search - Search for files and content
-mcpRouter.post("/search", express.json({ limit: "1mb" }), async (req: Request<{}, {}, SearchRequest>, res: Response<SearchResponse | { error: string }>) => {
-  if (!authenticate(req, res)) return;
-  
-  const { query } = req.body || {};
-  
-  // Validate request parameters
-  if (!query || typeof query !== "string") {
-    return res.status(400).json({ error: "invalid_args: query is required" });
-  }
-  
-  console.log(`[MCP] Search request: ${query}`);
-  
+// Tool implementation functions
+async function searchFiles(query: string): Promise<string[]> {
   try {
-    const safeBasePath = path.resolve(process.cwd(), "data", "mcp");
-    
-    // Ensure directory exists
     await fs.promises.mkdir(safeBasePath, { recursive: true });
-    
-    // Read all files in the directory
     const files = await fs.promises.readdir(safeBasePath);
     const results: string[] = [];
     
-    // Search through files
     for (const file of files) {
       const filePath = path.join(safeBasePath, file);
       const stats = await fs.promises.stat(filePath);
@@ -185,9 +143,8 @@ mcpRouter.post("/search", express.json({ limit: "1mb" }), async (req: Request<{}
           const lowerContent = content.toLowerCase();
           const lowerFileName = file.toLowerCase();
           
-          // Check if query matches filename or content
           if (lowerFileName.includes(lowerQuery) || lowerContent.includes(lowerQuery)) {
-            results.push(file); // Use filename as ID
+            results.push(file);
           }
         } catch (readError) {
           console.error(`[MCP] Error reading file ${file}:`, readError);
@@ -195,61 +152,27 @@ mcpRouter.post("/search", express.json({ limit: "1mb" }), async (req: Request<{}
       }
     }
     
-    console.log(`[MCP] Search found ${results.length} results`);
-    
-    const response: SearchResponse = {
-      results
-    };
-    
-    res.json(response);
+    return results;
   } catch (error) {
     console.error(`[MCP] Error searching files:`, error);
-    
-    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-    res.status(500).json({ error: `Search failed: ${errorMessage}` });
+    throw error;
   }
-});
+}
 
-// POST /mcp/fetch - Fetch file content by ID
-mcpRouter.post("/fetch", express.json({ limit: "1mb" }), async (req: Request<{}, {}, FetchRequest>, res: Response<FetchResponse | { error: string }>) => {
-  if (!authenticate(req, res)) return;
-  
-  const { id } = req.body || {};
-  
-  // Validate request parameters
-  if (!id || typeof id !== "string") {
-    return res.status(400).json({ error: "invalid_args: id is required" });
-  }
-  
-  console.log(`[MCP] Fetch request: ${id}`);
-  
+async function fetchFile(id: string): Promise<{ id: string; title: string; content: string; metadata: any }> {
   try {
-    const safeBasePath = path.resolve(process.cwd(), "data", "mcp");
-    
-    // Sanitize the ID to prevent path traversal
     const fileName = path.basename(id);
     const filePath = path.join(safeBasePath, fileName);
     
-    // Security check: ensure the resolved path is within the safe directory
     if (!filePath.startsWith(safeBasePath)) {
-      console.error(`[MCP] Security violation: attempted to fetch outside safe directory: ${id}`);
-      return res.status(400).json({ error: "invalid_args: invalid file ID" });
+      throw new Error("Invalid file ID");
     }
     
-    // Check if file exists
-    try {
-      await fs.promises.access(filePath, fs.constants.R_OK);
-    } catch {
-      return res.status(404).json({ error: `File not found: ${id}` });
-    }
-    
-    // Read the file content
+    await fs.promises.access(filePath, fs.constants.R_OK);
     const content = await fs.promises.readFile(filePath, "utf-8");
     const stats = await fs.promises.stat(filePath);
     
-    console.log(`[MCP] Successfully fetched file: ${fileName}`);
-    
-    const response: FetchResponse = {
+    return {
       id: fileName,
       title: fileName,
       content: content,
@@ -259,17 +182,170 @@ mcpRouter.post("/fetch", express.json({ limit: "1mb" }), async (req: Request<{},
         created: stats.ctime.toISOString()
       }
     };
-    
-    res.json(response);
   } catch (error) {
     console.error(`[MCP] Error fetching file:`, error);
-    
-    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-    res.status(500).json({ error: `Fetch failed: ${errorMessage}` });
+    throw error;
   }
+}
+
+async function writeFile(filePath: string, content: string): Promise<number> {
+  try {
+    const fileName = path.basename(filePath);
+    const fullPath = path.join(safeBasePath, fileName);
+    
+    if (!fullPath.startsWith(safeBasePath)) {
+      throw new Error("Path traversal detected");
+    }
+    
+    await fs.promises.mkdir(safeBasePath, { recursive: true });
+    await fs.promises.writeFile(fullPath, content, "utf-8");
+    
+    return content.length;
+  } catch (error) {
+    console.error(`[MCP] Error writing file:`, error);
+    throw error;
+  }
+}
+
+// JSON-RPC 2.0 Main Handler
+async function handleJSONRPC(request: JSONRPCRequest): Promise<JSONRPCResponse> {
+  console.log(`[MCP] JSON-RPC request: ${request.method}`);
+  
+  try {
+    switch (request.method) {
+      case "tools/list":
+        return {
+          jsonrpc: "2.0",
+          result: { tools: TOOLS },
+          id: request.id
+        };
+      
+      case "tools/call":
+        const params = request.params as ToolCallParams;
+        if (!params || !params.name || !params.arguments) {
+          throw {
+            code: -32602,
+            message: "Invalid params: name and arguments required"
+          };
+        }
+        
+        let result: ToolCallResult;
+        
+        switch (params.name) {
+          case "search":
+            const searchResults = await searchFiles(params.arguments.query);
+            result = {
+              content: [{
+                type: "text",
+                text: JSON.stringify(searchResults)
+              }]
+            };
+            break;
+          
+          case "fetch":
+            const fileData = await fetchFile(params.arguments.id);
+            result = {
+              content: [{
+                type: "text",
+                text: JSON.stringify(fileData)
+              }]
+            };
+            break;
+          
+          case "write_file":
+            const written = await writeFile(params.arguments.path, params.arguments.content);
+            result = {
+              content: [{
+                type: "text",
+                text: `Successfully wrote ${written} bytes to ${params.arguments.path}`
+              }]
+            };
+            break;
+          
+          default:
+            throw {
+              code: -32601,
+              message: `Method not found: ${params.name}`
+            };
+        }
+        
+        return {
+          jsonrpc: "2.0",
+          result,
+          id: request.id
+        };
+      
+      default:
+        throw {
+          code: -32601,
+          message: `Method not found: ${request.method}`
+        };
+    }
+  } catch (error: any) {
+    console.error(`[MCP] Error processing request:`, error);
+    
+    if (error && typeof error.code === "number") {
+      return {
+        jsonrpc: "2.0",
+        error: {
+          code: error.code,
+          message: error.message,
+          data: error.data
+        },
+        id: request.id
+      };
+    }
+    
+    return {
+      jsonrpc: "2.0",
+      error: {
+        code: -32603,
+        message: "Internal error",
+        data: error instanceof Error ? error.message : String(error)
+      },
+      id: request.id
+    };
+  }
+}
+
+// POST /mcp - Main JSON-RPC endpoint
+mcpRouter.post("/", express.json({ limit: "1mb" }), async (req: Request<{}, {}, JSONRPCRequest>, res: Response<JSONRPCResponse>) => {
+  if (!authenticate(req, res)) return;
+  
+  const request = req.body;
+  
+  // Validate JSON-RPC request
+  if (!request || request.jsonrpc !== "2.0" || !request.method || request.id === undefined) {
+    return res.status(400).json({
+      jsonrpc: "2.0",
+      error: {
+        code: -32600,
+        message: "Invalid Request"
+      },
+      id: null as any
+    });
+  }
+  
+  const response = await handleJSONRPC(request);
+  res.json(response);
+});
+
+// GET /mcp - Legacy discovery endpoint (for backward compatibility)
+mcpRouter.get("/", (req: Request, res: Response) => {
+  if (!authenticate(req, res)) return;
+  
+  console.log(`[MCP] Legacy discovery endpoint called`);
+  
+  // Return a simple discovery response for testing
+  res.json({
+    tools: TOOLS.map(tool => ({
+      name: tool.name,
+      description: tool.description
+    }))
+  });
 });
 
 // Health check endpoint for the MCP router
 mcpRouter.get("/health", (req: Request, res: Response) => {
-  res.json({ status: "ok", service: "mcp" });
+  res.json({ status: "ok", service: "mcp", protocol: "json-rpc-2.0" });
 });

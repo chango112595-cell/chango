@@ -39,9 +39,12 @@ Database design principles:
 - **Timestamp tracking**: Automatic creation timestamps for audit trails
 
 ## Voice Processing Engine
-The voice synthesis system implements multiple TTS routes with a unified interface:
+The voice synthesis system implements the proprietary Chango Voice Engine (CVE) with advanced prosody control:
 
-- **Client-side synthesis**: Web Speech API with accent transformation
+- **Phrase-level synthesis**: CVE-2-Phrase engine processes text into natural conversational phrases
+- **Preserved punctuation**: Maintains all punctuation for proper pauses and intonation
+- **Dynamic prosody**: Emotional variations (15-40% pitch, 5-15% rate, 10-15% volume)
+- **Natural speech features**: Rising intonation for questions, emphasis for exclamations, thoughtful pauses for ellipses
 - **Accent engine**: Rule-based text processing for various accent profiles (British RP, Southern US, etc.)
 - **Audio analysis**: Web Audio API for extracting voice characteristics from recordings
 - **Profile generation**: Automated voice profile creation from audio samples

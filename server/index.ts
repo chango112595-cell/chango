@@ -4,6 +4,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 import { mcpRouter } from "./mcp/router";
+import powerRouter from "./routes/power";
 dotenv.config(); // Load environment variables
 
 // Initialize OpenAI client with API key from environment variable
@@ -39,6 +40,9 @@ app.use((req, res, next) => {
 
 // Mount MCP router under /mcp path
 app.use('/mcp', mcpRouter);
+
+// Mount Power router under /api path
+app.use('/api', powerRouter);
 
 // ChatGPT endpoint using OpenAI SDK
 app.post('/chatgpt', async (req: Request, res: Response) => {

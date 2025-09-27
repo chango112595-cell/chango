@@ -99,4 +99,4 @@ function planProsody(tokens, opts){
   return { text: outWords.join(' '), plan, prosody };
 }
 
-module.exports = { planProsody, tokenize, ACCENTS, EMOTIONS };
+export { planProsody, tokenize, ACCENTS, EMOTIONS };

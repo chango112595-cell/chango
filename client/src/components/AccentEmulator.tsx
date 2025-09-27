@@ -7,8 +7,18 @@ import { Label } from "@/components/ui/label";
 import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
 import { ACCENT_PROFILES } from "@/lib/accentEngine";
 
+// Available emotions for CVE
+const EMOTIONS = [
+  { value: "neutral", label: "Neutral" },
+  { value: "calm", label: "Calm" },
+  { value: "cheerful", label: "Cheerful" },
+  { value: "serious", label: "Serious" },
+  { value: "empathetic", label: "Empathetic" },
+];
+
 export default function AccentEmulator() {
   const [selectedProfile, setSelectedProfile] = useState("neutral");
+  const [selectedEmotion, setSelectedEmotion] = useState("neutral");
   const [intensity, setIntensity] = useState([0.55]);
   const [rate, setRate] = useState([1.0]);
   const [pitch, setPitch] = useState([1.0]);
@@ -21,6 +31,7 @@ export default function AccentEmulator() {
       intensity: intensity[0],
       rate: rate[0],
       pitch: pitch[0],
+      emotion: selectedEmotion,
     });
   };
 
@@ -46,6 +57,26 @@ export default function AccentEmulator() {
                   {Object.entries(ACCENT_PROFILES).map(([key, profile]) => (
                     <SelectItem key={key} value={key}>
                       {profile.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="emotion-select">Emotion</Label>
+              <Select 
+                value={selectedEmotion} 
+                onValueChange={setSelectedEmotion}
+                data-testid="select-emotion"
+              >
+                <SelectTrigger id="emotion-select">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {EMOTIONS.map((emotion) => (
+                    <SelectItem key={emotion.value} value={emotion.value}>
+                      {emotion.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -120,6 +151,13 @@ export default function AccentEmulator() {
               </Button>
             </div>
           </div>
+        </div>
+
+        {/* Current Configuration Display */}
+        <div className="mt-4 pt-4 border-t">
+          <p className="text-sm text-muted-foreground">
+            Current Configuration: {ACCENT_PROFILES[selectedProfile]?.name} accent, {selectedEmotion} emotion, {(intensity[0] * 100).toFixed(0)}% intensity
+          </p>
         </div>
       </CardContent>
     </Card>

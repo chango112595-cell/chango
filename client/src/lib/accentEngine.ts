@@ -11,6 +11,7 @@ export interface AccentConfig {
   intensity: number;
   rate: number;
   pitch: number;
+  emotion?: string; // CVE emotion parameter (neutral, calm, cheerful, serious, empathetic)
 }
 
 // Utility functions for accent processing

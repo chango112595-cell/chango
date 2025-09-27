@@ -47,6 +47,7 @@ export function useVoiceSynthesis() {
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const isCancelledRef = useRef<boolean>(false);
   const isEnabledRef = useRef<boolean>(false); // Track enabled state immediately
+  const isSpeakingRef = useRef<boolean>(false); // Track if currently speaking
 
   const enable = useCallback(() => {
     console.log("[VoiceSynthesis] Starting enable process...");
@@ -126,6 +127,7 @@ export function useVoiceSynthesis() {
   const executeProsodyPlan = useCallback(async (plan: ProsodyStep[], originalText: string) => {
     console.log("[VoiceSynthesis] Executing prosody plan:", plan.length, "steps");
     isCancelledRef.current = false;
+    isSpeakingRef.current = true;
     
     const voices = speechSynthesis.getVoices();
     
@@ -202,6 +204,7 @@ export function useVoiceSynthesis() {
     }
     
     console.log("[VoiceSynthesis] Prosody plan execution completed");
+    isSpeakingRef.current = false;
     setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
   }, []);
 
@@ -234,15 +237,18 @@ export function useVoiceSynthesis() {
 
     // Set up event handlers
     utterance.onstart = () => {
+      isSpeakingRef.current = true;
       setState(prev => ({ ...prev, isPlaying: true, currentUtterance: text }));
     };
 
     utterance.onend = () => {
+      isSpeakingRef.current = false;
       setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
     };
 
     utterance.onerror = (event) => {
       console.error("Speech error:", event.error);
+      isSpeakingRef.current = false;
       setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
       
       // For testing environments, simulate successful speech
@@ -266,6 +272,12 @@ export function useVoiceSynthesis() {
 
   // Main speak function with CVE integration
   const speak = useCallback(async (text: string) => {
+    // Check if already speaking to prevent overlaps
+    if (isSpeakingRef.current) {
+      console.log("[VoiceSynthesis] Speech blocked: Already speaking");
+      return;
+    }
+    
     if (!isEnabledRef.current || !text.trim()) {
       console.log("[VoiceSynthesis] Speech blocked:", { 
         enabled: isEnabledRef.current, 
@@ -297,6 +309,7 @@ export function useVoiceSynthesis() {
     // Stop any ongoing speech
     speechSynthesis.cancel();
     isCancelledRef.current = true;
+    isSpeakingRef.current = true; // Set speaking flag immediately
 
     // Save the text for repeat functionality
     lastUtteranceRef.current = text;
@@ -340,6 +353,7 @@ export function useVoiceSynthesis() {
       
     } catch (error) {
       console.error("CVE API failed, falling back to local synthesis:", error);
+      isSpeakingRef.current = false; // Reset on error
       
       // Fallback to local synthesis if CVE API fails
       fallbackLocalSynthesis(text);
@@ -357,6 +371,7 @@ export function useVoiceSynthesis() {
   const stop = useCallback(() => {
     speechSynthesis.cancel();
     isCancelledRef.current = true;
+    isSpeakingRef.current = false;
     setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
   }, []);
 
@@ -385,6 +400,11 @@ export function useVoiceSynthesis() {
     }
   }, [speak]);
 
+  // Check if currently speaking
+  const isSpeaking = useCallback(() => {
+    return isSpeakingRef.current || state.isPlaying;
+  }, [state.isPlaying]);
+
   return {
     ...state,
     enable,
@@ -393,5 +413,6 @@ export function useVoiceSynthesis() {
     test,
     applyAccent,
     repeatWithAccent,
+    isSpeaking,
   };
 }

@@ -21,6 +21,16 @@ interface JSONRPCResponse {
   id: string | number;
 }
 
+// SSE Connection management
+interface SSEConnection {
+  res: Response;
+  connectionId: string;
+  keepAliveInterval?: NodeJS.Timeout;
+}
+
+const sseConnections = new Map<string, SSEConnection>();
+let connectionCounter = 0;
+
 // MCP Tool Types
 interface Tool {
   name: string;
@@ -348,4 +358,97 @@ mcpRouter.get("/", (req: Request, res: Response) => {
 // Health check endpoint for the MCP router
 mcpRouter.get("/health", (req: Request, res: Response) => {
   res.json({ status: "ok", service: "mcp", protocol: "json-rpc-2.0" });
+});
+
+// SSE helper functions
+function sendSSEMessage(res: Response, data: any) {
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function setupSSEConnection(res: Response): string {
+  // Set SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'X-Accel-Buffering': 'no' // Disable Nginx buffering
+  });
+  
+  // Send initial connection message
+  const connectionId = `sse-${Date.now()}-${++connectionCounter}`;
+  sendSSEMessage(res, { type: 'connection', id: connectionId });
+  
+  return connectionId;
+}
+
+// GET /sse/ - SSE endpoint for ChatGPT
+mcpRouter.get("/sse/", (req: Request, res: Response) => {
+  if (!authenticate(req, res)) return;
+  
+  console.log(`[MCP] SSE connection established`);
+  
+  const connectionId = setupSSEConnection(res);
+  
+  // Set up keep-alive ping every 30 seconds
+  const keepAliveInterval = setInterval(() => {
+    try {
+      res.write(`:ping\n\n`);
+    } catch (error) {
+      // Connection closed, clean up
+      clearInterval(keepAliveInterval);
+      sseConnections.delete(connectionId);
+    }
+  }, 30000);
+  
+  // Store connection
+  sseConnections.set(connectionId, {
+    res,
+    connectionId,
+    keepAliveInterval
+  });
+  
+  // Handle client disconnect
+  req.on('close', () => {
+    console.log(`[MCP] SSE connection closed: ${connectionId}`);
+    clearInterval(keepAliveInterval);
+    sseConnections.delete(connectionId);
+  });
+});
+
+// POST /messages - JSON-RPC message endpoint for ChatGPT
+mcpRouter.post("/messages", express.json({ limit: "1mb" }), async (req: Request, res: Response) => {
+  if (!authenticate(req, res)) return;
+  
+  const request = req.body as JSONRPCRequest;
+  const connectionId = req.headers['x-connection-id'] as string;
+  
+  console.log(`[MCP] Message received via /messages: ${request.method}`);
+  
+  // Validate JSON-RPC request
+  if (!request || request.jsonrpc !== "2.0" || !request.method || request.id === undefined) {
+    return res.status(400).json({
+      jsonrpc: "2.0",
+      error: {
+        code: -32600,
+        message: "Invalid Request"
+      },
+      id: null as any
+    });
+  }
+  
+  // Process the request using existing handler
+  const response = await handleJSONRPC(request);
+  
+  // Send response through SSE if connection exists, otherwise use normal response
+  if (connectionId && sseConnections.has(connectionId)) {
+    const connection = sseConnections.get(connectionId);
+    if (connection) {
+      sendSSEMessage(connection.res, response);
+      res.json({ status: "sent via SSE" });
+    }
+  } else {
+    // Fallback to normal JSON response
+    res.json(response);
+  }
 });

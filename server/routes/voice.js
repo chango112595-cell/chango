@@ -1,5 +1,5 @@
-const { Router } = require('express');
-const { planProsody, tokenize, ACCENTS, EMOTIONS } = require('../voice/engine');
+import { Router } from 'express';
+import { planProsody, tokenize, ACCENTS, EMOTIONS } from '../voice/engine.js';
 const r = Router();
 
 // POST /voice/plan  { text, accent, intensity, emotion }
@@ -35,4 +35,4 @@ r.get('/voice/emotions', (_req, res) => {
 // keep a simple GET for quick tests
 r.get('/voice/ping', (_req, res) => res.json({ ok: true, engine: 'CVE-1', route: 'client' }));
 
-module.exports = r;
+export default r;

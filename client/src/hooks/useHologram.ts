@@ -17,7 +17,7 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     size: 200,
     speed: 50,
     wander: true,
-    position: { x: window.innerWidth - 320, y: window.innerHeight - 320 },
+    position: { x: 100, y: 100 }, // Fixed initial position to avoid window dimension issues
     velocity: { x: 0, y: 0 },
   });
 
@@ -201,10 +201,14 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
 
   const animate = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !state.isRunning) return;
+    if (!canvas || !state.isRunning) {
+      return;
+    }
     
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      return;
+    }
     
     // Update wandering movement
     updateWanderingMovement();
@@ -261,13 +265,18 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
   // Start/stop animation based on isRunning state
   useEffect(() => {
     if (state.isRunning) {
-      animate();
+      // Delay to avoid immediate re-creation of animate function
+      const timeoutId = setTimeout(() => {
+        animate();
+      }, 10);
+      return () => {
+        clearTimeout(timeoutId);
+        cancelAnimationFrame(animationRef.current);
+      };
     } else {
       cancelAnimationFrame(animationRef.current);
     }
-    
-    return () => cancelAnimationFrame(animationRef.current);
-  }, [state.isRunning, animate]);
+  }, [state.isRunning]);
 
   return {
     ...state,

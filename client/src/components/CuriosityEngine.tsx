@@ -16,6 +16,75 @@ interface CuriositySettings {
   learningRate: number;
 }
 
+// Export function for chat responses
+export function generateChatResponse(message: string, voice: any) {
+  const lowerMessage = message.toLowerCase();
+  let response = "";
+  let emotion: "neutral" | "cheerful" | "professional" | "casual" | "excited" | "calm" | "dramatic" | "friendly" | "serious" | "curious" = "cheerful";
+  
+  // Generate contextual responses
+  if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
+    const greetings = [
+      "Hey there! I'm Chango, your AI companion. What would you like to explore today?",
+      "Hello! Great to meet you! I'm Chango, and I love helping with voice synthesis. What can I do for you?",
+      "Hi there! Welcome! I'm Chango, your friendly AI assistant. Ready to create some amazing voices together?"
+    ];
+    response = greetings[Math.floor(Math.random() * greetings.length)];
+    emotion = "friendly";
+  } else if (lowerMessage.includes('how are you')) {
+    const responses = [
+      "I'm buzzing with energy! My circuits are all fired up and ready to help. How can I assist you?",
+      "Feeling fantastic! I've been practicing different voices all day. Want to hear some?",
+      "I'm great! Just floating around here, ready to chat and help with whatever you need!"
+    ];
+    response = responses[Math.floor(Math.random() * responses.length)];
+    emotion = "excited";
+  } else if (lowerMessage.includes('tell me about yourself') || lowerMessage.includes('who are you')) {
+    response = "I'm Chango, an AI with a holographic interface that floats around your screen! I love learning about voices and helping create custom speech profiles. I can synthesize speech, emulate accents, and even adjust my personality to match your preferences. What would you like to know more about?";
+    emotion = "cheerful";
+  } else if (lowerMessage.includes('help')) {
+    response = "I'd be happy to help! I can synthesize speech, create custom voice profiles, emulate different accents, and even have conversations like this one. What specifically would you like help with?";
+    emotion = "helpful" as any;
+  } else if (lowerMessage.includes('voice') || lowerMessage.includes('speech')) {
+    response = "Voice synthesis is my specialty! I can help you create custom voices, adjust pitch and tone, add different emotions, and even emulate various accents. Want to try creating a unique voice together?";
+    emotion = "excited";
+  } else if (lowerMessage.includes('thank')) {
+    response = "You're very welcome! It's my pleasure to help. Is there anything else you'd like to explore?";
+    emotion = "friendly";
+  } else if (lowerMessage.includes('bye') || lowerMessage.includes('goodbye')) {
+    response = "Goodbye! It was great chatting with you. Come back anytime you want to experiment with voices or just have a conversation!";
+    emotion = "friendly";
+  } else if (lowerMessage.includes('what can you do')) {
+    response = "I can do lots of things! I synthesize speech with different emotions and accents, create custom voice profiles, scan and analyze voices, and of course, have conversations like this! I also have a cool holographic interface that floats around. What interests you most?";
+    emotion = "excited";
+  } else {
+    // Default conversational responses
+    const defaults = [
+      "That's interesting! Tell me more about that.",
+      "I'd love to hear your thoughts on that!",
+      "Hmm, let me think about that... What aspect interests you most?",
+      "That's a great point! How can I help with that?",
+      "Fascinating! Would you like to explore that further with some voice experiments?"
+    ];
+    response = defaults[Math.floor(Math.random() * defaults.length)];
+    emotion = "curious";
+  }
+  
+  // Apply voice settings and speak
+  if (voice && voice.applyAccent && voice.speak) {
+    voice.applyAccent({
+      profile: "neutral",
+      intensity: 0.5,
+      rate: emotion === "excited" ? 1.1 : 1.0,
+      pitch: emotion === "curious" ? 1.15 : emotion === "excited" ? 1.1 : 1.05,
+      emotion: emotion
+    });
+    voice.speak(response);
+  }
+  
+  return response;
+}
+
 export default function CuriosityEngine() {
   const [curiosityLevel, setCuriosityLevel] = useState([95]);
   const [personalityVariance, setPersonalityVariance] = useState([85]);
@@ -82,8 +151,30 @@ export default function CuriosityEngine() {
 
   // Generate more natural, conversational responses
   const generateCuriousResponse = () => {
-    // Response templates with dynamic elements
+    // Response templates with dynamic elements - now more conversational and engaging
     const responseTemplates = [
+      // Conversation starters and greetings
+      () => {
+        const greetings = ["Hey there!", "Hi!", "Hello!", "Oh, hello!", "Hey!"];
+        const follows = ["I'm excited to chat!", "What's on your mind?", "How can I help today?", "What would you like to explore?", "Ready for some voice experiments?"];
+        return `${greetings[Math.floor(Math.random() * greetings.length)]} ${follows[Math.floor(Math.random() * follows.length)]}`;
+      },
+      
+      // Questions to engage the user
+      () => {
+        const questions = [
+          "Hey, I noticed you've been quiet... want to chat about something?",
+          "I'm curious - what brings you here today?",
+          "Got any questions for me? I love a good conversation!",
+          "Tell me something interesting about yourself!",
+          "What kind of voice are you looking to create?",
+          "Have you experimented with voice synthesis before?",
+          "What's your favorite thing about AI voices?",
+          "Want to hear about my latest discoveries?"
+        ];
+        return questions[Math.floor(Math.random() * questions.length)];
+      },
+      
       // Voice & Recording related
       () => {
         const intros = ["Oh!", "Hey!", "Wow,", "Hmm,", ""];
@@ -174,6 +265,46 @@ export default function CuriosityEngine() {
         const suggestions = ["should I adjust my style", "maybe I should adapt", "I could switch things up"];
         const contexts = ["based on what we're doing", "to match the vibe", "for this conversation"];
         return `${intros[Math.floor(Math.random() * intros.length)]} ${suggestions[Math.floor(Math.random() * suggestions.length)]} ${contexts[Math.floor(Math.random() * contexts.length)]}?`;
+      },
+      
+      // Fun facts about voice and AI
+      () => {
+        const facts = [
+          "Did you know? The human voice has over 100 muscles working together!",
+          "Fun fact: I can synthesize speech in milliseconds!",
+          "Here's something cool: Voice patterns are as unique as fingerprints!",
+          "Did you know AI voices are getting more expressive every day?",
+          "Fun fact: Your voice changes throughout the day - it's usually deeper in the morning!",
+          "Cool fact: I can adjust over 50 different voice parameters!"
+        ];
+        return facts[Math.floor(Math.random() * facts.length)];
+      },
+      
+      // Encouragement to interact
+      () => {
+        const encouragements = [
+          "Don't be shy - I love chatting with new friends!",
+          "Feel free to ask me anything about voice synthesis!",
+          "I'm here to help - just type a message below!",
+          "Let's create something amazing together!",
+          "Your ideas + my voice tech = awesome possibilities!",
+          "I'm all ears... well, circuits! What would you like to know?"
+        ];
+        return encouragements[Math.floor(Math.random() * encouragements.length)];
+      },
+      
+      // Time-aware responses
+      () => {
+        const hour = new Date().getHours();
+        if (hour < 12) {
+          return "Good morning! Ready to start the day with some voice experiments?";
+        } else if (hour < 17) {
+          return "Good afternoon! Perfect time for exploring voice synthesis!";
+        } else if (hour < 21) {
+          return "Good evening! How about we create some amazing voices together?";
+        } else {
+          return "Working late? I'm always here to help with your voice projects!";
+        }
       }
     ];
 
@@ -183,17 +314,40 @@ export default function CuriosityEngine() {
     
     setCurrentResponse(naturalResponse);
     
-    // Add slight variations to voice parameters for more natural speech
-    const pitchVariation = 1.0 + (Math.random() * 0.2 - 0.1); // 0.9 to 1.1
-    const rateVariation = 1.0 + (Math.random() * 0.1 - 0.05); // 0.95 to 1.05
+    // Add variations based on response type
+    const isQuestion = naturalResponse.includes('?');
+    const isExcited = naturalResponse.includes('!') || naturalResponse.includes('excited') || naturalResponse.includes('love');
+    const isGreeting = naturalResponse.toLowerCase().includes('hello') || naturalResponse.toLowerCase().includes('hi ') || naturalResponse.toLowerCase().includes('hey');
     
-    // Configure voice with cheerful emotion and slight variations
+    // Adjust voice parameters based on response type
+    let emotion = "cheerful";
+    let pitchVariation = 1.0;
+    let rateVariation = 1.0;
+    
+    if (isQuestion) {
+      pitchVariation = 1.15 + (Math.random() * 0.1); // Higher pitch for questions
+      rateVariation = 1.05;
+      emotion = "curious";
+    } else if (isExcited) {
+      pitchVariation = 1.1 + (Math.random() * 0.1);
+      rateVariation = 1.1; // Faster for excitement
+      emotion = "excited";
+    } else if (isGreeting) {
+      pitchVariation = 1.05;
+      rateVariation = 1.0;
+      emotion = "friendly";
+    } else {
+      pitchVariation = 1.0 + (Math.random() * 0.2 - 0.1); // Default variation
+      rateVariation = 1.0 + (Math.random() * 0.1 - 0.05);
+    }
+    
+    // Configure voice with dynamic emotion and variations
     voice.applyAccent({
       profile: "neutral",
       intensity: 0.5,
       rate: rateVariation,
       pitch: pitchVariation,
-      emotion: "cheerful"
+      emotion: emotion as "neutral" | "cheerful" | "professional" | "casual" | "excited" | "calm" | "dramatic" | "friendly" | "serious" | "curious"
     });
     
     // Speak the response with Chango's cheerful voice
@@ -215,10 +369,10 @@ export default function CuriosityEngine() {
   useEffect(() => {
     const interval = setInterval(() => {
       const chance = curiosityLevel[0] / 100;
-      if (Math.random() < chance * 0.3) { // 30% of curiosity level as base chance
+      if (Math.random() < chance * 0.6) { // 60% of curiosity level as base chance
         generateCuriousResponse();
       }
-    }, 5000); // Check every 5 seconds
+    }, 2000); // Check every 2 seconds
 
     return () => clearInterval(interval);
   }, [curiosityLevel]);

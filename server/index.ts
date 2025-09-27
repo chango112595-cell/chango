@@ -61,6 +61,16 @@ app.post('/chatgpt', async (req: Request, res: Response) => {
         // Enhanced error handling with specific handling for rate limits
         console.error('OpenAI API Error:', error);
         
+        // Check for insufficient quota error
+        if (error.code === 'insufficient_quota' || error.type === 'insufficient_quota') {
+            return res.status(429).json({ 
+                error: 'Insufficient Quota',
+                message: 'Your OpenAI account has exceeded its quota. Please add credits to your OpenAI account to continue using this service.',
+                billingUrl: 'https://platform.openai.com/account/billing',
+                details: 'Visit the billing page to check your usage and add more credits to your account.'
+            });
+        }
+        
         // Check if it's a rate limit error (429)
         if (error.status === 429) {
             return res.status(429).json({ 

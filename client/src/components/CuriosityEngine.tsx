@@ -6,6 +6,7 @@ import { Slider } from "@/components/ui/slider";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
 import type { CuriosityLog } from "@shared/schema";
 
 interface CuriositySettings {
@@ -23,6 +24,9 @@ export default function CuriosityEngine() {
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  
+  // Initialize voice synthesis with Chango's cheerful personality
+  const voice = useVoiceSynthesis();
 
   // Load recent curiosity logs
   const { data: logsData } = useQuery({
@@ -31,6 +35,19 @@ export default function CuriosityEngine() {
   });
 
   const logs = ((logsData as any)?.logs || []) as CuriosityLog[];
+
+  // Enable voice synthesis and configure Chango's voice on mount
+  useEffect(() => {
+    voice.enable();
+    // Configure Chango's cheerful personality
+    voice.applyAccent({
+      profile: "neutral",
+      intensity: 0.5,
+      rate: 1.0,
+      pitch: 1.1, // Slightly higher pitch for cheerful tone
+      emotion: "cheerful" // Chango's default cheerful emotion
+    });
+  }, []);
 
   // Add curiosity log mutation
   const addLogMutation = useMutation({
@@ -84,6 +101,9 @@ export default function CuriosityEngine() {
 
     const randomResponse = responses[Math.floor(Math.random() * responses.length)];
     setCurrentResponse(randomResponse);
+    
+    // Speak the response with Chango's cheerful voice
+    voice.speak(randomResponse);
 
     // Log the curiosity response
     addLogMutation.mutate({
@@ -205,6 +225,13 @@ export default function CuriosityEngine() {
           >
             {updateSettingsMutation.isPending ? "Adjusting..." : "Adjust Personality"}
           </Button>
+          
+          {voice.isPlaying && (
+            <div className="flex items-center space-x-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <span className="text-xs text-muted-foreground">Speaking...</span>
+            </div>
+          )}
 
           {logs.length > 0 && (
             <div className="mt-4 pt-4 border-t border-border">

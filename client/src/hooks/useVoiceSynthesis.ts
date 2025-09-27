@@ -44,62 +44,85 @@ export function useVoiceSynthesis() {
   const lastUtteranceRef = useRef<string>("");
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const isCancelledRef = useRef<boolean>(false);
+  const isEnabledRef = useRef<boolean>(false); // Track enabled state immediately
 
   const enable = useCallback(() => {
-    if ("speechSynthesis" in window) {
-      let attempts = 0;
-      const maxAttempts = 10;
-      
-      const loadVoices = () => {
-        const voices = speechSynthesis.getVoices();
-        console.log("Available voices:", voices.length, "Attempt:", attempts + 1);
+    console.log("[VoiceSynthesis] Starting enable process...");
+    
+    return new Promise<boolean>((resolve) => {
+      if ("speechSynthesis" in window) {
+        let attempts = 0;
+        const maxAttempts = 10;
+        let resolved = false;
         
-        if (voices.length > 0) {
-          // Test utterance to enable speech synthesis
-          const testUtterance = new SpeechSynthesisUtterance("");
-          speechSynthesis.speak(testUtterance);
+        const loadVoices = () => {
+          if (resolved) return; // Prevent multiple resolutions
           
-          setState(prev => ({ ...prev, isEnabled: true }));
+          const voices = speechSynthesis.getVoices();
+          console.log("[VoiceSynthesis] Available voices:", voices.length, "Attempt:", attempts + 1);
           
-          toast({
-            title: "Voice Enabled",
-            description: "Speech synthesis is now ready to use.",
-          });
-        } else {
-          attempts++;
-          if (attempts < maxAttempts) {
-            // Keep trying to load voices
-            setTimeout(loadVoices, 200);
-          } else {
-            // Enable anyway for environments without voices (like testing)
-            console.log("No voices available, enabling basic synthesis");
+          if (voices.length > 0) {
+            // Test utterance to enable speech synthesis
+            const testUtterance = new SpeechSynthesisUtterance("");
+            speechSynthesis.speak(testUtterance);
+            
+            console.log("[VoiceSynthesis] Voices loaded successfully, enabling synthesis");
+            isEnabledRef.current = true; // Set ref immediately
             setState(prev => ({ ...prev, isEnabled: true }));
             
             toast({
               title: "Voice Enabled",
-              description: "Speech synthesis enabled (basic mode - no voices detected).",
+              description: "Speech synthesis is now ready to use.",
             });
+            
+            resolved = true;
+            resolve(true);
+          } else {
+            attempts++;
+            if (attempts < maxAttempts) {
+              // Keep trying to load voices
+              console.log("[VoiceSynthesis] No voices yet, retrying...");
+              setTimeout(loadVoices, 200);
+            } else {
+              // Enable anyway for environments without voices (like testing)
+              console.log("[VoiceSynthesis] Max attempts reached, enabling basic synthesis");
+              isEnabledRef.current = true; // Set ref immediately
+              setState(prev => ({ ...prev, isEnabled: true }));
+              
+              toast({
+                title: "Voice Enabled",
+                description: "Speech synthesis enabled (basic mode - no voices detected).",
+              });
+              
+              resolved = true;
+              resolve(true);
+            }
           }
-        }
-      };
+        };
 
-      // Setup voice change listener
-      speechSynthesis.onvoiceschanged = loadVoices;
-      
-      // Start loading voices
-      loadVoices();
-    } else {
-      toast({
-        title: "Speech Synthesis Unavailable",
-        description: "Your browser doesn't support speech synthesis.",
-        variant: "destructive",
-      });
-    }
+        // Setup voice change listener
+        speechSynthesis.onvoiceschanged = () => {
+          console.log("[VoiceSynthesis] Voices changed event fired");
+          loadVoices();
+        };
+        
+        // Start loading voices
+        loadVoices();
+      } else {
+        console.error("[VoiceSynthesis] Speech synthesis not supported");
+        toast({
+          title: "Speech Synthesis Unavailable",
+          description: "Your browser doesn't support speech synthesis.",
+          variant: "destructive",
+        });
+        resolve(false);
+      }
+    });
   }, [toast]);
 
   // Execute a prosody plan step-by-step
   const executeProsodyPlan = useCallback(async (plan: ProsodyStep[], originalText: string) => {
-    console.log("Executing prosody plan:", plan);
+    console.log("[VoiceSynthesis] Executing prosody plan:", plan.length, "steps");
     isCancelledRef.current = false;
     
     const voices = speechSynthesis.getVoices();
@@ -107,7 +130,7 @@ export function useVoiceSynthesis() {
 
     for (const step of plan) {
       if (isCancelledRef.current) {
-        console.log("Prosody plan execution cancelled");
+        console.log("[VoiceSynthesis] Prosody plan execution cancelled");
         break;
       }
 
@@ -143,13 +166,13 @@ export function useVoiceSynthesis() {
       }
     }
     
-    console.log("Prosody plan execution completed");
+    console.log("[VoiceSynthesis] Prosody plan execution completed");
     setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
   }, []);
 
   // Fallback to local synthesis
   const fallbackLocalSynthesis = useCallback((text: string) => {
-    console.log("Using fallback local synthesis");
+    console.log("[VoiceSynthesis] Using fallback local synthesis for text:", text.slice(0, 50));
     
     // Apply accent transformation locally
     const processedText = applyAccentToText(text, state.accentConfig);
@@ -202,12 +225,33 @@ export function useVoiceSynthesis() {
 
   // Main speak function with CVE integration
   const speak = useCallback(async (text: string) => {
-    if (!state.isEnabled || !text.trim()) {
-      console.log("Speech blocked:", { enabled: state.isEnabled, hasText: !!text.trim() });
+    if (!isEnabledRef.current || !text.trim()) {
+      console.log("[VoiceSynthesis] Speech blocked:", { 
+        enabled: isEnabledRef.current, 
+        stateEnabled: state.isEnabled,
+        hasText: !!text.trim(),
+        text: text.slice(0, 50) + (text.length > 50 ? '...' : '')
+      });
+      
+      // Try to enable again if not enabled
+      if (!isEnabledRef.current && "speechSynthesis" in window) {
+        console.log("[VoiceSynthesis] Attempting to re-enable...");
+        const enabled = await enable();
+        if (enabled) {
+          console.log("[VoiceSynthesis] Re-enabled successfully, retrying speak");
+          // Retry speaking after re-enabling
+          setTimeout(() => speak(text), 100);
+        }
+      }
       return;
     }
 
-    console.log("Starting speech synthesis with CVE:", { text, config: state.accentConfig });
+    console.log("[VoiceSynthesis] Starting speech synthesis with CVE:", { 
+      text: text.slice(0, 50) + (text.length > 50 ? '...' : ''),
+      config: state.accentConfig,
+      enabled: isEnabledRef.current,
+      stateEnabled: state.isEnabled
+    });
 
     // Stop any ongoing speech
     speechSynthesis.cancel();

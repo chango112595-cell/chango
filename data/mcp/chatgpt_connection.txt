@@ -1,0 +1,1 @@
+ChatGPT successfully connected to Chango AI MCP server!

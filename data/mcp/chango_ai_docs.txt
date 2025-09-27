@@ -1,0 +1,38 @@
+Chango AI Documentation
+=======================
+
+Chango AI is an advanced voice synthesis and holographic interface system that provides:
+
+1. Voice Synthesis Features:
+   - Custom Chango Voice Engine (CVE) with natural prosody
+   - Multiple accent profiles (British RP, Southern US, Australian, Irish, etc.)
+   - Emotional variations in speech (cheerful, thoughtful, dramatic)
+   - Dynamic pitch, rate, and volume modulation
+   - Phrase-level synthesis for natural conversation
+
+2. Holographic Interface:
+   - Interactive 3D particle-based visualization
+   - Two modes: Awakened (active) and Sentinel (monitoring)
+   - Real-time response to voice and user interaction
+   - Quantum flux animations and particle effects
+
+3. AI Integration:
+   - ChatGPT API integration for intelligent responses
+   - Curiosity Engine for contextual learning
+   - MCP (Model Context Protocol) server for external connectivity
+   - Real-time system diagnostics and monitoring
+
+4. Technical Architecture:
+   - React/TypeScript frontend with advanced animations
+   - Node.js/Express backend with PostgreSQL database
+   - Drizzle ORM for type-safe database operations
+   - TanStack Query for efficient state management
+   - WebSocket support for real-time features
+
+5. Voice Processing Capabilities:
+   - Text-to-speech with accent emulation
+   - Voice profile learning from audio samples
+   - Audio feature extraction and analysis
+   - Custom prosody rules for natural speech patterns
+
+This system represents the cutting edge of conversational AI interfaces.

@@ -16,10 +16,10 @@ interface CuriositySettings {
 }
 
 export default function CuriosityEngine() {
-  const [curiosityLevel, setCuriosityLevel] = useState([75]);
-  const [personalityVariance, setPersonalityVariance] = useState([75]);
-  const [learningRate, setLearningRate] = useState([60]);
-  const [currentResponse, setCurrentResponse] = useState("");
+  const [curiosityLevel, setCuriosityLevel] = useState([95]);
+  const [personalityVariance, setPersonalityVariance] = useState([85]);
+  const [learningRate, setLearningRate] = useState([75]);
+  const [currentResponse, setCurrentResponse] = useState("Hello! I'm Chango, your AI assistant. I'm here to help with voice synthesis and more!");
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -72,6 +72,14 @@ export default function CuriosityEngine() {
       "I think your last assumption conflicts with earlier notes. Want a quick check?",
       "Should I adapt my response style based on the current conversation context?",
       "I've detected some interesting patterns in your voice preferences. Explore them?",
+      "Ready to synthesize speech! Try the TextToSpeech controls below.",
+      "I can help you create custom voice profiles. Just record your voice!",
+      "Did you know? I support multiple TTS routes including ElevenLabs and Azure.",
+      "The holographic interface is active. I'm floating around your screen!",
+      "System diagnostics show everything is running smoothly.",
+      "Want to try a different accent? Check out the Accent Emulator!",
+      "I'm learning from your voice patterns. Keep experimenting!",
+      "My curiosity level is set to very high - I'm eager to help!",
     ];
 
     const randomResponse = responses[Math.floor(Math.random() * responses.length)];
@@ -93,10 +101,10 @@ export default function CuriosityEngine() {
   useEffect(() => {
     const interval = setInterval(() => {
       const chance = curiosityLevel[0] / 100;
-      if (Math.random() < chance * 0.1) { // 10% of curiosity level as base chance
+      if (Math.random() < chance * 0.3) { // 30% of curiosity level as base chance
         generateCuriousResponse();
       }
-    }, 10000); // Check every 10 seconds
+    }, 5000); // Check every 5 seconds
 
     return () => clearInterval(interval);
   }, [curiosityLevel]);

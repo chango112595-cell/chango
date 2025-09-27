@@ -38,17 +38,10 @@ export default function Chat() {
   // Enable voice on mount
   useEffect(() => {
     voice.enable();
-    // Speak the welcome message with cheerful voice
-    voice.applyAccent({
-      profile: "neutral",
-      intensity: 0.5,
-      rate: 1.0,
-      pitch: 1.1,
-      emotion: "friendly"
-    });
     // Mark chat as active when speaking
     speechCoordination.setChatActive(true);
     speechCoordination.setLastChatActivity(Date.now());
+    // Speak the welcome message without changing global voice settings
     voice.speak("Hey there! I'm Chango, your AI companion. What would you like to explore today?");
     // Clear chat active after a delay
     setTimeout(() => {

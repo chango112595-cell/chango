@@ -100,17 +100,10 @@ export default function CuriosityEngine() {
 
   const logs = ((logsData as any)?.logs || []) as CuriosityLog[];
 
-  // Enable voice synthesis and configure Chango's voice on mount
+  // Enable voice synthesis on mount (without changing global settings)
   useEffect(() => {
     voice.enable();
-    // Configure Chango's stable default personality (only set once)
-    voice.applyAccent({
-      profile: "neutral",
-      intensity: 0.5,
-      rate: 1.0,
-      pitch: 1.05, // Stable, slightly elevated pitch
-      emotion: "cheerful" // Chango's consistent cheerful emotion
-    });
+    // Do not modify global voice settings - let the user control them through AccentEmulator
   }, []);
 
   // Add curiosity log mutation

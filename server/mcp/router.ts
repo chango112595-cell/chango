@@ -24,6 +24,25 @@ interface WriteFileResponse {
   written?: number;
 }
 
+interface SearchRequest {
+  query: string;
+}
+
+interface SearchResponse {
+  results: string[];
+}
+
+interface FetchRequest {
+  id: string;
+}
+
+interface FetchResponse {
+  id: string;
+  title: string;
+  content: string;
+  metadata?: Record<string, any>;
+}
+
 // Create router instance
 export const mcpRouter: Router = express.Router();
 
@@ -57,9 +76,19 @@ mcpRouter.get("/", (req: Request, res: Response<MCPDiscoveryResponse | { error: 
   const response: MCPDiscoveryResponse = {
     tools: [
       {
+        name: "search",
+        path: "/mcp/search",
+        description: "Search for files and content in the MCP storage. Takes a query string and returns matching file IDs."
+      },
+      {
+        name: "fetch",
+        path: "/mcp/fetch",
+        description: "Fetch the complete content of a file by its ID. Returns the full file data for analysis."
+      },
+      {
         name: "mcp_token_write_file",
         path: "/mcp/write_file",
-        description: "Create or overwrite a UTF-8 text file"
+        description: "Create or overwrite a UTF-8 text file in the MCP storage"
       }
     ]
   };
@@ -118,6 +147,125 @@ mcpRouter.post("/write_file", express.json({ limit: "1mb" }), async (req: Reques
     };
     
     res.status(500).json(response);
+  }
+});
+
+// POST /mcp/search - Search for files and content
+mcpRouter.post("/search", express.json({ limit: "1mb" }), async (req: Request<{}, {}, SearchRequest>, res: Response<SearchResponse | { error: string }>) => {
+  if (!authenticate(req, res)) return;
+  
+  const { query } = req.body || {};
+  
+  // Validate request parameters
+  if (!query || typeof query !== "string") {
+    return res.status(400).json({ error: "invalid_args: query is required" });
+  }
+  
+  console.log(`[MCP] Search request: ${query}`);
+  
+  try {
+    const safeBasePath = path.resolve(process.cwd(), "data", "mcp");
+    
+    // Ensure directory exists
+    await fs.promises.mkdir(safeBasePath, { recursive: true });
+    
+    // Read all files in the directory
+    const files = await fs.promises.readdir(safeBasePath);
+    const results: string[] = [];
+    
+    // Search through files
+    for (const file of files) {
+      const filePath = path.join(safeBasePath, file);
+      const stats = await fs.promises.stat(filePath);
+      
+      if (stats.isFile()) {
+        try {
+          const content = await fs.promises.readFile(filePath, "utf-8");
+          const lowerQuery = query.toLowerCase();
+          const lowerContent = content.toLowerCase();
+          const lowerFileName = file.toLowerCase();
+          
+          // Check if query matches filename or content
+          if (lowerFileName.includes(lowerQuery) || lowerContent.includes(lowerQuery)) {
+            results.push(file); // Use filename as ID
+          }
+        } catch (readError) {
+          console.error(`[MCP] Error reading file ${file}:`, readError);
+        }
+      }
+    }
+    
+    console.log(`[MCP] Search found ${results.length} results`);
+    
+    const response: SearchResponse = {
+      results
+    };
+    
+    res.json(response);
+  } catch (error) {
+    console.error(`[MCP] Error searching files:`, error);
+    
+    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+    res.status(500).json({ error: `Search failed: ${errorMessage}` });
+  }
+});
+
+// POST /mcp/fetch - Fetch file content by ID
+mcpRouter.post("/fetch", express.json({ limit: "1mb" }), async (req: Request<{}, {}, FetchRequest>, res: Response<FetchResponse | { error: string }>) => {
+  if (!authenticate(req, res)) return;
+  
+  const { id } = req.body || {};
+  
+  // Validate request parameters
+  if (!id || typeof id !== "string") {
+    return res.status(400).json({ error: "invalid_args: id is required" });
+  }
+  
+  console.log(`[MCP] Fetch request: ${id}`);
+  
+  try {
+    const safeBasePath = path.resolve(process.cwd(), "data", "mcp");
+    
+    // Sanitize the ID to prevent path traversal
+    const fileName = path.basename(id);
+    const filePath = path.join(safeBasePath, fileName);
+    
+    // Security check: ensure the resolved path is within the safe directory
+    if (!filePath.startsWith(safeBasePath)) {
+      console.error(`[MCP] Security violation: attempted to fetch outside safe directory: ${id}`);
+      return res.status(400).json({ error: "invalid_args: invalid file ID" });
+    }
+    
+    // Check if file exists
+    try {
+      await fs.promises.access(filePath, fs.constants.R_OK);
+    } catch {
+      return res.status(404).json({ error: `File not found: ${id}` });
+    }
+    
+    // Read the file content
+    const content = await fs.promises.readFile(filePath, "utf-8");
+    const stats = await fs.promises.stat(filePath);
+    
+    console.log(`[MCP] Successfully fetched file: ${fileName}`);
+    
+    const response: FetchResponse = {
+      id: fileName,
+      title: fileName,
+      content: content,
+      metadata: {
+        size: stats.size,
+        modified: stats.mtime.toISOString(),
+        created: stats.ctime.toISOString()
+      }
+    };
+    
+    res.json(response);
+  } catch (error) {
+    console.error(`[MCP] Error fetching file:`, error);
+    
+    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+    res.status(500).json({ error: `Fetch failed: ${errorMessage}` });
   }
 });
 

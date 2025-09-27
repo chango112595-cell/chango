@@ -61,7 +61,7 @@ app.post('/chatgpt', async (req: Request, res: Response) => {
         // Enhanced error handling with specific handling for rate limits
         console.error('OpenAI API Error:', error);
         
-        // Check for insufficient quota error
+        // Check for insufficient quota error FIRST (more specific error)
         if (error.code === 'insufficient_quota' || error.type === 'insufficient_quota') {
             return res.status(429).json({ 
                 error: 'Insufficient Quota',
@@ -71,7 +71,7 @@ app.post('/chatgpt', async (req: Request, res: Response) => {
             });
         }
         
-        // Check if it's a rate limit error (429)
+        // Check if it's a generic rate limit error (429) - less specific
         if (error.status === 429) {
             return res.status(429).json({ 
                 error: 'Rate Limit Exceeded',

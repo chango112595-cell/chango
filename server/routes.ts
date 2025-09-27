@@ -485,6 +485,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Mount Chango Voice Engine routes
+  const voiceRouter = require("./routes/voice");
+  app.use("/api", voiceRouter);
+
   const httpServer = createServer(app);
   return httpServer;
 }

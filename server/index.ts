@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import dotenv from "dotenv";
 import { mcpRouter } from "./mcp/router";
 import powerRouter from "./routes/power";
+import devWriteRouter from "./routes/devWrite";
 dotenv.config(); // Load environment variables
 
 // Initialize OpenAI client with API key from environment variable
@@ -43,6 +44,9 @@ app.use('/mcp', mcpRouter);
 
 // Mount Power router under /api path
 app.use('/api', powerRouter);
+
+// Mount Dev Write router under /api path
+app.use('/api', devWriteRouter);
 
 // ChatGPT endpoint using OpenAI SDK
 app.post('/chatgpt', async (req: Request, res: Response) => {

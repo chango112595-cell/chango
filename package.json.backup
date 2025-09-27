@@ -106,6 +106,7 @@
     "vite": "^7.1.7"
   },
   "optionalDependencies": {
-    "bufferutil": "^4.0.8" 
-  }
+    "bufferutil": "^4.0.8"
+  },
+    "scripts": { "start": "node src/server.js" }
 }

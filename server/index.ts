@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import OpenAI from "openai";
 import dotenv from "dotenv";
+import { mcpRouter } from "./mcp/router";
 dotenv.config(); // Load environment variables
 
 // Initialize OpenAI client with API key from environment variable
@@ -35,6 +36,10 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// Mount MCP router under /mcp path
+app.use('/mcp', mcpRouter);
+
 // ChatGPT endpoint using OpenAI SDK
 app.post('/chatgpt', async (req: Request, res: Response) => {
     const userMessage = req.body.message;

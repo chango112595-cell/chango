@@ -1,0 +1,150 @@
+Yep — put the MCP server bits inside the backend of your Chango AI project (the service that will expose /mcp to me). Here’s the clean way to drop it in, depending on your stack.
+
+If you’re using Node/Express
+	1.	Create a router: src/mcp/router.js
+
+import express from "express";
+export const mcpRouter = express.Router();
+
+function getToken(req){
+  const h = req.headers["authorization"];
+  if (h?.startsWith("Bearer ")) return h.slice(7);
+  return req.query.token;
+}
+function auth(req, res){ 
+  if (getToken(req) !== process.env.MCP_TOKEN) {
+    res.status(403).json({ error: "forbidden" });
+    return false;
+  }
+  return true;
+}
+
+// discovery
+mcpRouter.get("/", (req, res) => {
+  if (!auth(req, res)) return;
+  res.json({
+    tools: [
+      {
+        name: "mcp_token_write_file",
+        path: "/mcp/write_file",
+        description: "Create or overwrite a UTF-8 text file",
+      },
+    ],
+  });
+});
+
+// invoke
+mcpRouter.post("/write_file", express.json({ limit: "1mb" }), (req, res) => {
+  if (!auth(req, res)) return;
+  const { path, content } = req.body || {};
+  if (!path || typeof content !== "string") return res.status(400).json({ error: "invalid_args" });
+  console.log("[write]", path, content.length, "bytes");
+  // TODO: actually write the file if your environment permits
+  res.json({ ok: true });
+});
+
+	2.	Mount it in your server: src/server.js
+
+import express from "express";
+import { mcpRouter } from "./mcp/router.js";
+
+const app = express();
+
+// quick health
+app.get("/healthz", (req, res) => res.status(200).send("ok"));
+
+// (optional) minimal req logging during debug
+app.use((req, _res, next) => {
+  console.log(`[req] ${new Date().toISOString()} ${req.method} ${req.path} qs=${JSON.stringify(req.query)}`);
+  next();
+});
+
+// mount MCP under /mcp
+app.use("/mcp", mcpRouter);
+
+// bind as Replit expects
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, "0.0.0.0", () => console.log("listening", PORT));
+
+	3.	Env + start script
+
+	•	Set MCP_TOKEN=mcp-connect-chatgpt in Replit Secrets.
+	•	In package.json:
+
+{
+  "scripts": { "start": "node src/server.js" }
+}
+
+	•	Ensure .replit runs npm start.
+
+	4.	Public URL you’ll share
+
+https://<your>.riker.replit.dev/mcp?token=mcp-connect-chatgpt
+
+(Your server accepts ?token= or Authorization: Bearer.)
+
+If you’re using Python/FastAPI
+
+Drop this alongside your app:
+
+# mcp.py
+import os
+from fastapi import APIRouter, Request, HTTPException
+from pydantic import BaseModel
+
+router = APIRouter()
+MCP_TOKEN = os.getenv("MCP_TOKEN", "mcp-connect-chatgpt")
+
+def authed(req: Request):
+    h = req.headers.get("authorization", "")
+    token = h[7:] if h.startswith("Bearer ") else req.query_params.get("token")
+    if token != MCP_TOKEN:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+@router.get("/mcp")
+async def discovery(req: Request):
+    authed(req)
+    return {"tools":[{"name":"mcp_token_write_file","path":"/mcp/write_file","description":"Create or overwrite a UTF-8 text file"}]}
+
+class WriteReq(BaseModel):
+    path: str
+    content: str
+
+@router.post("/mcp/write_file")
+async def write_file(req: Request, body: WriteReq):
+    authed(req)
+    # TODO: actually write if desired
+    print("[write]", body.path, len(body.content))
+    return {"ok": True}
+
+Mount it:
+
+# main.py
+from fastapi import FastAPI
+from mcp import router as mcp_router
+
+app = FastAPI()
+
+@app.get("/healthz")
+def healthz(): return "ok"
+
+app.include_router(mcp_router)
+
+Run with Uvicorn, bind to 0.0.0.0 and $PORT.
+
+Project placement notes
+	•	Put this in the same web server Chango AI uses if it already serves HTTP. Otherwise, create a tiny sidecar server in the same repl.
+	•	Keep token in env, not hardcoded.
+	•	Replit must see your app listening on $PORT and 0.0.0.0.
+	•	If Chango AI is serverless-only, you’ll still need a small persistent web process for MCP.
+
+Quick validation (inside Replit Shell)
+
+echo "PORT=$PORT"
+curl -i "http://localhost:$PORT/healthz"
+curl -i "http://localhost:$PORT/mcp?token=mcp-connect-chatgpt"
+curl -i -X POST "http://localhost:$PORT/mcp/write_file?token=mcp-connect-chatgpt" \
+  -H "Content-Type: application/json" \
+  --data '{"path":"/tmp/mcp_test.txt","content":"hello"}'
+
+Then test the public URL the same way. When those return 200/JSON, tell me and I’ll run the end-to-end write test from here.

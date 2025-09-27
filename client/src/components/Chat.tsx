@@ -8,6 +8,7 @@ import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
 import { generateChatResponse } from "./CuriosityEngine";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useSpeechCoordination } from "@/lib/speechCoordination";
 
 interface Message {
   id: string;
@@ -32,6 +33,7 @@ export default function Chat() {
   
   // Initialize voice synthesis
   const voice = useVoiceSynthesis();
+  const speechCoordination = useSpeechCoordination();
   
   // Enable voice on mount
   useEffect(() => {
@@ -44,7 +46,14 @@ export default function Chat() {
       pitch: 1.1,
       emotion: "friendly"
     });
+    // Mark chat as active when speaking
+    speechCoordination.setChatActive(true);
+    speechCoordination.setLastChatActivity(Date.now());
     voice.speak("Hey there! I'm Chango, your AI companion. What would you like to explore today?");
+    // Clear chat active after a delay
+    setTimeout(() => {
+      speechCoordination.setChatActive(false);
+    }, 3000);
   }, []);
 
   // Auto-scroll to bottom when new messages arrive
@@ -87,6 +96,10 @@ export default function Chat() {
     setInputValue("");
     setIsTyping(true);
     
+    // Mark chat as active
+    speechCoordination.setChatActive(true);
+    speechCoordination.setLastChatActivity(Date.now());
+    
     // Generate and add Chango's response after a brief delay
     setTimeout(() => {
       const response = generateChatResponse(userMessage, voice);
@@ -105,6 +118,11 @@ export default function Chat() {
         userMessage: userMessage,
         changoResponse: response,
       });
+      
+      // Clear chat active after speech completes (estimated)
+      setTimeout(() => {
+        speechCoordination.setChatActive(false);
+      }, 5000); // Give enough time for the response to be spoken
     }, 500 + Math.random() * 500); // 500-1000ms delay for natural feel
   };
 
@@ -200,7 +218,13 @@ export default function Chat() {
             <Input
               ref={inputRef}
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              onChange={(e) => {
+                setInputValue(e.target.value);
+                // Mark chat activity when user is typing
+                if (e.target.value.trim()) {
+                  speechCoordination.setLastChatActivity(Date.now());
+                }
+              }}
               onKeyPress={handleKeyPress}
               placeholder="Type your message..."
               disabled={isTyping}

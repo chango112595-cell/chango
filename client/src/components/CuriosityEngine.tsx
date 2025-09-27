@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
+import { useSpeechCoordination } from "@/lib/speechCoordination";
 import type { CuriosityLog } from "@shared/schema";
 
 interface CuriositySettings {
@@ -96,6 +97,7 @@ export default function CuriosityEngine() {
   
   // Initialize voice synthesis with Chango's cheerful personality
   const voice = useVoiceSynthesis();
+  const speechCoordination = useSpeechCoordination();
 
   // Load recent curiosity logs
   const { data: logsData } = useQuery({
@@ -151,6 +153,16 @@ export default function CuriosityEngine() {
 
   // Generate more natural, conversational responses
   const generateCuriousResponse = () => {
+    // Don't generate response if speech is already active or chat was recently active
+    if (voice.isSpeaking()) {
+      console.log("[CuriosityEngine] Skipping response - already speaking");
+      return;
+    }
+    
+    if (!speechCoordination.canCuriositySpeak()) {
+      console.log("[CuriosityEngine] Skipping response - chat recently active");
+      return;
+    }
     // Response templates with dynamic elements - now more conversational and engaging
     const responseTemplates = [
       // Conversation starters and greetings
@@ -368,14 +380,17 @@ export default function CuriosityEngine() {
   // Auto-generate responses based on curiosity level
   useEffect(() => {
     const interval = setInterval(() => {
-      const chance = curiosityLevel[0] / 100;
-      if (Math.random() < chance * 0.6) { // 60% of curiosity level as base chance
-        generateCuriousResponse();
+      // Check if we can speak before rolling the dice
+      if (!voice.isSpeaking() && speechCoordination.canCuriositySpeak()) {
+        const chance = curiosityLevel[0] / 100;
+        if (Math.random() < chance * 0.6) { // 60% of curiosity level as base chance
+          generateCuriousResponse();
+        }
       }
     }, 2000); // Check every 2 seconds
 
     return () => clearInterval(interval);
-  }, [curiosityLevel]);
+  }, [curiosityLevel, voice, speechCoordination, generateCuriousResponse]);
 
   const handleAdjustPersonality = () => {
     updateSettingsMutation.mutate({

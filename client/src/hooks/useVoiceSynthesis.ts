@@ -10,12 +10,14 @@ interface VoiceSynthesisState {
 }
 
 interface ProsodyStep {
-  type: "word" | "pause";
-  w?: string; // word text
+  type: "word" | "pause" | "phrase";
+  w?: string; // word text (legacy)
+  text?: string; // phrase text with punctuation
   rate?: number;
   pitch?: number;
   volume?: number;
   ms?: number; // pause duration
+  emotion?: string; // emotion context
 }
 
 interface CVEResponse {
@@ -126,7 +128,14 @@ export function useVoiceSynthesis() {
     isCancelledRef.current = false;
     
     const voices = speechSynthesis.getVoices();
-    const defaultVoice = voices.find(voice => voice.default) || voices[0];
+    
+    // Prefer high-quality voices
+    const preferredVoice = voices.find(voice => 
+      voice.name.includes("Google") || 
+      voice.name.includes("Natural") || 
+      voice.name.includes("Premium") ||
+      voice.name.includes("Enhanced")
+    ) || voices.find(voice => voice.default) || voices[0];
 
     for (const step of plan) {
       if (isCancelledRef.current) {
@@ -134,14 +143,40 @@ export function useVoiceSynthesis() {
         break;
       }
 
-      if (step.type === "word" && step.w) {
-        // Speak a word with specified parameters
+      if (step.type === "phrase" && step.text) {
+        // Speak a phrase with specified parameters (new phrase-level synthesis)
+        await new Promise<void>((resolve) => {
+          const utterance = new SpeechSynthesisUtterance(step.text);
+          utteranceRef.current = utterance;
+          
+          if (preferredVoice) {
+            utterance.voice = preferredVoice;
+          }
+          
+          // Apply prosody parameters from the plan
+          utterance.rate = step.rate !== undefined ? Math.max(0.1, Math.min(10, step.rate)) : 1.0;
+          utterance.pitch = step.pitch !== undefined ? Math.max(0, Math.min(2, step.pitch)) : 1.0;
+          utterance.volume = step.volume !== undefined ? Math.max(0, Math.min(1, step.volume)) : 1.0;
+          
+          utterance.onend = () => {
+            resolve();
+          };
+          
+          utterance.onerror = (event) => {
+            console.error("Error speaking phrase:", step.text, event);
+            resolve(); // Continue with next phrase even if error
+          };
+          
+          speechSynthesis.speak(utterance);
+        });
+      } else if (step.type === "word" && step.w) {
+        // Legacy word-by-word support for backward compatibility
         await new Promise<void>((resolve) => {
           const utterance = new SpeechSynthesisUtterance(step.w);
           utteranceRef.current = utterance;
           
-          if (defaultVoice) {
-            utterance.voice = defaultVoice;
+          if (preferredVoice) {
+            utterance.voice = preferredVoice;
           }
           
           // Apply prosody parameters from the plan
@@ -180,10 +215,16 @@ export function useVoiceSynthesis() {
     const utterance = new SpeechSynthesisUtterance(processedText);
     utteranceRef.current = utterance;
 
-    // Get available voices and use default
+    // Get available voices and prefer high-quality ones
     const voices = speechSynthesis.getVoices();
     if (voices.length > 0) {
-      utterance.voice = voices.find(voice => voice.default) || voices[0];
+      const preferredVoice = voices.find(voice => 
+        voice.name.includes("Google") || 
+        voice.name.includes("Natural") || 
+        voice.name.includes("Premium") ||
+        voice.name.includes("Enhanced")
+      ) || voices.find(voice => voice.default) || voices[0];
+      utterance.voice = preferredVoice;
     }
 
     // Apply voice parameters with safe bounds

@@ -9,8 +9,8 @@ r.post('/voice/plan', (req, res) => {
     if (!text || typeof text !== 'string') {
       return res.status(400).json({ ok: false, error: 'text required' });
     }
-    const tokens = tokenize(text);
-    const plan = planProsody(tokens, { accent, intensity: +intensity, emotion });
+    // Use the new phrase-based API directly with text
+    const plan = planProsody(text, { accent, intensity: +intensity, emotion });
     return res.json({ ok: true, ...plan });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e.message || e) });

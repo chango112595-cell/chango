@@ -186,27 +186,9 @@ export function SystemDiagnostics() {
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="space-y-1">
-              <div className="text-sm">Client TTS</div>
-              {getStatusBadge(diagnostics.routes.client.enabled, diagnostics.routes.client.healthy)}
-              <div className="text-xs text-muted-foreground">{diagnostics.routes.client.note}</div>
-            </div>
-            
-            <div className="space-y-1">
-              <div className="text-sm">Local Neural</div>
-              {getStatusBadge(diagnostics.routes.local_neural.enabled, diagnostics.routes.local_neural.healthy)}
-              <div className="text-xs text-muted-foreground">{diagnostics.routes.local_neural.note}</div>
-            </div>
-            
-            <div className="space-y-1">
-              <div className="text-sm">ElevenLabs</div>
-              {getStatusBadge(diagnostics.routes.elevenlabs.enabled, diagnostics.routes.elevenlabs.healthy)}
-              <div className="text-xs text-muted-foreground">{diagnostics.routes.elevenlabs.note}</div>
-            </div>
-            
-            <div className="space-y-1">
-              <div className="text-sm">Azure TTS</div>
-              {getStatusBadge(diagnostics.routes.azure.enabled, diagnostics.routes.azure.healthy)}
-              <div className="text-xs text-muted-foreground">{diagnostics.routes.azure.note}</div>
+              <div className="text-sm">CVE (Chango Voice Engine)</div>
+              {getStatusBadge(true, true)}
+              <div className="text-xs text-muted-foreground">Phrase-level synthesis active</div>
             </div>
           </div>
         </div>

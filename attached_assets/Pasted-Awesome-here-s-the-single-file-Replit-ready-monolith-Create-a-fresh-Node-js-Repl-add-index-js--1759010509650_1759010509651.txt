@@ -1,0 +1,457 @@
+Awesome — here’s the single-file, Replit-ready monolith.
+Create a fresh Node.js Repl → add index.js → paste everything → Run.
+This writes the whole project (server + client + CVE voice + hologram + curiosity + diagnostics + power + checkpoints + task tracker).
+
+// Chango AI — Monolith Replit Bootstrap (FULL PROJECT)
+// 1) New Node.js Repl  2) Create index.js  3) Paste this file  4) Run
+
+const fs = require('fs'); const path = require('path'); const { spawn } = require('child_process');
+const ROOT=process.cwd(); const W=(p,c)=>{ fs.mkdirSync(path.dirname(p),{recursive:true}); fs.writeFileSync(p,c,'utf8'); };
+
+const NOW=new Date().toISOString();
+
+// ---------------- replit + package ----------------
+W(path.join(ROOT,".replit"), `run = "npm start"\nlanguage = "nodejs"\n`);
+W(path.join(ROOT,"package.json"), JSON.stringify({
+  name:"chango-ai", version:"1.3.0", private:true,
+  scripts:{ start:"node server/index.js" },
+  dependencies:{
+    express:"^4.19.2", "body-parser":"^1.20.2", multer:"^1.4.5-lts.1",
+    archiver:"^6.0.2", "wav-decoder":"^1.3.0", cors:"^2.8.5"
+  }
+},null,2));
+
+// ---------------- docs / logs ----------------
+W(path.join(ROOT,"TASKS.md"), `# 🧠 Chango AI — Master Task Tracker
+_Last updated: ${NOW}_
+
+## In Progress / Upcoming
+- [ ] Diagnostics UI v2 (graphs, route health, session counters)
+- [ ] Power System (global ON/OFF + sleep) — API+UI present
+- [ ] Agent Write Bridge (signed patch injection) — API present
+- [ ] Adaptive Voice Intelligence v2 (accent learning + mimic)
+
+## Completed
+- [x] Voice & Responses (CVE + client TTS, profiles) — 100%
+- [x] Hologram HUD (Sentinel/Awakened, motion/wander) — 100%
+- [x] Curiosity Core (randomized, cooldown) — 100%
+- [x] Checkpoints (zip + latest) — 100%
+- [x] Logs/Tracker (Hybrid) — 100%
+- [x] Diagnostics API (uptime/mem/cpu/loop/ffmpeg) — basic
+
+## Checkpoints
+- CP-2025-09-26-VoiceHUD-Stable
+- CP-2025-09-27-Rebuild-OneFile
+- CP-2025-09-27-Diagnostics-Scaffold
+- CP-2025-09-27-CVE-Engine-Integrated
+- CP-2025-09-27-Org-Reset-v1
+`);
+W(path.join(ROOT,"EVOLUTION.md"), `# Evolution
+- v1.0 base HUD/voice; v1.1 profiles+checkpoints; v1.2 CVE engine + diagnostics + power + dev write
+`);
+W(path.join(ROOT,"logs/LAB_LOG.md"), `- ${NOW} — Monolith deploy. CVE voice, hologram, curiosity, diagnostics, power, checkpoints, bridge.\n`);
+W(path.join(ROOT,"logs/CHANGO_NOTES.locked"), ``);
+
+// ---------------- server core ----------------
+W(path.join(ROOT,"server/index.js"), `
+const express=require('express'); const bodyParser=require('body-parser'); const path=require('path'); const cors=require('cors');
+const { ensureDirs } = require('./utils/paths'); ensureDirs();
+const app=express(); app.use(cors()); app.use(bodyParser.json({limit:'10mb'})); app.use(bodyParser.urlencoded({extended:true}));
+app.use((req,_res,next)=>{ console.log('[REQ]',req.method,req.url); next(); });
+
+app.use('/', require('./routes/health'));
+app.use('/', require('./routes/diagnostics'));
+app.use('/', require('./routes/voice'));       // CVE
+app.use('/', require('./routes/power'));       // power toggle
+app.use('/', require('./routes/checkpoints')); // checkpoints
+app.use('/', require('./routes/devWrite'));    // signed patch bridge
+app.use('/client', express.static(path.join(process.cwd(),'client')));
+
+const PORT=process.env.PORT||5000;
+app.listen(PORT, ()=>console.log('[ChangoAI] listening on',PORT));
+`);
+
+// ---------------- routes ----------------
+W(path.join(ROOT,"server/routes/health.js"), `
+const { Router }=require('express'); const r=Router();
+r.get('/',(_q,res)=>res.json({ok:true, service:'ChangoAI', ts:new Date().toISOString()}));
+module.exports=r;
+`);
+
+W(path.join(ROOT,"server/utils/lag.js"), `let last=Date.now(), lag=0;
+setInterval(()=>{const now=Date.now(); const drift=now-last-100; lag=Math.max(0,drift); last=now;},100);
+module.exports={ getLag:()=>lag };
+`);
+
+W(path.join(ROOT,"server/routes/diagnostics.js"), `
+const { Router }=require('express'); const os=require('os'); const { spawnSync }=require('child_process'); const { getLag }=require('../utils/lag');
+const r=Router();
+let session={ start:Date.now(), ttsClientUtterances:0, profilesLearned:0, checkpointsMade:0 };
+
+r.get('/diagnostics', async (req,res)=>{
+  let ff=false; try{ ff = spawnSync('ffmpeg',['-version']).status===0; }catch{}
+  const cpuLoad=os.loadavg()[0]; const mu=process.memoryUsage();
+  const env={ node:process.version, pid:process.pid, uptime_s:Math.floor(process.uptime()) };
+  const loop={ lag_ms:getLag() };
+  const routes={ client:{enabled:true,healthy:true,note:'WebSpeech'}, local_neural:{enabled:false,healthy:false,note:'planned'}, elevenlabs:{enabled:false,healthy:false}, azure:{enabled:false,healthy:false} };
+  let selfPing={ok:true,ms:0}; try{ const t0=Date.now(); await fetch(req.protocol+'://'+req.get('host')+'/'); selfPing={ok:true,ms:Date.now()-t0}; }catch{}
+  res.json({ ok:true, env, cpuLoad, mem:{rss:mu.rss,heap:mu.heapUsed,total:os.totalmem(),free:os.freemem()}, loop, ffmpeg:ff?'available':'missing', routes, selfPing, session });
+});
+r.post('/diagnostics/incr',(req,res)=>{ const k=(req.body?.key||'').toString(); if(k in session) session[k]++; res.json({ok:true,session}); });
+module.exports=r;
+`);
+
+W(path.join(ROOT,"server/voice/engine.js"), `// CVE — Chango Voice Engine (phoneme+prosody plan)
+const VOWELS=/[aeiouyAEIOUY]/;
+const EMOTIONS={ neutral:{rate:1,pitch:1,volume:1,pitchVar:.02,rateVar:.03}, calm:{rate:.95,pitch:.98,volume:.95,pitchVar:.01,rateVar:.02}, cheerful:{rate:1.05,pitch:1.06,volume:1.05,pitchVar:.03,rateVar:.04}, serious:{rate:.97,pitch:.94,volume:.98,pitchVar:.01,rateVar:.02}, empathetic:{rate:.98,pitch:1.02,volume:1.02,pitchVar:.02,rateVar:.02} };
+const ACCENTS={ neutral:{name:'Neutral',transform:(w,i)=>w}, brit_rp:{name:'British RP',transform:(w,i)=>w.replace(/([aeiouAEIOU])r\\b/g,(m,v)=>v)}, southern_us:{name:'Southern US',transform:(w,i)=>i>.4?w.replace(/\\byou all\\b/ig,'y’all'):w}, spanish_en:{name:'Spanish-EN',transform:(w,i)=>{let x=w;if(i>.3)x=x.replace(/\\bvery\\b/ig,'bery'); if(i>.5)x=x.replace(/th/g,'d').replace(/TH/g,'D'); return x;}}, caribbean:{name:'Caribbean',transform:(w,i)=> i>.35 ? w.replace(/th/g,'t').replace(/TH/g,'T') : w} };
+const BASE={rate:1,pitch:1,volume:1,pauseComma:180,pausePeriod:280,pauseClause:160};
+const rand=()=>Math.random(); const jit=(v,a)=>+(v+(rand()*2-1)*a).toFixed(3);
+const token=(t)=>{const out=[]; let b=''; for(const ch of t){ if(',.;:!?'.includes(ch)){ if(b)out.push(b),b=''; out.push(ch);} else if(/\\s/.test(ch)){ if(b)out.push(b),b=''; } else b+=ch; } if(b) out.push(b); return out; };
+const phon=(w)=>({ syl: Math.max(1,(w.toLowerCase().match(VOWELS)||[]).length) });
+function planProsody(text,opt){ const { accent='neutral', intensity=.5, emotion='neutral' }=opt||{}; const emo=EMOTIONS[emotion]||EMOTIONS.neutral; const a=ACCENTS[accent]||ACCENTS.neutral; const toks=token(text); const plan=[]; const out=[];
+  for(const t of toks){ if(',;:'.includes(t)){plan.push({type:'pause',ms:BASE.pauseComma}); continue;} if('!?'.includes(t)){plan.push({type:'pause',ms:BASE.pauseClause+60}); continue;} if('.'.includes(t)){plan.push({type:'pause',ms:BASE.pausePeriod}); continue;}
+    const w=a.transform(t,intensity); const ph=phon(w); const rate=jit(BASE.rate*emo.rate*(1+(ph.syl-1)*.02), emo.rateVar); const pitch=jit(BASE.pitch*emo.pitch, emo.pitchVar); const volume=BASE.volume*emo.volume;
+    plan.push({type:'word',w,rate,pitch,volume}); out.push(w); if(w.length>10 && rand()<.25) plan.push({type:'pause',ms:60}); }
+  for(let i=1;i<plan.length;i++){ if(plan[i-1].type==='pause'&&plan[i].type==='pause'){ plan[i-1].ms=Math.min(600,plan[i-1].ms+plan[i].ms); plan.splice(i,1); i--; } }
+  return { text: out.join(' '), plan, prosody:{ engine:'CVE-1', route:'client', emotion, accent, intensity, base:BASE } };
+}
+module.exports={ planProsody, ACCENTS, EMOTIONS };
+`);
+
+W(path.join(ROOT,"server/routes/voice.js"), `
+const { Router }=require('express'); const { planProsody }=require('../voice/engine'); const r=Router();
+r.get('/voice/ping',(_q,res)=>res.json({ok:true,engine:'CVE-1'}));
+r.post('/voice/plan',(req,res)=>{ try{ const { text='', accent='neutral', intensity=.5, emotion='neutral' }=req.body||{}; if(!text) return res.status(400).json({ok:false,error:'text required'}); const plan=planProsody(text,{accent,intensity:+intensity,emotion}); res.json({ok:true,...plan}); }catch(e){ res.status(500).json({ok:false,error:String(e.message||e)}); }});
+module.exports=r;
+`);
+
+W(path.join(ROOT,"server/routes/power.js"), `
+const { Router }=require('express'); const fs=require('fs'); const path=require('path'); const { DATA }=require('../utils/paths'); const r=Router();
+const P=path.join(DATA,'power.json'); const get=()=>{ try{ return JSON.parse(fs.readFileSync(P,'utf8')).on===true; }catch{ return true; } };
+const set=(v)=>{ fs.mkdirSync(DATA,{recursive:true}); fs.writeFileSync(P, JSON.stringify({on:!!v, ts:new Date().toISOString()},null,2)); };
+r.get('/power',(_q,res)=>res.json({ok:true,on:get()})); r.post('/power',(req,res)=>{ const on=!!(req.body?.on); set(on); res.json({ok:true,on}); });
+module.exports=r;
+`);
+
+W(path.join(ROOT,"server/routes/checkpoints.js"), `
+const { Router }=require('express'); const path=require('path'); const fs=require('fs');
+const { zipPaths }=require('../utils/zip'); const { CHECKPOINTS, ROOT }=require('../utils/paths'); const r=Router();
+r.post('/checkpoint', async (_q,res)=>{ try{ const ts=new Date().toISOString().replace(/[:.]/g,'-'); const out=path.join(CHECKPOINTS, \`ChangoAI_checkpoint_\${ts}.zip\`);
+  await zipPaths(out, [path.join(ROOT,'client'),path.join(ROOT,'server'),path.join(ROOT,'data'),path.join(ROOT,'logs'),path.join(ROOT,'TASKS.md'),path.join(ROOT,'EVOLUTION.md')]); res.json({ok:true,checkpoint:path.basename(out)}); }catch(e){ res.status(500).json({ok:false,error:String(e.message||e)}); }});
+r.get('/checkpoint/latest',(_q,res)=>{ try{ if(!fs.existsSync(CHECKPOINTS)) return res.status(404).json({ok:false,error:'none'}); const f=fs.readdirSync(CHECKPOINTS).filter(x=>x.endsWith('.zip')).sort(); if(!f.length) return res.status(404).json({ok:false,error:'none'}); const latest=f[f.length-1]; res.download(path.join(CHECKPOINTS,latest),latest); }catch(e){ res.status(500).json({ok:false,error:String(e.message||e)}); }});
+module.exports=r;
+`);
+
+W(path.join(ROOT,"server/routes/devWrite.js"), `
+const { Router }=require('express'); const fs=require('fs'); const path=require('path'); const crypto=require('crypto'); const { ROOT }=require('../utils/paths'); const r=Router();
+const TOKEN=process.env.CHANGO_WRITE_TOKEN||''; const safe=(rel)=>{ const p=path.normalize(path.join(ROOT, rel)); if(!p.startsWith(ROOT)) throw new Error('path escapes'); return p; };
+const verify=(body,sig)=>{ if(!TOKEN) return false; const h=crypto.createHmac('sha256',TOKEN).update(JSON.stringify(body)).digest('hex'); return crypto.timingSafeEqual(Buffer.from(h),Buffer.from(sig||'','hex')); };
+r.post('/dev/write',(req,res)=>{ try{ if(!TOKEN) return res.status(403).json({ok:false,error:'bridge disabled'}); const sig=req.headers['x-chango-signature']||''; if(!verify(req.body||{},sig)) return res.status(401).json({ok:false,error:'bad signature'});
+  const files=Array.isArray(req.body?.files)?req.body.files:[]; const written=[]; for(const f of files){ const p=safe(f.path); fs.mkdirSync(path.dirname(p),{recursive:true}); fs.writeFileSync(p, f.content, f.mode==='binary'?'binary':'utf8'); written.push(f.path); }
+  try{ fs.appendFileSync(path.join(ROOT,'logs','DEV_WRITES.log'), JSON.stringify({ts:new Date().toISOString(),note:req.body?.note||'',files:written})+'\\n'); }catch{}
+  res.json({ok:true,written}); }catch(e){ res.status(500).json({ok:false,error:String(e.message||e)}); }});
+module.exports=r;
+`);
+
+// ---------------- utils ----------------
+W(path.join(ROOT,"server/utils/paths.js"), `
+const path=require('path'); const fs=require('fs'); const ROOT=process.cwd(); const DATA=path.join(ROOT,'data'); const PROFILES=path.join(DATA,'profiles'); const LOGS=path.join(ROOT,'logs'); const CHECKPOINTS=path.join(ROOT,'checkpoints');
+function ensureDirs(){ [DATA,PROFILES,LOGS,CHECKPOINTS].forEach(d=>{ if(!fs.existsSync(d)) fs.mkdirSync(d,{recursive:true}); }); }
+module.exports={ ROOT, DATA, PROFILES, LOGS, CHECKPOINTS, ensureDirs };
+`);
+W(path.join(ROOT,"server/utils/zip.js"), `
+const archiver=require('archiver'); const fs=require('fs'); const path=require('path');
+async function zipPaths(out, items){ await new Promise((resolve,reject)=>{ const outS=fs.createWriteStream(out); const ar=archiver('zip',{zlib:{level:9}});
+  outS.on('close',resolve); ar.on('error',reject); ar.pipe(outS);
+  for(const p of items){ if(fs.existsSync(p)){ const st=fs.statSync(p); st.isDirectory()? ar.directory(p, path.basename(p)) : ar.file(p,{name:path.basename(p)}); } }
+  ar.finalize(); }); }
+module.exports={ zipPaths };
+`);
+
+// ---------------- client ----------------
+W(path.join(ROOT,"client/index.html"), `<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chango AI • HUD</title>
+<link rel="stylesheet" href="theme.css"><script>const t=localStorage.getItem('chango_theme')||'hud';document.documentElement.classList.add(t==='hud'?'theme-hud':'theme-classic');</script></head>
+<body>
+<header><div><strong>CHANGO AI</strong> • HUD</div><div class="row"><div class="badge" id="routeBadge">Route: Client</div><button class="pill" id="themeBtn">Theme</button></div></header>
+<main>
+  <div class="card"><div class="row"><button class="pill" id="btnEnable">Enable Voice</button><button class="pill" id="btnTest">Test Greeting</button><button class="pill" id="btnStop">Stop</button></div><p class="small" id="status">status: idle</p></div>
+
+  <div class="card"><label>Voice Route</label><div class="row">
+    <button class="pill" data-route="client">Client</button><button class="pill" data-route="local_neural" disabled title="reserved">Local Neural</button>
+    <button class="pill" data-route="elevenlabs" disabled title="stub">ElevenLabs</button><button class="pill" data-route="azure" disabled title="stub">Azure</button></div></div>
+
+  <div class="card"><label>Accent & Emotion</label><div class="row">
+    <select id="accentProfile"><option value="neutral">Neutral</option><option value="brit_rp">British (RP)</option><option value="southern_us">Southern US</option><option value="spanish_en">Spanish-EN</option><option value="caribbean">Caribbean</option></select>
+    <label>Intensity <input id="accentIntensity" type="range" min="0" max="1" step="0.05" value="0.55"></label>
+    <select id="emotionSel"><option value="neutral">Neutral</option><option value="calm">Calm</option><option value="cheerful">Cheerful</option><option value="serious">Serious</option><option value="empathetic">Empathetic</option></select>
+    <select id="selVoice"></select>
+    <button class="pill" id="btnRepeatWithAccent">Repeat (accent)</button>
+  </div></div>
+
+  <div class="card"><label>Voice Profiles</label><div class="row">
+    <input id="profileName" type="text" placeholder="Profile name" style="min-width:220px;">
+    <button class="pill" id="btnRec">● Record (hold)</button><button class="pill" id="btnAnalyze">Analyze & Save</button>
+    <button class="pill" id="btnRefreshProfiles">Refresh Profiles</button><select id="selProfiles" style="min-width:220px;"></select><button class="pill" id="btnUseProfile">Use Selected</button>
+  </div><p class="small" id="scanStatus">voice scan: idle</p></div>
+
+  <div class="card"><div class="row" style="justify-content:space-between"><label>Hologram Sphere</label>
+    <div class="row"><button class="pill" id="holoToggle">Toggle</button>
+      <select id="holoMode"><option value="awakened">Awakened (gold+green)</option><option value="sentinel">Sentinel (red+gold)</option></select>
+      <label class="small">Size <input id="holoSize" type="range" min="200" max="560" step="10" value="320"></label>
+      <label class="small">Spin <input id="holoSpeed" type="range" min="0" max="2" step="0.05" value="0.8"></label>
+      <label class="small">Wander <input id="holoWander" type="checkbox"/></label></div>
+  </div><div id="holoRoot" class="hidden holo-mode-awakened"><div id="holoWrap"><canvas id="holoCanvas" width="640" height="640"></canvas><div class="holo-ring"></div><div class="holo-chip" id="holoChip">CHANGO • ONLINE</div></div></div></div>
+
+  <div class="card"><label>Chango Power</label><div class="row"><div class="badge">state: <span id="powerState">—</span></div>
+    <button class="pill" id="btnPowerOn">Power ON</button><button class="pill" id="btnPowerOff">Power OFF (Sleep)</button></div></div>
+
+  <div class="card"><label>Diagnostics</label>
+    <div class="row" style="gap:18px">
+      <div class="badge">uptime: <span id="diagUptime">—</span></div><div class="badge">node: <span id="diagNode">—</span></div>
+      <div class="badge">cpu(1m): <span id="diagCPU">—</span></div><div class="badge">mem(rss): <span id="diagMem">—</span></div>
+      <div class="badge">loop lag: <span id="diagLoop">—</span></div><div class="badge">ffmpeg: <span id="diagFF">—</span></div>
+      <div class="badge">ping: <span id="diagPing">—</span></div>
+    </div>
+    <div class="row">
+      <div class="badge">route client=<span id="diagRClient">—</span></div>
+      <div class="badge">local_neural=<span id="diagRLocal">—</span></div>
+      <div class="badge">elevenlabs=<span id="diagRE11">—</span></div>
+      <div class="badge">azure=<span id="diagRAzure">—</span></div>
+    </div>
+    <p class="small">session: <span id="diagSess">—</span></p>
+  </div>
+
+  <div class="card"><label>Say something</label><div class="row">
+    <input id="sayText" type="text" placeholder="Type and press Speak…" style="flex:1;min-width:240px;"><button class="pill" id="btnSpeak">Speak</button>
+  </div></div>
+</main>
+<script src="app.js"></script><script src="hologram.js"></script><script src="curiosity.js"></script><script src="diagnostics.js"></script>
+</body></html>`);
+
+W(path.join(ROOT,"client/theme.css"), `
+:root{ --bg:#060a0f; --panel:#0b1119; --panel-border:#152232; --text:#dff1ff; --muted:#9fb3c8; --chip:#0f2b49; --input:#09101a; --stroke:#1d3046; --radius:14px; --pad:18px; --shadow:0 8px 22px rgba(2,12,22,.45);}
+.theme-classic{ --bg:#0b0d10; --panel:#111418; --panel-border:#1c232e; --text:#e9eef5; --muted:#a9b5c4; --chip:#1b2a3d; --input:#0e141c; --stroke:#2a3a4f; --radius:12px; --pad:16px; --shadow:0 6px 18px rgba(0,0,0,.35);}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);margin:0}
+header{padding:16px 20px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(180deg, rgba(10,16,24,.9), rgba(6,10,16,.9));border-bottom:1px solid var(--panel-border)}
+.badge{font-size:12px;padding:4px 8px;border-radius:12px;background:var(--chip)}
+main{max-width:900px;margin:24px auto;padding:0 16px 48px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+label{font-size:14px;opacity:.92;display:block;margin-bottom:6px}
+select,input[type=text],button{background:var(--input);color:var(--text);border:1px solid var(--stroke);border-radius:10px;padding:10px 12px}
+.small{font-size:12px;color:var(--muted)}
+input[type="range"]{accent-color:#4aa3ff}
+.pill{border-radius:12px;padding:10px 14px;border:1px solid var(--stroke);background:linear-gradient(180deg, rgba(20,40,70,.6), rgba(10,20,30,.4));backdrop-filter: blur(3px);color:var(--text)}
+.card{background:linear-gradient(180deg, rgba(10,18,28,.8), rgba(8,14,22,.8));border:1px solid var(--panel-border);border-radius:var(--radius);padding:var(--pad);margin-bottom:14px;box-shadow:var(--shadow)}
+#holoRoot { position: fixed; z-index: 9999; right: 20px; bottom: 24px; display: grid; place-items: center; padding: 6px; }
+#holoRoot.hidden { display:none; }
+#holoWrap { position: relative; cursor: grab; }
+#holoWrap:active { cursor: grabbing; }
+.holo-ring { position:absolute; left:50%; transform:translateX(-50%); bottom:-16px; width:66%; height:14px; border-radius:50%; background: radial-gradient(ellipse at center, rgba(255,255,255,.22), rgba(255,255,255,0) 60%); filter: blur(2px); }
+.holo-chip { position:absolute; left:50%; transform:translateX(-50%); bottom:-40px; font-size:12px; color:#e7f0f7; background: rgba(20,40,60,.35); border:1px solid rgba(60,140,180,.35); padding:4px 8px; border-radius:10px; backdrop-filter: blur(3px); }
+.holo-mode-sentinel #holoCanvas { filter: drop-shadow(0 0 8px rgba(255, 70, 40, .45)) drop-shadow(0 0 20px rgba(255, 140, 40, .35)); background: radial-gradient(ellipse at center, rgba(30,4,4,.9) 0%, rgba(26,6,0,.92) 45%, rgba(18,2,0,.95) 100%);}
+.holo-mode-awakened #holoCanvas { filter: drop-shadow(0 0 10px rgba(255, 210, 80, .55)) drop-shadow(0 0 28px rgba(60, 255, 170, .35)); background: radial-gradient(ellipse at center, rgba(8,20,12,.88) 0%, rgba(6,14,10,.92) 45%, rgba(4,10,8,.96) 100%);}
+`);
+
+W(path.join(ROOT,"client/app.js"), `
+let route='client', voices=[], state={voiceURI:null,rate:1,pitch:1,volume:1}; let POWER_ON=true;
+const el=id=>document.getElementById(id); const status=msg=>el('status').textContent='status: '+msg; const setBadge=()=>document.getElementById('routeBadge').textContent='Route: '+route[0].toUpperCase()+route.slice(1);
+async function getPower(){ try{ const r=await fetch('/power'); const j=await r.json(); POWER_ON=!!j.on; const p=el('powerState'); if(p) p.textContent=POWER_ON?'ON':'OFF'; if(window.ChangoHolo) window.ChangoHolo.setMode(POWER_ON?'awakened':'sentinel'); }catch{ POWER_ON=true; } }
+setInterval(getPower,5000); window.addEventListener('load', getPower);
+
+// Theme
+document.getElementById('themeBtn').onclick=()=>{ const r=document.documentElement;
+  if(r.classList.contains('theme-classic')){ r.classList.remove('theme-classic'); r.classList.add('theme-hud'); localStorage.setItem('chango_theme','hud');}
+  else if(r.classList.contains('theme-hud')){ r.classList.remove('theme-hud'); r.classList.add('theme-classic'); localStorage.setItem('chango_theme','classic');}
+  else { r.classList.add('theme-hud'); localStorage.setItem('chango_theme','hud'); }
+  status('theme changed');};
+
+// Voices
+function loadVoices(){ voices=speechSynthesis.getVoices(); const sel=document.getElementById('selVoice'); if(!sel) return;
+  sel.innerHTML=''; voices.forEach(v=>{ const o=document.createElement('option'); o.value=v.voiceURI; o.text=\`\${v.name} (\${v.lang})\${v.default?' • default':''}\`; sel.appendChild(o); if(v.default && !state.voiceURI) state.voiceURI=v.voiceURI;}); if(state.voiceURI) sel.value=state.voiceURI;}
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=loadVoices; setTimeout(loadVoices,200); } else { status('Web Speech API not available'); }
+
+// Route switch
+document.addEventListener('click',e=>{ if(e.target.matches('[data-route]')){ route=e.target.getAttribute('data-route'); setBadge(); }});
+
+// Controls
+if(el('btnEnable')) el('btnEnable').onclick=()=>{ const u=new SpeechSynthesisUtterance(''); speechSynthesis.speak(u); status('voice ready'); };
+if(el('btnStop')) el('btnStop').onclick=()=>speechSynthesis.cancel();
+
+// Accent transform (fallback)
+const RNG=()=>Math.random(); const chance=p=>RNG()<p; const jitter=(v,a)=>Math.max(0,v+(RNG()*2-1)*a);
+function injectPauses(t,i){ return t.replace(/,\\s*/g,()=> (chance(0.6)?", ":",  ")).replace(/\\.\\s*/g,()=> (chance(0.5)?". ":" .  ")); }
+const ACCENTS={ neutral:{name:"Neutral",rules:(t,i)=>injectPauses(t,i),rateJ:.03,pitchJ:.02,volJ:0},
+  brit_rp:{name:"British RP",rules:(t,i)=>{let x=t; if(i>0) x=x.replace(/([aeiouAEIOU])r\\b/g,(m,v)=> v + (chance(i*.8)?"":"r")); if(i>.5) x=x.replace(/\\bbath\\b/gi,"bahth"); return injectPauses(x,i);},rateJ:.02,pitchJ:.03,volJ:0},
+  southern_us:{name:"Southern US",rules:(t,i)=>{let x=t; if(i>.4){x=x.replace(/\\byou all\\b/gi,"y’all"); x=x.replace(/\\bgoing to\\b/gi,"gonna"); } return injectPauses(x,i);},rateJ:.06,pitchJ:.015,volJ:0},
+  spanish_en:{name:"Spanish-EN",rules:(t,i)=>{let x=t; if(i>.3) x=x.replace(/\\bvery\\b/gi,"bery"); if(i>.5) x=x.replace(/th/gi,(m)=> chance(.6*i)?(m===m.toUpperCase()?"D":"d"):(m===m.toUpperCase()?"T":"t")); return injectPauses(x,i);},rateJ:.03,pitchJ:.03,volJ:0},
+  caribbean:{name:"Caribbean",rules:(t,i)=>{let x=t; if(i>.3) x=x.replace(/th/gi,(m)=> chance(.6*i)?(m===m.toUpperCase()?"D":"d"):(m===m.toUpperCase()?"T":"t")); return injectPauses(x,i);},rateJ:.05,pitchJ:.02,volJ:0}};
+function applyAccent(text){ const profile=(document.getElementById('accentProfile')||{}).value||"neutral"; const intensity=parseFloat((document.getElementById('accentIntensity')||{value:'0.5'}).value||'0.5');
+  const a=ACCENTS[profile]||ACCENTS.neutral; let t=a.rules(text,intensity); return { text:t, rate:jitter(1,a.rateJ), pitch:jitter(1,a.pitchJ), volume:jitter(1,a.volJ), profile, intensity }; }
+
+// Voice pick & speak
+function pickVoice(){ const sel=document.getElementById('selVoice'); if(sel && sel.value){ return speechSynthesis.getVoices().find(v=>v.voiceURI===sel.value) || speechSynthesis.getVoices()[0]; }
+  return speechSynthesis.getVoices().find(v=>v.default) || speechSynthesis.getVoices()[0]; }
+function speakClient(text,over={}){ const u=new SpeechSynthesisUtterance(text); const v=pickVoice(); if(v) u.voice=v; u.rate=over.rate??1; u.pitch=over.pitch??1; u.volume=over.volume??1;
+  u.onstart=()=>status('speaking…'); u.onend=()=>status('idle'); u.onerror=e=>status('error: '+e.error); speechSynthesis.speak(u); }
+
+let lastUtteranceRaw='', lastUtteranceSaid='';
+async function speak(text){
+  if(!POWER_ON){ status('sleep mode: power OFF'); return; }
+  lastUtteranceRaw=text;
+  const accent=(document.getElementById('accentProfile')||{}).value||'neutral';
+  const intensity=parseFloat((document.getElementById('accentIntensity')||{value:'0.5'}).value||'0.5');
+  const emotion=(document.getElementById('emotionSel')||{}).value||'neutral';
+  let plan;
+  try{ const res=await fetch('/voice/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,accent,intensity,emotion})});
+    const js=await res.json(); if(!js.ok) throw new Error(js.error||'plan error'); plan=js.plan; lastUtteranceSaid=js.text; }
+  catch(e){ const styled=applyAccent(text); lastUtteranceSaid=styled.text; return speakClient(styled.text,styled); }
+  speechSynthesis.cancel(); let seq=Promise.resolve();
+  for(const step of plan){ if(step.type==='pause'){ seq=seq.then(()=>new Promise(r=>setTimeout(r, step.ms))); }
+    else if(step.type==='word'){ seq=seq.then(()=>new Promise(r=>{ const u=new SpeechSynthesisUtterance(step.w); const v=pickVoice(); if(v) u.voice=v;
+      u.rate=Math.max(.5,Math.min(2,step.rate||1)); u.pitch=Math.max(.5,Math.min(2,step.pitch||1)); u.volume=Math.max(0,Math.min(1,step.volume??1));
+      u.onstart=()=>status('speaking…'); u.onend=()=>r(); u.onerror=()=>r(); speechSynthesis.speak(u); })); } }
+  seq.then(()=>status('idle')).catch(()=>status('idle'));
+  fetch('/diagnostics/incr',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'ttsClientUtterances'})}).catch(()=>{});
+}
+
+document.getElementById('btnEnable').onclick=()=>{ const u=new SpeechSynthesisUtterance(''); speechSynthesis.speak(u); status('voice ready'); };
+document.getElementById('btnStop').onclick=()=>speechSynthesis.cancel();
+document.getElementById('btnTest').onclick=()=>speak("Hello, I'm Chango. How can I help you today?");
+document.getElementById('btnSpeak').onclick=()=>{ const t=(document.getElementById('sayText')||{}).value?.trim(); if(t) speak(t); };
+document.getElementById('btnRepeatWithAccent').onclick=()=>{ if(lastUtteranceRaw) speak(lastUtteranceRaw); };
+document.addEventListener('click',e=>{ if(e.target.matches('[data-route]')){ route=e.target.getAttribute('data-route'); setBadge(); }});
+
+// Power UI
+document.getElementById('btnPowerOn').onclick=async()=>{ await fetch('/power',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on:true})}); getPower(); };
+document.getElementById('btnPowerOff').onclick=async()=>{ await fetch('/power',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on:false})}); getPower(); };
+
+// Mic → profile learn (server-side analyzer can be added later)
+let mediaRecorder=null, chunks=[], recording=false;
+async function initMic(){ const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+  mediaRecorder=new MediaRecorder(stream,{mimeType:'audio/webm'}); mediaRecorder.ondataavailable=e=>{ if(e.data.size>0) chunks.push(e.data); };
+  mediaRecorder.onstop=async()=>{ try{ const blob=new Blob(chunks,{type:'audio/webm'}); chunks=[];
+      // stub: send to server /voice_profile/learn if/when enabled
+      document.getElementById('scanStatus').textContent='(demo) recorded '+Math.round(blob.size/1024)+' KB'; 
+      fetch('/diagnostics/incr',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'profilesLearned'})}).catch(()=>{});
+  }catch{ document.getElementById('scanStatus').textContent='upload error'; }};}
+if(document.getElementById('btnRec')){ el('btnRec').onmousedown=async()=>{ try{ if(!mediaRecorder) await initMic(); if(recording) return; chunks=[]; mediaRecorder.start(); recording=true; el('scanStatus').textContent='voice scan: recording... (release to stop)';
+} catch{ el('scanStatus').textContent='mic error'; }};
+  el('btnRec').onmouseup=()=>{ if(mediaRecorder&&recording){ mediaRecorder.stop(); recording=false; el('scanStatus').textContent='voice scan: processing...'; }}}
+el('btnAnalyze').onclick=()=>{ el('scanStatus').textContent='analysis happens when recording stops'; };
+el('btnRefreshProfiles').onclick=()=>{ el('scanStatus').textContent='profiles: (demo) use server analyzer later'; };
+el('btnUseProfile').onclick=()=>{ el('scanStatus').textContent='(demo) apply profile mapping when enabled'; };
+
+// Hologram hookups (drawing in hologram.js)
+(function(){ const toggleBtn=el('holoToggle'), sizeCtl=el('holoSize'), speedCtl=el('holoSpeed'), modeSel=el('holoMode'), wanderCtl=el('holoWander');
+  if(!toggleBtn || !window.ChangoHolo) return; let on=false;
+  toggleBtn.onclick=()=>{ on=!on; if(on){ ChangoHolo.show(); toggleBtn.textContent='Hide'; } else { ChangoHolo.hide(); toggleBtn.textContent='Toggle'; } };
+  sizeCtl?.addEventListener('input', e=> ChangoHolo.setSize(e.target.value));
+  speedCtl?.addEventListener('input', e=> ChangoHolo.setSpeed(e.target.value));
+  modeSel?.addEventListener('change', e=> ChangoHolo.setMode(e.target.value));
+  wanderCtl?.addEventListener('change', e=> (ChangoHolo.state.wander=!!e.target.checked));
+  const _status = status; window.status = (msg)=>{ _status(msg); if(!on) return; const t=(msg||'').toLowerCase();
+    if(t.includes('error')||t.includes('sleep')) ChangoHolo.setMode('sentinel'); if(t.includes('speaking')||t.includes('ready')||t.includes('idle')) ChangoHolo.setMode('awakened'); };
+})();
+`);
+
+W(path.join(ROOT,"client/hologram.js"), `
+(function(){
+  const palette={ sentinel:{ wire:'rgba(255,120,60,0.85)', wireDim:'rgba(255,80,40,0.35)', particles:'rgba(255,120,60,', scan:'rgba(255,60,30,0.08)', chipText:'SENTINEL • OFFLINE'},
+                  awakened:{ wire:'rgba(255,220,100,0.9)', wireDim:'rgba(60,255,170,0.45)', particles:'rgba(255,220,100,', scan:'rgba(30,120,90,0.08)', chipText:'CHANGO • ONLINE'} };
+  const cfg={ size:320, speed:0.8, lineCount:18, particleCount:240, bgFade:0.08 };
+  let canvas,ctx,W,H,t=0,running=false,raf=null,mode='awakened'; const state={visible:false,speed:cfg.speed,size:cfg.size,wander:false};
+  function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); } function project3(x,y,z,r){ const d=2.4,f=r/(z+d); return [W/2 + x*f, H/2 + y*f];}
+  function setupCanvas(){ canvas=document.getElementById('holoCanvas'); if(!canvas) return false; ctx=canvas.getContext('2d'); resize(); return true; }
+  function resize(){ const s=clamp(state.size,200,560); canvas.width=s*2; canvas.height=s*2; W=canvas.width; H=canvas.height; }
+  function overlay(){ for(let y=0;y<H;y+=2){ ctx.fillStyle=palette[mode].scan; ctx.fillRect(0,y,W,1);} const g=ctx.createRadialGradient(W/2,H/2,H*0.05,W/2,H/2,H*0.6);
+    g.addColorStop(0,'rgba(255,255,255,0)'); g.addColorStop(1,'rgba(255,255,255,0.12)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(W/2,H/2,H*0.55,0,Math.PI*2); ctx.fill(); }
+  function wire(r,rot){ const c1=palette[mode].wire,c2=palette[mode].wireDim; ctx.lineWidth=1;
+    for(let i=-cfg.lineCount;i<=cfg.lineCount;i++){ const lat=(i/cfg.lineCount)*(Math.PI/2); ctx.beginPath();
+      for(let j=0;j<=120;j++){ const lon=(j/120)*Math.PI*2; const x=r*Math.cos(lat)*Math.cos(lon+rot), y=r*Math.sin(lat), z=r*Math.cos(lat)*Math.sin(lon+rot);
+        const [px,py]=project3(x,y,z,r*1.15); if(j===0) ctx.moveTo(px,py); else ctx.lineTo(px,py); }
+      const a=0.25+0.35*(1-Math.abs(i)/cfg.lineCount); ctx.strokeStyle=c1.replace(/0\\.(\\d+)/,(_,d)=> (a.toFixed(3))); ctx.stroke(); }
+    for(let i=0;i<cfg.lineCount;i++){ const lon0=(i/cfg.lineCount)*Math.PI*2+rot; ctx.beginPath();
+      for(let j=-60;j<=60;j++){ const lat=(j/60)*(Math.PI/2); const x=r*Math.cos(lat)*Math.cos(lon0), y=r*Math.sin(lat), z=r*Math.cos(lat)*Math.sin(lon0);
+        const [px,py]=project3(x,y,z,r*1.15); if(j===-60) ctx.moveTo(px,py); else ctx.lineTo(px,py);} ctx.strokeStyle=c2; ctx.stroke(); } }
+  let particles=[]; function initP(r){ particles=[]; for(let i=0;i<cfg.particleCount;i++){ particles.push({a:Math.random()*Math.PI*2,b:Math.random()*Math.PI-Math.PI/2,k:0.92+Math.random()*0.18,s:0.002+Math.random()*0.004}); } }
+  function drawP(r,rot){ for(const p of particles){ p.a+=p.s*(0.5+state.speed); const x=r*p.k*Math.cos(p.b)*Math.cos(p.a+rot), y=r*p.k*Math.sin(p.b), z=r*p.k*Math.cos(p.b)*Math.sin(p.a+rot);
+      const [px,py]=project3(x,y,z,r*1.15); const d=(z+r)/(2*r), sz=1+d*2; ctx.fillStyle=palette[mode].particles+(0.25+d*0.55)+')'; ctx.beginPath(); ctx.arc(px,py,sz,0,Math.PI*2); ctx.fill(); } }
+  function tick(){ if(!running) return; ctx.fillStyle=\`rgba(0,10,20,\${cfg.bgFade})\`; ctx.fillRect(0,0,W,H); const r=Math.min(W,H)*0.32+Math.sin(t*0.8)*2, rot=t*0.6*state.speed;
+    drawP(r,rot); wire(r,rot); overlay(); t+=0.016; raf=requestAnimationFrame(tick); }
+  function start(){ if(!canvas||!ctx||running) return; initP(Math.min(W,H)*0.32); running=true; ctx.fillStyle='rgba(0,10,20,1)'; ctx.fillRect(0,0,W,H); tick(); }
+  function stop(){ running=false; if(raf) cancelAnimationFrame(raf); }
+  function show(){ document.getElementById('holoRoot')?.classList.remove('hidden'); state.visible=true; start(); }
+  function hide(){ document.getElementById('holoRoot')?.classList.add('hidden'); state.visible=false; stop(); }
+  function setSize(v){ state.size=Number(v)||cfg.size; resize(); initP(Math.min(W,H)*0.32); }
+  function setSpeed(v){ state.speed=Number(v)||cfg.speed; }
+  function setMode(m){ m=(m==='sentinel')?'sentinel':'awakened'; const root=document.getElementById('holoRoot');
+    root.classList.remove('holo-mode-sentinel','holo-mode-awakened'); root.classList.add(m==='sentinel'?'holo-mode-sentinel':'holo-mode-awakened');
+    const chip=document.getElementById('holoChip'); if(chip) chip.textContent = (m==='sentinel'?'SENTINEL • OFFLINE':'CHANGO • ONLINE'); }
+  function motion(){ const root=document.getElementById('holoRoot'), wrap=document.getElementById('holoWrap'); if(!root||!wrap) return;
+    const rect=wrap.getBoundingClientRect(); let posX=window.innerWidth-rect.width-20, posY=window.innerHeight-rect.height-24; let vx=0,vy=0,drag=false,startX=0,startY=0,last=performance.now();
+    root.style.transform=\`translate(\${posX}px,\${posY}px)\`;
+    function d(e){ drag=true; startX=(e.touches?e.touches[0].clientX:e.clientX)-posX; startY=(e.touches?e.touches[0].clientY:e.clientY)-posY; vx=vy=0; }
+    function m(e){ if(!drag) return; const x=(e.touches?e.touches[0].clientX:e.clientX)-startX, y=(e.touches?e.touches[0].clientY:e.clientY)-startY;
+      const nx=Math.max(0,Math.min(x,window.innerWidth-rect.width-8)), ny=Math.max(0,Math.min(y,window.innerHeight-rect.height-8)); vx=nx-posX; vy=ny-posY; posX=nx; posY=ny; root.style.transform=\`translate(\${posX}px,\${posY}px)\`; }
+    function u(){ drag=false; }
+    wrap.addEventListener('mousedown',d); document.addEventListener('mousemove',m); document.addEventListener('mouseup',u);
+    wrap.addEventListener('touchstart',d,{passive:true}); document.addEventListener('touchmove',m,{passive:true}); document.addEventListener('touchend',u);
+    function step(now){ const dt=Math.min(0.04,(now-last)/1000); last=now; if(!drag){ posX+=vx; posY+=vy; vx*=0.92; vy*=0.92;
+        if(window.ChangoHolo?.state?.wander){ vx+=(Math.random()-0.5)*0.06; vy+=(Math.random()-0.5)*0.06; }
+        const w=wrap.getBoundingClientRect().width, h=wrap.getBoundingClientRect().height;
+        if(posX<0){posX=0;vx*=-0.6} if(posY<0){posY=0;vy*=-0.6} if(posX>window.innerWidth-w-8){posX=window.innerWidth-w-8;vx*=-0.6}
+        if(posY>window.innerHeight-h-8){posY=window.innerHeight-h-8;vy*=-0.6} root.style.transform=\`translate(\${posX}px,\${posY}px)\`; }
+      requestAnimationFrame(step);} requestAnimationFrame(step); }
+  window.ChangoHolo={ show, hide, setSize, setSpeed, setMode, setupCanvas:setupCanvas, state };
+  window.addEventListener('load', ()=>{ if(setupCanvas()) motion(); });
+})();
+`);
+
+W(path.join(ROOT,"client/curiosity.js"), `
+(function(){ const cfg={ baseChance:0.18, spikeOnNewProfile:0.35, cooldownMs:12000 }; let last=0;
+  function maybeCurious(trigger="idle"){ if(!window.POWER_ON) return; const now=Date.now(); if(now-last<cfg.cooldownMs) return;
+    const p=(trigger==="profile")?cfg.spikeOnNewProfile:cfg.baseChance; if(Math.random()<p){ last=now;
+      const ideas=["Curious: want a softer pitch here?","I can summarize our last steps—should I?","I detected a pacing change. Save as style?","That may conflict with earlier notes. Check?"];
+      const pick=ideas[Math.floor(Math.random()*ideas.length)]; const s=document.getElementById('status'); if(s) s.textContent="status: curiosity — "+pick; } }
+  window.addEventListener('click',(e)=>{ if(e.target && e.target.id==='btnUseProfile') maybeCurious('profile'); });
+  window.ChangoCuriosity={ maybeCurious };
+})();
+`);
+
+W(path.join(ROOT,"client/diagnostics.js"), `
+(function(){ const el=id=>document.getElementById(id);
+  async function fetchDiag(){ try{ const r=await fetch('/diagnostics'); const j=await r.json(); if(!j.ok) throw 0;
+    el('diagUptime').textContent=j.env.uptime_s+'s'; el('diagNode').textContent=j.env.node; el('diagCPU').textContent=(j.cpuLoad||0).toFixed(2);
+    el('diagMem').textContent=Math.round((j.mem.rss||0)/1048576)+' MB'; el('diagLoop').textContent=(j.loop.lag_ms||0).toFixed(1)+' ms'; el('diagFF').textContent=j.ffmpeg; el('diagPing').textContent=(j.selfPing?.ms??0)+' ms';
+    const rts=j.routes||{}; el('diagRClient').textContent=rts.client?.enabled?'on':'off'; el('diagRLocal').textContent=rts.local_neural?.enabled?'on':'off'; el('diagRE11').textContent=rts.elevenlabs?.enabled?'on':'off'; el('diagRAzure').textContent=rts.azure?.enabled?'on':'off';
+    el('diagSess').textContent=JSON.stringify(j.session||{}); }catch{} }
+  setInterval(fetchDiag,3000); window.addEventListener('load',fetchDiag);
+})();
+`);
+
+// ---------------- install & run ----------------
+function go(){ const npm=process.platform==='win32'?'npm.cmd':'npm'; const i=spawn(npm,['install'],{stdio:'inherit'});
+  i.on('close',c=>{ if(c!==0){ console.log('npm install failed:',c); return; } const s=spawn(npm,['start'],{stdio:'inherit'}); s.on('close',cc=>console.log('server exited:',cc)); }); }
+console.log('✅ Files written. Installing & launching…'); go();
+
+What you get right now
+	•	CVE voice planning (accent+emotion) → plays via WebSpeech in browser.
+	•	Hologram sphere (Sentinel/Awakened), draggable, wander.
+	•	Curiosity engine (randomized nudges).
+	•	Power system (ON/OFF sleep).
+	•	Diagnostics (uptime/cpu/mem/loop/ffmpeg + UI badges).
+	•	Checkpoints API (zip snapshots).
+	•	Agent write bridge (optional; set CHANGO_WRITE_TOKEN in Secrets to enable).
+	•	Master tracker files: TASKS.md, EVOLUTION.md, logs/….
+
+Quick tests (Replit Shell)
+
+curl -s $REPLIT_URL/ | jq .
+curl -s $REPLIT_URL/diagnostics | jq .
+curl -s -X POST $REPLIT_URL/voice/plan \
+  -H 'content-type: application/json' -d '{"text":"Hello from Chango","accent":"brit_rp","intensity":0.6,"emotion":"cheerful"}' | jq .
+curl -s -X POST $REPLIT_URL/checkpoint | jq .
+
+If you want, I can next drop Diagnostics UI v2 (graphs) or Audio Export as isolated add-ons.

@@ -71,15 +71,8 @@ export function generateChatResponse(message: string, voice: any) {
     emotion = "curious";
   }
   
-  // Apply voice settings and speak
-  if (voice && voice.applyAccent && voice.speak) {
-    voice.applyAccent({
-      profile: "neutral",
-      intensity: 0.5,
-      rate: emotion === "excited" ? 1.1 : 1.0,
-      pitch: emotion === "curious" ? 1.15 : emotion === "excited" ? 1.1 : 1.05,
-      emotion: emotion
-    });
+  // Speak the response without changing global voice settings
+  if (voice && voice.speak) {
     voice.speak(response);
   }
   
@@ -110,13 +103,13 @@ export default function CuriosityEngine() {
   // Enable voice synthesis and configure Chango's voice on mount
   useEffect(() => {
     voice.enable();
-    // Configure Chango's cheerful personality
+    // Configure Chango's stable default personality (only set once)
     voice.applyAccent({
       profile: "neutral",
       intensity: 0.5,
       rate: 1.0,
-      pitch: 1.1, // Slightly higher pitch for cheerful tone
-      emotion: "cheerful" // Chango's default cheerful emotion
+      pitch: 1.05, // Stable, slightly elevated pitch
+      emotion: "cheerful" // Chango's consistent cheerful emotion
     });
   }, []);
 
@@ -331,38 +324,8 @@ export default function CuriosityEngine() {
     const isExcited = naturalResponse.includes('!') || naturalResponse.includes('excited') || naturalResponse.includes('love');
     const isGreeting = naturalResponse.toLowerCase().includes('hello') || naturalResponse.toLowerCase().includes('hi ') || naturalResponse.toLowerCase().includes('hey');
     
-    // Adjust voice parameters based on response type
-    let emotion = "cheerful";
-    let pitchVariation = 1.0;
-    let rateVariation = 1.0;
-    
-    if (isQuestion) {
-      pitchVariation = 1.15 + (Math.random() * 0.1); // Higher pitch for questions
-      rateVariation = 1.05;
-      emotion = "curious";
-    } else if (isExcited) {
-      pitchVariation = 1.1 + (Math.random() * 0.1);
-      rateVariation = 1.1; // Faster for excitement
-      emotion = "excited";
-    } else if (isGreeting) {
-      pitchVariation = 1.05;
-      rateVariation = 1.0;
-      emotion = "friendly";
-    } else {
-      pitchVariation = 1.0 + (Math.random() * 0.2 - 0.1); // Default variation
-      rateVariation = 1.0 + (Math.random() * 0.1 - 0.05);
-    }
-    
-    // Configure voice with dynamic emotion and variations
-    voice.applyAccent({
-      profile: "neutral",
-      intensity: 0.5,
-      rate: rateVariation,
-      pitch: pitchVariation,
-      emotion: emotion as "neutral" | "cheerful" | "professional" | "casual" | "excited" | "calm" | "dramatic" | "friendly" | "serious" | "curious"
-    });
-    
-    // Speak the response with Chango's cheerful voice
+    // Speak the response without changing global voice settings
+    // The voice will use the stable configuration set in useEffect
     voice.speak(naturalResponse);
 
     // Log the curiosity response

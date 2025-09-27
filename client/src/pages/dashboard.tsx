@@ -7,6 +7,7 @@ import VoiceScanner from "@/components/VoiceScanner";
 import TextToSpeech from "@/components/TextToSpeech";
 import HolographicInterface from "@/components/HolographicInterface";
 import CuriosityEngine from "@/components/CuriosityEngine";
+import Chat from "@/components/Chat";
 import { SystemDiagnostics } from "@/components/SystemDiagnostics";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -91,6 +92,8 @@ export default function Dashboard() {
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Left Column - Main Controls */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Chat Interface - Prominent Position */}
+            <Chat />
             <VoiceControls />
             <VoiceRouteSelector />
             <AccentEmulator />

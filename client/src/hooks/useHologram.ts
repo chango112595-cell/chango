@@ -12,11 +12,11 @@ interface HologramState {
 
 export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
   const [state, setState] = useState<HologramState>({
-    isRunning: false,
+    isRunning: true,
     mode: "awakened",
     size: 200,
     speed: 50,
-    wander: false,
+    wander: true,
     position: { x: window.innerWidth - 320, y: window.innerHeight - 320 },
     velocity: { x: 0, y: 0 },
   });

@@ -11,11 +11,11 @@ type HologramMode = "awakened" | "sentinel";
 
 export default function HolographicInterface() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
   const [mode, setMode] = useState<HologramMode>("awakened");
   const [size, setSize] = useState([200]);
   const [speed, setSpeed] = useState([50]);
-  const [wander, setWander] = useState(false);
+  const [wander, setWander] = useState(true);
 
   const { 
     initializeHologram, 

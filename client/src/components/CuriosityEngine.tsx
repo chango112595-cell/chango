@@ -80,35 +80,129 @@ export default function CuriosityEngine() {
     },
   });
 
-  // Generate curiosity responses based on context
+  // Generate more natural, conversational responses
   const generateCuriousResponse = () => {
-    const responses = [
-      "I noticed a pacing change—should we save this as a style preset?",
-      "Curious: want me to try a softer pitch for this topic?",
-      "I can summarize our last 3 steps into a note—do it?",
-      "I think your last assumption conflicts with earlier notes. Want a quick check?",
-      "Should I adapt my response style based on the current conversation context?",
-      "I've detected some interesting patterns in your voice preferences. Explore them?",
-      "Ready to synthesize speech! Try the TextToSpeech controls below.",
-      "I can help you create custom voice profiles. Just record your voice!",
-      "Did you know? I support multiple TTS routes including ElevenLabs and Azure.",
-      "The holographic interface is active. I'm floating around your screen!",
-      "System diagnostics show everything is running smoothly.",
-      "Want to try a different accent? Check out the Accent Emulator!",
-      "I'm learning from your voice patterns. Keep experimenting!",
-      "My curiosity level is set to very high - I'm eager to help!",
+    // Response templates with dynamic elements
+    const responseTemplates = [
+      // Voice & Recording related
+      () => {
+        const intros = ["Oh!", "Hey!", "Wow,", "Hmm,", ""];
+        const middles = ["I noticed", "looks like", "seems like"];
+        const endings = ["your pacing changed a bit", "the rhythm shifted there", "your voice has a unique pattern"];
+        const questions = ["Want me to save this as a preset?", "Should I capture that style?", "Keep this for later?"];
+        return `${intros[Math.floor(Math.random() * intros.length)]} ${middles[Math.floor(Math.random() * middles.length)]} ${endings[Math.floor(Math.random() * endings.length)]}... ${questions[Math.floor(Math.random() * questions.length)]}`;
+      },
+      
+      // Pitch adjustments
+      () => {
+        const fillers = ["Um,", "Well,", "You know,", "So,", ""];
+        const suggestions = ["I could try a softer tone", "maybe a gentler pitch would work", "a lighter voice might suit this"];
+        return `${fillers[Math.floor(Math.random() * fillers.length)]} ${suggestions[Math.floor(Math.random() * suggestions.length)]}? Just a thought!`;
+      },
+      
+      // Note-taking
+      () => {
+        const interjections = ["Quick idea!", "Oh, wait!", "Hey, thought:", "Actually,"];
+        const actions = ["I could summarize our chat", "want me to capture these last few points", "should I jot this down"];
+        return `${interjections[Math.floor(Math.random() * interjections.length)]} ${actions[Math.floor(Math.random() * actions.length)]}? It'll just take a sec...`;
+      },
+      
+      // Pattern detection
+      () => {
+        const discoveries = ["Ooh, interesting!", "Fascinating!", "Cool pattern here:", "Check this out:"];
+        const observations = ["your voice has this unique quality", "I'm picking up something special", "there's a neat rhythm to how you speak"];
+        const fillers = ["", "you know,", "like,"];
+        return `${discoveries[Math.floor(Math.random() * discoveries.length)]} ${fillers[Math.floor(Math.random() * fillers.length)]} ${observations[Math.floor(Math.random() * observations.length)]}. Want to explore it?`;
+      },
+      
+      // Ready to help
+      () => {
+        const enthusiasm = ["Alright!", "Ready!", "Let's go!", "Perfect timing!"];
+        const actions = ["I'm all set to synthesize", "speech synthesis is ready", "we can start creating voices"];
+        return `${enthusiasm[Math.floor(Math.random() * enthusiasm.length)]} ${actions[Math.floor(Math.random() * actions.length)]}... just hit those controls below!`;
+      },
+      
+      // Voice profiles
+      () => {
+        const starters = ["Oh!", "Hey!", "You know what?", ""];
+        const offers = ["I'd love to help create a custom voice profile", "we could capture your unique voice", "let's make a voice that's totally you"];
+        return `${starters[Math.floor(Math.random() * starters.length)]} ${offers[Math.floor(Math.random() * offers.length)]}... just hit record and let's capture your unique sound!`;
+      },
+      
+      // System status (playful)
+      () => {
+        const intros = ["Everything's", "Systems are", "We're"];
+        const status = ["running smoothly", "working great", "all good", "humming along nicely"];
+        const extras = ["!", "... like butter!", "... smooth as silk!", "!"];
+        return `${intros[Math.floor(Math.random() * intros.length)]} ${status[Math.floor(Math.random() * status.length)]}${extras[Math.floor(Math.random() * extras.length)]}`;
+      },
+      
+      // Accent exploration
+      () => {
+        const suggestions = ["Wanna", "Want to", "How about we", "Should we"];
+        const actions = ["try a different accent", "experiment with voices", "play with some accents", "explore new speaking styles"];
+        return `${suggestions[Math.floor(Math.random() * suggestions.length)]} ${actions[Math.floor(Math.random() * actions.length)]}? The Accent Emulator's pretty fun!`;
+      },
+      
+      // Learning and adapting
+      () => {
+        const observations = ["I'm picking up", "Getting better at understanding", "Learning more about", "Starting to recognize"];
+        const subjects = ["your voice patterns", "how you like things", "your preferences", "your style"];
+        const encouragement = ["Keep going!", "This is great!", "Love the experimentation!", "You're doing awesome!"];
+        return `${observations[Math.floor(Math.random() * observations.length)]} ${subjects[Math.floor(Math.random() * subjects.length)]}... ${encouragement[Math.floor(Math.random() * encouragement.length)]}`;
+      },
+      
+      // Eager helper
+      () => {
+        const excitement = ["My curiosity circuits are", "I'm feeling", "Energy levels are", "I'm"];
+        const levels = ["super charged", "really energized", "buzzing with ideas", "excited to help"];
+        const endings = ["!", "... what should we explore?", "! Let's create something cool!", "... ready when you are!"];
+        return `${excitement[Math.floor(Math.random() * excitement.length)]} ${levels[Math.floor(Math.random() * levels.length)]}${endings[Math.floor(Math.random() * endings.length)]}`;
+      },
+      
+      // Holographic fun
+      () => {
+        const playful = ["Wheee!", "Zoom zoom!", "Float mode activated!", "*floating around*"];
+        const descriptions = ["The holographic interface is", "I'm", "Currently"];
+        const states = ["doing loop-de-loops", "hovering nearby", "floating around your screen", "in full 3D mode"];
+        return `${playful[Math.floor(Math.random() * playful.length)]} ${descriptions[Math.floor(Math.random() * descriptions.length)]} ${states[Math.floor(Math.random() * states.length)]}!`;
+      },
+      
+      // Context awareness
+      () => {
+        const intros = ["Hmm,", "You know,", "I'm thinking...", "So,"];
+        const suggestions = ["should I adjust my style", "maybe I should adapt", "I could switch things up"];
+        const contexts = ["based on what we're doing", "to match the vibe", "for this conversation"];
+        return `${intros[Math.floor(Math.random() * intros.length)]} ${suggestions[Math.floor(Math.random() * suggestions.length)]} ${contexts[Math.floor(Math.random() * contexts.length)]}?`;
+      }
     ];
 
-    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-    setCurrentResponse(randomResponse);
+    // Select and execute a random template
+    const selectedTemplate = responseTemplates[Math.floor(Math.random() * responseTemplates.length)];
+    const naturalResponse = selectedTemplate();
+    
+    setCurrentResponse(naturalResponse);
+    
+    // Add slight variations to voice parameters for more natural speech
+    const pitchVariation = 1.0 + (Math.random() * 0.2 - 0.1); // 0.9 to 1.1
+    const rateVariation = 1.0 + (Math.random() * 0.1 - 0.05); // 0.95 to 1.05
+    
+    // Configure voice with cheerful emotion and slight variations
+    voice.applyAccent({
+      profile: "neutral",
+      intensity: 0.5,
+      rate: rateVariation,
+      pitch: pitchVariation,
+      emotion: "cheerful"
+    });
     
     // Speak the response with Chango's cheerful voice
-    voice.speak(randomResponse);
+    voice.speak(naturalResponse);
 
     // Log the curiosity response
     addLogMutation.mutate({
       trigger: "adaptive_response",
-      response: randomResponse,
+      response: naturalResponse,
       context: {
         curiosityLevel: curiosityLevel[0] / 100,
         personalityVariance: personalityVariance[0] / 100,
@@ -282,24 +376,50 @@ export function useCuriosityEngine() {
     },
   });
 
-  // Generate curiosity responses based on context
+  // Generate more natural, conversational responses for hook
   const generateCuriousResponse = () => {
-    const responses = [
-      "I noticed a pacing change—should we save this as a style preset?",
-      "Curious: want me to try a softer pitch for this topic?",
-      "I can summarize our last 3 steps into a note—do it?",
-      "I think your last assumption conflicts with earlier notes. Want a quick check?",
-      "Should I adapt my response style based on the current conversation context?",
-      "I've detected some interesting patterns in your voice preferences. Explore them?",
+    const templates = [
+      () => {
+        const starts = ["Oh!", "Hmm,", "Hey,", ""];
+        const notes = ["I noticed something", "there's a pattern here", "your pacing changed"];
+        return `${starts[Math.floor(Math.random() * starts.length)]} ${notes[Math.floor(Math.random() * notes.length)]}... want me to save it?`;
+      },
+      () => {
+        const fillers = ["Um,", "Well,", "So,", ""];
+        const suggests = ["maybe try a softer pitch", "a gentler tone might work", "we could adjust the voice"];
+        return `${fillers[Math.floor(Math.random() * fillers.length)]} ${suggests[Math.floor(Math.random() * suggests.length)]}?`;
+      },
+      () => {
+        const quick = ["Quick thought:", "Hey!", "Oh!", "Actually,"];
+        const actions = ["I could summarize our chat", "want me to take notes", "should I capture this"];
+        return `${quick[Math.floor(Math.random() * quick.length)]} ${actions[Math.floor(Math.random() * actions.length)]}?`;
+      },
+      () => {
+        const discovers = ["Interesting!", "Ooh!", "Found something:", "Check this:"];
+        const patterns = ["your voice patterns are unique", "there's a cool rhythm here", "I'm learning your style"];
+        return `${discovers[Math.floor(Math.random() * discovers.length)]} ${patterns[Math.floor(Math.random() * patterns.length)]}!`;
+      },
+      () => {
+        const adapts = ["Should I", "Want me to", "I could"];
+        const changes = ["adjust my style", "match your vibe", "adapt to this context"];
+        return `${adapts[Math.floor(Math.random() * adapts.length)]} ${changes[Math.floor(Math.random() * changes.length)]}?`;
+      },
+      () => {
+        const explores = ["Found some", "Detected", "I've noticed"];
+        const things = ["interesting patterns", "cool preferences", "unique voice traits"];
+        return `${explores[Math.floor(Math.random() * explores.length)]} ${things[Math.floor(Math.random() * things.length)]}... wanna explore?`;
+      }
     ];
 
-    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-    setCurrentResponse(randomResponse);
+    const selectedTemplate = templates[Math.floor(Math.random() * templates.length)];
+    const naturalResponse = selectedTemplate();
+    
+    setCurrentResponse(naturalResponse);
     
     // Trigger curiosity notification
     toast({
       title: "Curiosity Triggered",
-      description: randomResponse,
+      description: naturalResponse,
       duration: 5000,
     });
   };

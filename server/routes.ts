@@ -24,8 +24,7 @@ const upload = multer({
 // TTS Route validation schema
 const ttsRequestSchema = z.object({
   text: z.string().min(1).max(1000),
-  voiceProfileId: z.string().optional(),
-  route: z.enum(["client", "local_neural", "elevenlabs", "azure"]).optional()
+  voiceProfileId: z.string().optional()
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -155,7 +154,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // TTS routes - JSON responses for testing/status
   app.post("/api/tts/synthesize", async (req, res) => {
     try {
-      const { text, voiceProfileId, route = "client" } = ttsRequestSchema.parse(req.body);
+      const { text, voiceProfileId } = ttsRequestSchema.parse(req.body);
       
       // Get voice profile if specified
       let voiceProfile = null;
@@ -163,58 +162,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         voiceProfile = await storage.getVoiceProfile(voiceProfileId);
       }
 
-      switch (route) {
-        case "client":
-          // Client-side synthesis, just return success
-          res.json({ success: true, message: "Use client-side synthesis", route });
-          break;
-          
-        case "local_neural":
-          res.status(501).json({ error: "Local neural TTS not implemented", route });
-          break;
-          
-        case "elevenlabs":
-          const elevenLabsKey = process.env.ELEVENLABS_API_KEY;
-          if (!elevenLabsKey) {
-            return res.status(501).json({ error: "ElevenLabs API key not configured", route });
-          }
-          
-          try {
-            const { ElevenLabsClient } = await import("./utils/elevenLabs.js");
-            const client = new ElevenLabsClient(elevenLabsKey);
-            
-            // Test connection by getting user info
-            await client.getUserInfo();
-            res.json({ success: true, message: "ElevenLabs route is ready", route });
-          } catch (error) {
-            console.error("ElevenLabs test error:", error);
-            res.status(500).json({ error: "ElevenLabs route test failed", route });
-          }
-          break;
-          
-        case "azure":
-          const azureKey = process.env.AZURE_TTS_KEY;
-          const azureRegion = process.env.AZURE_TTS_REGION;
-          if (!azureKey || !azureRegion) {
-            return res.status(501).json({ error: "Azure TTS credentials not configured", route });
-          }
-          
-          try {
-            const { AzureTTSClient } = await import("./utils/azureTTS.js");
-            const client = new AzureTTSClient(azureKey, azureRegion);
-            
-            // Test connection by getting access token
-            await client.getAccessToken();
-            res.json({ success: true, message: "Azure TTS route is ready", route });
-          } catch (error) {
-            console.error("Azure TTS test error:", error);
-            res.status(500).json({ error: "Azure TTS route test failed", route });
-          }
-          break;
-          
-        default:
-          res.status(400).json({ error: "Invalid TTS route" });
-      }
+      // Always use client-side synthesis (CVE)
+      res.json({ success: true, message: "Use client-side synthesis", route: "client" });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid TTS request", details: error.errors });
@@ -223,10 +172,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Audio synthesis endpoint - returns binary audio
+  // Audio synthesis endpoint - client-side only now
   app.post("/api/tts/audio", async (req, res) => {
     try {
-      const { text, voiceProfileId, route = "client" } = ttsRequestSchema.parse(req.body);
+      const { text, voiceProfileId } = ttsRequestSchema.parse(req.body);
       
       // Get voice profile if specified
       let voiceProfile = null;
@@ -234,81 +183,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         voiceProfile = await storage.getVoiceProfile(voiceProfileId);
       }
 
-      switch (route) {
-        case "client":
-          res.status(400).json({ error: "Client route does not support server-side audio generation" });
-          break;
-          
-        case "local_neural":
-          res.status(501).json({ error: "Local neural TTS not implemented" });
-          break;
-          
-        case "elevenlabs":
-          const elevenLabsKey = process.env.ELEVENLABS_API_KEY;
-          if (!elevenLabsKey) {
-            return res.status(501).json({ error: "ElevenLabs API key not configured" });
-          }
-          
-          try {
-            const { ElevenLabsClient } = await import("./utils/elevenLabs.js");
-            const client = new ElevenLabsClient(elevenLabsKey);
-            
-            const audioBuffer = await client.synthesize({
-              text,
-              voice_settings: voiceProfile ? {
-                stability: 0.75,
-                similarity_boost: 0.8,
-                style: 0.2,
-                use_speaker_boost: true
-              } : undefined
-            });
-
-            res.set({
-              'Content-Type': 'audio/mpeg',
-              'Content-Length': audioBuffer.length,
-              'Content-Disposition': 'inline; filename="speech.mp3"'
-            });
-            
-            res.send(audioBuffer);
-          } catch (error) {
-            console.error("ElevenLabs synthesis error:", error);
-            res.status(500).json({ error: "ElevenLabs synthesis failed" });
-          }
-          break;
-          
-        case "azure":
-          const azureKey = process.env.AZURE_TTS_KEY;
-          const azureRegion = process.env.AZURE_TTS_REGION;
-          if (!azureKey || !azureRegion) {
-            return res.status(501).json({ error: "Azure TTS credentials not configured" });
-          }
-          
-          try {
-            const { AzureTTSClient } = await import("./utils/azureTTS.js");
-            const client = new AzureTTSClient(azureKey, azureRegion);
-            
-            const audioBuffer = await client.synthesize({
-              text,
-              voice: voiceProfile ? 'en-US-JennyNeural' : 'en-US-AriaNeural',
-              rate: voiceProfile ? '+10%' : '0%'
-            });
-
-            res.set({
-              'Content-Type': 'audio/mpeg',
-              'Content-Length': audioBuffer.length,
-              'Content-Disposition': 'inline; filename="speech.mp3"'
-            });
-            
-            res.send(audioBuffer);
-          } catch (error) {
-            console.error("Azure TTS synthesis error:", error);
-            res.status(500).json({ error: "Azure TTS synthesis failed" });
-          }
-          break;
-          
-        default:
-          res.status(400).json({ error: "Invalid TTS route" });
-      }
+      // Client route does not support server-side audio generation
+      res.status(400).json({ error: "Server-side audio generation not supported. Use client-side CVE synthesis." });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid TTS request", details: error.errors });
@@ -423,20 +299,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       const loop = { lag_ms: getLag() };
 
-      // TTS route status
+      // TTS route status - CVE only now
       const routes = {
-        client: { enabled: true, healthy: true, note: 'WebSpeech (browser)' },
-        local_neural: { enabled: false, healthy: false, note: 'planned' },
-        elevenlabs: { 
-          enabled: !!process.env.ELEVENLABS_API_KEY, 
-          healthy: false, 
-          note: process.env.ELEVENLABS_API_KEY ? 'stub' : 'no key' 
-        },
-        azure: { 
-          enabled: !!(process.env.AZURE_TTS_KEY && process.env.AZURE_TTS_REGION), 
-          healthy: false, 
-          note: (process.env.AZURE_TTS_KEY && process.env.AZURE_TTS_REGION) ? 'stub' : 'no key' 
-        }
+        client: { enabled: true, healthy: true, note: 'Chango Voice Engine (CVE)' }
       };
 
       // Self-ping for responsiveness check

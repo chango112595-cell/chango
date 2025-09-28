@@ -3,8 +3,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import OpenAI from "openai";
 import dotenv from "dotenv";
-// @ts-ignore
-import { registerMcp } from "./mcp_sse.js";
+import { mcpRouter } from "./mcp/router";
 import powerRouter from "./routes/power";
 import devWriteRouter from "./routes/devWrite";
 import checkpointRouter from "./routes/checkpoints";
@@ -16,7 +15,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const app = express();
 
 // Do NOT add compression() or any redirect middleware in front of /mcp
-registerMcp(app);
+app.use("/mcp", mcpRouter);
 
 // Global CORS for ChatGPT (skip /mcp paths - they handle their own CORS)
 app.use((req, res, next) => {

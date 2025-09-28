@@ -74,7 +74,17 @@ function getToken(req: Request): string | undefined {
 }
 
 function authenticate(req: Request, res: Response): boolean {
+  // Check if request is from ChatGPT origin
+  const origin = req.headers.origin as string;
+  const chatGPTOrigins = new Set(["https://chat.openai.com", "app://chat.openai.com"]);
+  
+  // If origin is ChatGPT and no token provided, allow access
   const token = getToken(req);
+  if (!token && chatGPTOrigins.has(origin)) {
+    return true;
+  }
+  
+  // Otherwise, verify token
   const expectedToken = process.env.MCP_TOKEN || "mcp-connect-chatgpt";
   
   if (token !== expectedToken) {
@@ -136,7 +146,7 @@ const TOOLS: Tool[] = [
 ];
 
 // Tool implementation functions
-async function searchFiles(query: string): Promise<string[]> {
+async function searchFiles(query: string): Promise<{ ids: string[] }> {
   try {
     await fs.promises.mkdir(safeBasePath, { recursive: true });
     const files = await fs.promises.readdir(safeBasePath);
@@ -162,7 +172,7 @@ async function searchFiles(query: string): Promise<string[]> {
       }
     }
     
-    return results;
+    return { ids: results };
   } catch (error) {
     console.error(`[MCP] Error searching files:`, error);
     throw error;
@@ -322,6 +332,14 @@ async function handleJSONRPC(request: JSONRPCRequest): Promise<JSONRPCResponse> 
 mcpRouter.post("/", express.json({ limit: "1mb" }), async (req: Request<{}, {}, JSONRPCRequest>, res: Response<JSONRPCResponse>) => {
   if (!authenticate(req, res)) return;
   
+  // Set CORS headers for POST response
+  const origin = req.headers.origin as string;
+  const allowedOrigins = new Set(["https://chat.openai.com", "app://chat.openai.com"]);
+  const allowOrigin = allowedOrigins.has(origin) ? origin : "https://chat.openai.com";
+  
+  res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
   const request = req.body;
   
   // Validate JSON-RPC request
@@ -365,32 +383,75 @@ function sendSSEMessage(res: Response, data: any) {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-function setupSSEConnection(res: Response): string {
+function setupSSEConnection(req: Request, res: Response): string {
+  // CORS headers for ChatGPT
+  const origin = req.headers.origin as string;
+  const allowedOrigins = new Set(["https://chat.openai.com", "app://chat.openai.com"]);
+  const allowOrigin = allowedOrigins.has(origin) ? origin : "https://chat.openai.com";
+  
   // Set SSE headers
   res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
     'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Headers': '*',
     'X-Accel-Buffering': 'no' // Disable Nginx buffering
   });
   
-  // Send initial connection message
+  // Send initial ready event required by ChatGPT
   const connectionId = `sse-${Date.now()}-${++connectionCounter}`;
-  sendSSEMessage(res, { type: 'connection', id: connectionId });
+  const readyEvent = {
+    type: 'ready',
+    tools: TOOLS.map(tool => ({
+      name: tool.name,
+      args: Object.keys(tool.inputSchema.properties || {}).reduce((acc, key) => {
+        acc[key] = "string";
+        return acc;
+      }, {} as Record<string, string>)
+    })),
+    meta: { project: "ChangoAI", connectionId }
+  };
+  sendSSEMessage(res, readyEvent);
   
   return connectionId;
 }
 
-// GET /sse/ - SSE endpoint for ChatGPT
-mcpRouter.get("/sse/", (req: Request, res: Response) => {
+// OPTIONS handler for SSE endpoint preflight
+mcpRouter.options("/sse", (req: Request, res: Response) => {
+  const origin = req.headers.origin as string;
+  const allowedOrigins = new Set(["https://chat.openai.com", "app://chat.openai.com"]);
+  const allowOrigin = allowedOrigins.has(origin) ? origin : "https://chat.openai.com";
+  
+  res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.status(204).end();
+});
+
+mcpRouter.options("/sse/", (req: Request, res: Response) => {
+  const origin = req.headers.origin as string;
+  const allowedOrigins = new Set(["https://chat.openai.com", "app://chat.openai.com"]);
+  const allowOrigin = allowedOrigins.has(origin) ? origin : "https://chat.openai.com";
+  
+  res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.status(204).end();
+});
+
+// GET /sse - SSE endpoint for ChatGPT (without trailing slash)
+mcpRouter.get("/sse", (req: Request, res: Response) => {
   if (!authenticate(req, res)) return;
   
-  console.log(`[MCP] SSE connection established`);
+  console.log(`[MCP] SSE connection established (no trailing slash)`);
   
-  const connectionId = setupSSEConnection(res);
+  const connectionId = setupSSEConnection(req, res);
   
-  // Set up keep-alive ping every 30 seconds
+  // Set up keep-alive ping every 15 seconds
   const keepAliveInterval = setInterval(() => {
     try {
       res.write(`:ping\n\n`);
@@ -399,7 +460,7 @@ mcpRouter.get("/sse/", (req: Request, res: Response) => {
       clearInterval(keepAliveInterval);
       sseConnections.delete(connectionId);
     }
-  }, 30000);
+  }, 15000);
   
   // Store connection
   sseConnections.set(connectionId, {
@@ -416,12 +477,66 @@ mcpRouter.get("/sse/", (req: Request, res: Response) => {
   });
 });
 
+// GET /sse/ - SSE endpoint for ChatGPT (with trailing slash)
+mcpRouter.get("/sse/", (req: Request, res: Response) => {
+  if (!authenticate(req, res)) return;
+  
+  console.log(`[MCP] SSE connection established (with trailing slash)`);
+  
+  const connectionId = setupSSEConnection(req, res);
+  
+  // Set up keep-alive ping every 15 seconds
+  const keepAliveInterval = setInterval(() => {
+    try {
+      res.write(`:ping\n\n`);
+    } catch (error) {
+      // Connection closed, clean up
+      clearInterval(keepAliveInterval);
+      sseConnections.delete(connectionId);
+    }
+  }, 15000);
+  
+  // Store connection
+  sseConnections.set(connectionId, {
+    res,
+    connectionId,
+    keepAliveInterval
+  });
+  
+  // Handle client disconnect
+  req.on('close', () => {
+    console.log(`[MCP] SSE connection closed: ${connectionId}`);
+    clearInterval(keepAliveInterval);
+    sseConnections.delete(connectionId);
+  });
+});
+
+// OPTIONS handler for messages endpoint preflight
+mcpRouter.options("/messages", (req: Request, res: Response) => {
+  const origin = req.headers.origin as string;
+  const allowedOrigins = new Set(["https://chat.openai.com", "app://chat.openai.com"]);
+  const allowOrigin = allowedOrigins.has(origin) ? origin : "https://chat.openai.com";
+  
+  res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.status(204).end();
+});
+
 // POST /messages - JSON-RPC message endpoint for ChatGPT
 mcpRouter.post("/messages", express.json({ limit: "1mb" }), async (req: Request, res: Response) => {
   if (!authenticate(req, res)) return;
   
+  // Set CORS headers for POST response
+  const origin = req.headers.origin as string;
+  const allowedOrigins = new Set(["https://chat.openai.com", "app://chat.openai.com"]);
+  const allowOrigin = allowedOrigins.has(origin) ? origin : "https://chat.openai.com";
+  
+  res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
   const request = req.body as JSONRPCRequest;
-  const connectionId = req.headers['x-connection-id'] as string;
   
   console.log(`[MCP] Message received via /messages: ${request.method}`);
   
@@ -440,15 +555,6 @@ mcpRouter.post("/messages", express.json({ limit: "1mb" }), async (req: Request,
   // Process the request using existing handler
   const response = await handleJSONRPC(request);
   
-  // Send response through SSE if connection exists, otherwise use normal response
-  if (connectionId && sseConnections.has(connectionId)) {
-    const connection = sseConnections.get(connectionId);
-    if (connection) {
-      sendSSEMessage(connection.res, response);
-      res.json({ status: "sent via SSE" });
-    }
-  } else {
-    // Fallback to normal JSON response
-    res.json(response);
-  }
+  // Return response directly (simplified strategy - no SSE response delivery)
+  res.json(response);
 });

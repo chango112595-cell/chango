@@ -49,6 +49,10 @@ export function registerMcp(app) {
     const ready = {
       type: "ready",
       tools: [
+        // Deep research tools (required for ChatGPT deep research)
+        { name: "search",      args: { query: "string" } },
+        { name: "fetch",       args: { id: "string" } },
+        // File management tools
         { name: "list_files",  args: { path: "string" } },
         { name: "read_file",   args: { path: "string" } },
         { name: "write_file",  args: { path: "string", content: "string" } },

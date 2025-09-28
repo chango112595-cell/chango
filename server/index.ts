@@ -4,6 +4,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 import { mcpRouter } from "./mcp/router";
+import { MCPWebSocketServer } from "./mcp/websocket";
 import powerRouter from "./routes/power";
 import devWriteRouter from "./routes/devWrite";
 import checkpointRouter from "./routes/checkpoints";
@@ -11,6 +12,9 @@ dotenv.config(); // Load environment variables
 
 // Initialize OpenAI client with API key from environment variable
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Initialize MCP WebSocket Server
+const mcpWebSocketServer = new MCPWebSocketServer();
 
 const app = express();
 app.use(express.json());
@@ -141,6 +145,16 @@ app.post('/chatgpt', async (req: Request, res: Response) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
+  // Handle WebSocket upgrade for /mcp endpoint
+  server.on('upgrade', (request, socket, head) => {
+    const url = new URL(request.url || '', `http://${request.headers.host}`);
+    if (url.pathname === '/mcp' || url.pathname === '/mcp/') {
+      mcpWebSocketServer.handleUpgrade(request, socket, head);
+    } else {
+      socket.destroy();
+    }
+  });
+
   server.listen({
     port,
     host: "0.0.0.0",

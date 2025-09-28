@@ -1,0 +1,39 @@
+Perfect—locking a checkpoint first, then making MCP bring-up = Priority 0.
+
+1) One-click checkpoint + task update (paste in Admin Patch)
+
+Paste this JSON in the Patch Console and send:
+
+{
+  "note": "Checkpoint + promote MCP to Priority 0",
+  "files": [
+    {
+      "path": "docs/checkpoints/2025-09-27_checkpoint_v-current.md",
+      "content": "# ChangoAI Checkpoint — 2025-09-27\n\n**Scope**: Consolidated current working build (voice routes, hologram HUD, logs/approvals, curiosity baseline wiring).\n**Why**: Safe point before MCP integration.\n**What works**: Server @ :5000, HUD, Admin Patch Console (/dev/write), logging, voice pipeline baseline.\n**Risks**: Replit ZIP import variability; MCP not yet enabled.\n**Next**: Priority 0 — MCP connector bring-up.\n"
+    },
+    {
+      "path": "docs/tasks/MASTER_TASKS_2025-09-27.md",
+      "content": "# Master Task Priorities — 2025-09-27\n\n## Priority 0 — MCP Connector Bring-Up (NEW)\n- Stand up wss:// endpoint `/mcp` with token auth (MCP_TOKEN secret)\n- Health-check from desktop ChatGPT custom connector\n- Tools exposed: list_files, write_file (isolated), read_file (ro)\n- Success = ChatGPT can list repo + write a test file via MCP\n\n## Priority 1 — Lab Log & Checkpoints (READY)\n- Status: ✅ Active. Auto notes via Admin Patch logs + checkpoints folder\n\n## Priority 2 — Voice & Responses\n- Goal: natural, humanlike TTS; accent emulation; voice selection\n- Status: 🟡 In progress (baseline OK; advanced prosody pending)\n\n## Priority 3 — Diagnostics Dashboard\n- Goal: real CPU/mem, route health, session analytics\n- Status: 🟡 In progress (UI stub)\n\n## Priority 4 — Curiosity Engine\n- Goal: randomized-but-human curiosity triggers + approvals\n- Status: 🟡 In progress (scaffold present)\n\n## Parking Lot\n- Jarvis sphere free-float UI modes, ambient behaviors, screensaver mode\n"
+    },
+    {
+      "path": "logs/DEV_NOTES/2025-09-27_mcp_objective.txt",
+      "content": "Create secure MCP websocket endpoint at /mcp (wss) with token gate. Expose tools: list_files, write_file, read_file(ro). Verify connector from desktop ChatGPT. Roll forward only after success log recorded."
+    }
+  ]
+}
+
+Result:
+	•	New checkpoint saved under docs/checkpoints/…
+	•	A dated Master Tasks file with MCP as Priority 0
+	•	A dev note for quick reference
+
+⸻
+
+2) What we do next (Priority 0)
+
+After applying the patch, I’ll hand you the exact code to:
+	•	add /mcp WSS server,
+	•	set MCP_TOKEN in Replit Secrets,
+	•	test the connector from desktop ChatGPT.
+
+When MCP passes health-check, we proceed with live, continuous development.

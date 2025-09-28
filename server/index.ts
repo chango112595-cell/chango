@@ -8,6 +8,8 @@ import { registerMCP } from "./mcp.js";
 // @ts-ignore
 import { mcpRouter } from "./mcp_sse.js";
 // @ts-ignore
+import { mcpSseMin } from "./mcp_sse_min.js";
+// @ts-ignore
 import { attachWs } from "./mcp_ws.js";
 import powerRouter from "./routes/power";
 import devWriteRouter from "./routes/devWrite";
@@ -19,13 +21,15 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const app = express();
 
-// Global CORS for ChatGPT
+// Global CORS for ChatGPT (skip /mcp paths - they handle their own CORS)
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "https://chat.openai.com");
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header("Access-Control-Allow-Headers", "*");
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
+  if (!req.path.startsWith('/mcp')) {
+    res.header("Access-Control-Allow-Origin", "https://chat.openai.com");
+    res.header("Access-Control-Allow-Credentials", "true");
+    res.header("Access-Control-Allow-Headers", "*");
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
   }
   next();
 });
@@ -57,8 +61,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Mount ChatGPT-compatible MCP SSE router
-app.use('/mcp', mcpRouter);
+// Mount minimal SSE router for ChatGPT connector (no auth, no redirects)
+app.use('/mcp', mcpSseMin);
 
 // Mount Power router under /api path
 app.use('/api', powerRouter);

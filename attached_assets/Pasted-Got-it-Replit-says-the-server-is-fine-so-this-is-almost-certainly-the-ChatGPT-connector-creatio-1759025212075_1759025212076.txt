@@ -1,0 +1,125 @@
+Got it — Replit says the server is fine, so this is almost certainly the **ChatGPT connector creation validator** being picky. Do these four fixes (copy-paste code included). It’s short and proven to work with the connector.
+
+---
+
+## 1) Use this **minimal SSE endpoint** (no auth, no query, no redirects)
+
+**Replace your current `/mcp/sse` with this exact handler**:
+
+```js
+// server/mcp_sse_min.js
+import express from "express";
+export const mcpSseMin = express.Router();
+
+mcpSseMin.get("/sse", (req, res) => {
+  // CORS for ChatGPT web + desktop
+  const ALLOW = ["https://chat.openai.com", "app://chat.openai.com"];
+  const origin = req.headers.origin;
+  if (origin && ALLOW.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", "https://chat.openai.com");
+  }
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+
+  // SSE essentials
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.(); // in case compression is on
+
+  // REQUIRED: ready event immediately
+  res.write(`data: ${JSON.stringify({
+    type: "ready",
+    tools: [
+      { name: "list_files", args: { path: "string" } },
+      { name: "read_file",  args: { path: "string" } },
+      { name: "write_file", args: { path: "string", content: "string" } },
+    ],
+    meta: { project: "ChangoAI" }
+  })}\n\n`);
+
+  // Heartbeat (keeps the connection alive)
+  const hb = setInterval(() => res.write(`: ping\n\n`), 15000);
+  req.on("close", () => clearInterval(hb));
+});
+
+// Optional preflight (some clients send it)
+mcpSseMin.options("/sse", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "https://chat.openai.com");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.status(204).end();
+});
+```
+
+Wire it:
+
+```js
+// server/index.js
+import express from "express";
+import { mcpSseMin } from "./mcp_sse_min.js";
+const app = express();
+
+// DO NOT force global redirects or auth on /mcp/*
+app.use("/mcp", mcpSseMin);
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`ChangoAI on ${PORT}`));
+```
+
+**Important:**
+
+* **No tokens** and **no querystrings** in the connector URL.
+* Endpoint must return **200 OK**, **Content-Type: text/event-stream**, and the **`data: {"type":"ready"}`** line immediately.
+
+---
+
+## 2) Verify locally before trying the connector
+
+In a terminal (or Replit shell):
+
+```bash
+curl -N -H "Accept: text/event-stream" https://<your-repl>.repl.co/mcp/sse
+```
+
+Expected output:
+
+```
+data: {"type":"ready","tools":[...]}
+: ping
+: ping
+```
+
+If you see HTML, JSON, 301/302, or gzip junk, the connector will be rejected.
+
+---
+
+## 3) Create the connector (desktop first)
+
+* Open **chat.openai.com** (desktop browser).
+* Settings → **Connectors** → **Add custom connector**
+* Name: `Chango_MCP`
+* Server URL: `https://<your-repl>.repl.co/mcp/sse`
+* Auth: **No authentication**
+* Create.
+
+> After it’s added on desktop, it’ll also work in the mobile app.
+
+---
+
+## 4) Common blockers (quick checks)
+
+* **Redirects or compression**: make sure your host/middleware isn’t gzipping or redirecting `/mcp/sse`. In Replit, **disable any force-https middleware** that 301s to another URL with a different host.
+* **Wrong headers**: Content-Type must be `text/event-stream`; CORS must allow `https://chat.openai.com` **and** `app://chat.openai.com`.
+* **Query tokens**: ChatGPT often rejects URLs with `?token=…`. Keep the URL clean.
+* **Sleeping repl**: open the SSE URL in a browser first to wake it, then immediately add the connector.
+
+---
+
+### Want WS fallback too?
+
+If SSE still fights you, I can paste a 15-line `wss` mirror you can mount at `/mcp/ws`, then try that URL in the connector.
+
+Say the word and I’ll drop it.

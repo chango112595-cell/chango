@@ -5,6 +5,10 @@ import OpenAI from "openai";
 import dotenv from "dotenv";
 // @ts-ignore
 import { registerMCP } from "./mcp.js";
+// @ts-ignore
+import { mcpRouter } from "./mcp_sse.js";
+// @ts-ignore
+import { attachWs } from "./mcp_ws.js";
 import powerRouter from "./routes/power";
 import devWriteRouter from "./routes/devWrite";
 import checkpointRouter from "./routes/checkpoints";
@@ -14,6 +18,18 @@ dotenv.config(); // Load environment variables
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const app = express();
+
+// Global CORS for ChatGPT
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "https://chat.openai.com");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Headers", "*");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use((req, res, next) => {
@@ -41,6 +57,8 @@ app.use((req, res, next) => {
   next();
 });
 
+// Mount ChatGPT-compatible MCP SSE router
+app.use('/mcp', mcpRouter);
 
 // Mount Power router under /api path
 app.use('/api', powerRouter);
@@ -124,6 +142,9 @@ app.post('/chatgpt', async (req: Request, res: Response) => {
   
   // Register MCP with built-in diagnostics and tools BEFORE Vite setup
   registerMCP(app, server);
+  
+  // Attach WebSocket server for MCP fallback
+  attachWs(server);
   
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

@@ -121,6 +121,10 @@ app.post('/chatgpt', async (req: Request, res: Response) => {
 });
 (async () => {
   const server = await registerRoutes(app);
+  
+  // Register MCP with built-in diagnostics and tools BEFORE Vite setup
+  registerMCP(app, server);
+  
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -140,8 +144,6 @@ app.post('/chatgpt', async (req: Request, res: Response) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
-  // Register MCP with built-in diagnostics and tools
-  registerMCP(app, server);
 
   server.listen({
     port,

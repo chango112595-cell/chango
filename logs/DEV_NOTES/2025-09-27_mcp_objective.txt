@@ -1,0 +1,1 @@
+Create secure MCP websocket endpoint at /mcp (wss) with token gate. Expose tools: list_files, write_file, read_file(ro). Verify connector from desktop ChatGPT. Roll forward only after success log recorded.

@@ -1,37 +1,88 @@
 // server/mcp_sse.js
 import express from "express";
-export const mcpRouter = express.Router();
 
-mcpRouter.get("/sse", (req, res) => {
-  // Required headers for ChatGPT custom connector
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  // CORS: allow ChatGPT origins
-  res.setHeader("Access-Control-Allow-Origin", "https://chat.openai.com");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Headers", "*");
+export function registerMcp(app) {
+  const router = express.Router();
 
-  // Immediately tell ChatGPT we're ready and what tools exist
-  const ready = {
-    type: "ready",
-    tools: [
-      { name: "list_files", args: { path: "string" } },
-      { name: "read_file", args: { path: "string" } },
-      { name: "write_file", args: { path: "string", content: "string" } },
-    ],
-    meta: { project: "ChangoAI", env: "replit" }
-  };
-  res.write(`data: ${JSON.stringify(ready)}\n\n`);
+  // ---- CORS helper (web + desktop app) ----
+  const ALLOW = new Set(["https://chat.openai.com", "app://chat.openai.com"]);
+  function cors(res, origin) {
+    res.setHeader(
+      "Access-Control-Allow-Origin",
+      origin && ALLOW.has(origin) ? origin : "https://chat.openai.com"
+    );
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Headers", "*");
+  }
 
-  // Heartbeat so the connection stays open
-  const interval = setInterval(() => res.write(`: ping\n\n`), 15000);
+  // ---- Diagnostics (quick JSON check) ----
+  router.get("/diag", (req, res) => {
+    cors(res, req.headers.origin);
+    res.json({
+      ok: true,
+      note: "Use /mcp/sse for the ChatGPT connector.",
+      time: new Date().toISOString(),
+      headers: {
+        host: req.headers.host,
+        origin: req.headers.origin || null,
+      },
+      expects: {
+        contentType: "text/event-stream",
+        firstEvent: { type: "ready" },
+        noRedirects: true,
+        noQueryParams: true,
+      }
+    });
+  });
 
-  req.on("close", () => clearInterval(interval));
-});
+  // ---- SSE endpoint for ChatGPT custom connector ----
+  router.get("/sse", (req, res) => {
+    cors(res, req.headers.origin);
 
-// Optional JSON diag (good for testing in a browser)
-mcpRouter.get("/diag", (_req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "https://chat.openai.com");
-  res.json({ ok: true, service: "Chango_MCP", time: Date.now() });
-});
+    // IMPORTANT: exact headers
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    // REQUIRED first event
+    const ready = {
+      type: "ready",
+      tools: [
+        { name: "list_files",  args: { path: "string" } },
+        { name: "read_file",   args: { path: "string" } },
+        { name: "write_file",  args: { path: "string", content: "string" } },
+      ],
+      meta: { project: "ChangoAI" }
+    };
+    res.write(`data: ${JSON.stringify(ready)}\n\n`);
+
+    // Heartbeat to keep connection alive
+    const hb = setInterval(() => res.write(`: ping\n\n`), 15000);
+    req.on("close", () => clearInterval(hb));
+  });
+
+  // Preflight (some clients send OPTIONS)
+  router.options("/sse", (req, res) => {
+    cors(res, req.headers.origin);
+    res.status(204).end();
+  });
+
+  // ---- Simple in-browser tester (open in your browser) ----
+  router.get("/sse-test", (req, res) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.end(`<!doctype html>
+<html><body style="font-family:system-ui;margin:20px">
+<h3>MCP SSE smoke test</h3>
+<pre id="log"></pre>
+<script>
+  const log = (m)=>{document.getElementById('log').textContent += m + "\\n"};
+  const es = new EventSource(location.origin + "/mcp/sse");
+  es.onmessage = (e)=>log("message: " + e.data);
+  es.onerror   = (e)=>log("error (check CORS/headers)");
+</script>
+</body></html>`);
+  });
+
+  app.use("/mcp", router);
+}

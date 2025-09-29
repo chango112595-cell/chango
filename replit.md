@@ -5,6 +5,17 @@ This is a full-stack TypeScript application called "Chango AI" that provides adv
 # Recent Changes (September 29, 2025)
 
 ## Completed Features
+- ✅ **Voice Activity Detection (VAD)**: Advanced speech detection system to prevent random talking
+  - Auto Listen checkbox enables VAD requirement
+  - Visual indicators for speech detection and audio levels
+  - Anti-loop guard prevents overlapping speech
+  - Human speech detection within 30-second window
+  - User-initiated actions (chat, buttons) always work regardless of VAD
+- ✅ **Voice Analysis API**: Foundation endpoints for future voice features
+  - POST `/api/voice/analyze` - Analyzes WAV audio for voice characteristics
+  - POST `/api/voice/clone` - Saves voice profile from analysis
+  - POST `/api/voice/mimic` - Generates speech using saved profile (stub)
+  - POST `/api/voice/accent/fix` - Fixes accent in audio (stub)
 - ✅ **MCP Server Integration**: Clean MCP server implementation for ChatGPT connector support
   - Working endpoints at `/mcp` and `/mcp/write_file` 
   - Token authentication via `MCP_TOKEN` environment variable

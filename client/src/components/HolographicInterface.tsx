@@ -119,39 +119,51 @@ export default function HolographicInterface() {
         </div>
       </CardHeader>
       <CardContent>
-        {/* Hologram Display */}
-        <div className="relative flex justify-center mb-6">
-          <div className={`hologram-canvas ${
-            mode === "awakened" ? "hologram-awakened" : "hologram-sentinel"
-          } flex items-center justify-center transition-all duration-500`} 
-          style={{ width: `${size[0]}px`, height: `${size[0]}px` }}>
-            
-            {/* Canvas for 3D rendering */}
-            <canvas 
-              ref={canvasRef}
-              width={size[0]} 
-              height={size[0]}
-              className="absolute inset-0"
-              style={{ display: isVisible ? 'block' : 'none' }}
-              data-testid="canvas-hologram"
-            />
-            
-            {/* Animated particles */}
-            {isVisible && (
-              <>
-                <div className="particle" style={{ top: '20%', left: '30%', animationDelay: '0s' }}></div>
-                <div className="particle" style={{ top: '60%', left: '70%', animationDelay: '1s' }}></div>
-                <div className="particle" style={{ top: '40%', left: '20%', animationDelay: '2s' }}></div>
-                <div className="particle" style={{ top: '80%', left: '50%', animationDelay: '1.5s' }}></div>
-              </>
-            )}
-            
-            {/* Central core */}
-            {isVisible && (
-              <div className="w-12 h-12 rounded-full bg-gradient-to-r from-accent to-primary animate-hologram-pulse"></div>
-            )}
+        {/* Hologram Display - Only show in dock when not wandering */}
+        {!wander && (
+          <div className="relative flex justify-center mb-6">
+            <div className={`hologram-canvas ${
+              mode === "awakened" ? "hologram-awakened" : "hologram-sentinel"
+            } flex items-center justify-center transition-all duration-500`} 
+            style={{ width: `${size[0]}px`, height: `${size[0]}px` }}>
+              
+              {/* Canvas for 3D rendering */}
+              <canvas 
+                ref={canvasRef}
+                width={size[0]} 
+                height={size[0]}
+                className="absolute inset-0"
+                style={{ display: isVisible ? 'block' : 'none' }}
+                data-testid="canvas-hologram"
+              />
+              
+              {/* Animated particles */}
+              {isVisible && (
+                <>
+                  <div className="particle" style={{ top: '20%', left: '30%', animationDelay: '0s' }}></div>
+                  <div className="particle" style={{ top: '60%', left: '70%', animationDelay: '1s' }}></div>
+                  <div className="particle" style={{ top: '40%', left: '20%', animationDelay: '2s' }}></div>
+                  <div className="particle" style={{ top: '80%', left: '50%', animationDelay: '1.5s' }}></div>
+                </>
+              )}
+              
+              {/* Central core */}
+              {isVisible && (
+                <div className="w-12 h-12 rounded-full bg-gradient-to-r from-accent to-primary animate-hologram-pulse"></div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
+        
+        {/* Placeholder message when wandering */}
+        {wander && (
+          <div className="relative flex justify-center mb-6 items-center" style={{ height: `${size[0]}px` }}>
+            <div className="text-center text-muted-foreground">
+              <div className="mb-2">✨ Chango is wandering</div>
+              <div className="text-xs">Disable "Wander" to dock the hologram</div>
+            </div>
+          </div>
+        )}
 
         {/* Hologram Controls */}
         <div className="space-y-4">

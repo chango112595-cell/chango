@@ -43,7 +43,7 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
         z: 0,
         angle: (Math.PI * 2 * i) / particleCount,
         speed: 0.01 + Math.random() * 0.02,
-        radius: 80 + Math.random() * 40,
+        radius: 0.25 + Math.random() * 0.1,  // Store as percentage of size (0.25-0.35) to stay within bubble
       });
     }
     
@@ -106,8 +106,10 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     particlesRef.current.forEach((particle) => {
       particle.angle += particle.speed * (speed / 100);
       
-      const x = centerX + Math.cos(particle.angle) * particle.radius;
-      const y = centerY + Math.sin(particle.angle * 0.7) * particle.radius * 0.5;
+      // Scale particle radius based on current size
+      const scaledRadius = particle.radius * size;
+      const x = centerX + Math.cos(particle.angle) * scaledRadius;
+      const y = centerY + Math.sin(particle.angle * 0.7) * scaledRadius * 0.5;
       const depth = Math.sin(particle.angle * 0.5) * 0.5 + 0.5;
       
       const particleColor = mode === "awakened" 
@@ -120,8 +122,8 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
       ctx.fill();
     });
     
-    // Central core
-    const coreRadius = 8 + Math.sin(time * 0.003) * 3;
+    // Central core (scale based on size)
+    const coreRadius = (size * 0.04) + Math.sin(time * 0.003) * (size * 0.015);
     const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, coreRadius);
     
     if (mode === "awakened") {

@@ -416,8 +416,19 @@ function setupSSEConnection(req: Request, res: Response): string {
     'X-Accel-Buffering': 'no' // Disable Nginx buffering
   });
   
-  // Send initial ready event required by ChatGPT
+  // Send initial endpoint event for SSE transport protocol
   const connectionId = `sse-${Date.now()}-${++connectionCounter}`;
+  
+  // First send the endpoint event pointing to our messages endpoint
+  // Always use HTTPS for Replit URLs
+  const host = req.get('host') || '';
+  const protocol = host.includes('localhost') || host.includes('127.0.0.1') ? 'http' : 'https';
+  const endpointEvent = {
+    endpoint: `${protocol}://${host}/mcp/messages`
+  };
+  res.write(`event: endpoint\ndata: ${JSON.stringify(endpointEvent)}\n\n`);
+  
+  // Then send the ready event with tools
   const readyEvent = {
     type: 'ready',
     tools: TOOLS.map(tool => ({

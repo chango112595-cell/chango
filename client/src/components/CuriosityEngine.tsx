@@ -8,6 +8,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
 import { useSpeechCoordination } from "@/lib/speechCoordination";
+import { Volume2, VolumeX } from "lucide-react";
 import type { CuriosityLog } from "@shared/schema";
 
 interface CuriositySettings {
@@ -84,6 +85,7 @@ export default function CuriosityEngine() {
   const [personalityVariance, setPersonalityVariance] = useState([85]);
   const [learningRate, setLearningRate] = useState([75]);
   const [currentResponse, setCurrentResponse] = useState("Hello! I'm Chango, your AI assistant. I'm here to help with voice synthesis and more!");
+  const [quietMode, setQuietMode] = useState(false); // Add quiet mode state
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -336,8 +338,8 @@ export default function CuriosityEngine() {
   // Auto-generate responses based on curiosity level
   useEffect(() => {
     const interval = setInterval(() => {
-      // Check if we can speak before rolling the dice
-      if (!voice.isSpeaking() && speechCoordination.canCuriositySpeak()) {
+      // Check if quiet mode is enabled or if we can speak before rolling the dice
+      if (!quietMode && !voice.isSpeaking() && speechCoordination.canCuriositySpeak()) {
         const chance = curiosityLevel[0] / 100;
         if (Math.random() < chance * 0.6) { // 60% of curiosity level as base chance
           generateCuriousResponse();
@@ -346,7 +348,7 @@ export default function CuriosityEngine() {
     }, 2000); // Check every 2 seconds
 
     return () => clearInterval(interval);
-  }, [curiosityLevel, voice, speechCoordination, generateCuriousResponse]);
+  }, [curiosityLevel, voice, speechCoordination, generateCuriousResponse, quietMode]);
 
   const handleAdjustPersonality = () => {
     updateSettingsMutation.mutate({
@@ -366,12 +368,43 @@ export default function CuriosityEngine() {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Curiosity Engine</CardTitle>
+        <Button
+          variant={quietMode ? "destructive" : "outline"}
+          size="sm"
+          onClick={() => setQuietMode(!quietMode)}
+          className="ml-auto"
+          data-testid="button-quiet-mode"
+        >
+          {quietMode ? (
+            <>
+              <VolumeX className="w-4 h-4 mr-2" />
+              Quiet Mode
+            </>
+          ) : (
+            <>
+              <Volume2 className="w-4 h-4 mr-2" />
+              Active Mode
+            </>
+          )}
+        </Button>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          {currentResponse && (
+          {quietMode && (
+            <div className="bg-destructive/10 rounded-md p-3 mb-4">
+              <div className="flex items-center space-x-2">
+                <VolumeX className="w-4 h-4 text-destructive" />
+                <span className="text-sm font-medium text-destructive">Quiet Mode Active</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Chango won't speak randomly. You can still chat normally using the Chat interface.
+              </p>
+            </div>
+          )}
+          
+          {currentResponse && !quietMode && (
             <div className="bg-muted/20 rounded-md p-4">
               <div className="flex items-center space-x-2 mb-2">
                 <div className="w-2 h-2 bg-accent rounded-full animate-pulse"></div>

@@ -59,8 +59,8 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     ctx.clearRect(0, 0, size, size);
     
     // Define sphere radius for both bubble and wireframe
-    const sphereRadius = size * 0.2;  // 20% of canvas size
-    const bubbleRadius = sphereRadius * 1.2;  // 20% larger than sphere to contain it
+    const sphereRadius = size * 0.4;  // 40% of canvas size to fill the bubble
+    const bubbleRadius = sphereRadius * 1.15;  // 15% larger than sphere to contain it nicely
     
     // Draw background bubble gradient - match the sphere radius
     const bubbleGradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, bubbleRadius);

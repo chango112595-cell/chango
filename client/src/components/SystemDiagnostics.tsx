@@ -1,9 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Activity, Cpu, HardDrive, Clock, Wifi, Server, Zap } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Activity, Cpu, HardDrive, Clock, Wifi, Server, Zap, ChevronDown, ChevronUp, LineChart, BarChart3, Route } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface DiagnosticsData {
   ok: boolean;
@@ -40,12 +42,213 @@ interface DiagnosticsData {
   };
 }
 
+interface SystemMetrics {
+  memory: {
+    rss_mb: number;
+    heap_used_mb: number;
+    heap_total_mb: number;
+    external_mb: number;
+  };
+  cpu: {
+    loadAverage: number[];
+    cores: number;
+  };
+  uptime: {
+    process_seconds: number;
+    system_seconds: number;
+  };
+}
+
+interface RouteInfo {
+  method: string;
+  path: string;
+  regexp: string;
+}
+
+interface HealthCheck {
+  ok: boolean;
+  timestamp: string;
+  timestamp_ms: number;
+}
+
 export function SystemDiagnostics() {
+  const [memoryHistory, setMemoryHistory] = useState<number[]>([]);
+  const [routesOpen, setRoutesOpen] = useState(false);
+  const memoryChartRef = useRef<HTMLCanvasElement>(null);
+  const cpuChartRef = useRef<HTMLCanvasElement>(null);
+  
+  // Legacy diagnostics endpoint (for session analytics)
   const { data: diagnostics, isLoading } = useQuery<DiagnosticsData>({
     queryKey: ["/api/diagnostics"],
     refetchInterval: 3000, // Poll every 3 seconds
   });
+  
+  // New system metrics endpoint
+  const { data: systemMetrics } = useQuery<{ ok: boolean; data: SystemMetrics }>({
+    queryKey: ["/api/diagnostics/sys"],
+    refetchInterval: 3000,
+  });
+  
+  // Routes endpoint
+  const { data: routesData } = useQuery<{ ok: boolean; data: RouteInfo[] }>({
+    queryKey: ["/api/diagnostics/routes"],
+    refetchInterval: 30000, // Less frequent for routes
+  });
+  
+  // Ping endpoint
+  const { data: pingData } = useQuery<{ ok: boolean; data: HealthCheck }>({
+    queryKey: ["/api/diagnostics/ping"],
+    refetchInterval: 3000,
+  });
 
+  // Update memory history when new data arrives
+  useEffect(() => {
+    if (systemMetrics?.data?.memory) {
+      setMemoryHistory(prev => {
+        const newHistory = [...prev, systemMetrics.data.memory.heap_used_mb];
+        // Keep only last 60 data points
+        return newHistory.slice(-60);
+      });
+    }
+  }, [systemMetrics]);
+  
+  // Draw memory chart
+  useEffect(() => {
+    if (!memoryChartRef.current || memoryHistory.length === 0) return;
+    
+    const canvas = memoryChartRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // Set canvas size
+    canvas.width = canvas.offsetWidth;
+    canvas.height = 150;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw grid lines
+    ctx.strokeStyle = '#e5e5e5';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 4; i++) {
+      const y = (canvas.height / 4) * i;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
+    
+    // Calculate chart dimensions
+    const padding = 10;
+    const chartWidth = canvas.width - 2 * padding;
+    const chartHeight = canvas.height - 2 * padding;
+    const maxMemory = Math.max(...memoryHistory, 100);
+    const pointSpacing = chartWidth / (59); // 60 points max
+    
+    // Draw line chart
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    
+    memoryHistory.forEach((value, index) => {
+      const x = padding + (index * pointSpacing);
+      const y = padding + chartHeight - (value / maxMemory) * chartHeight;
+      
+      if (index === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
+    
+    ctx.stroke();
+    
+    // Draw data points
+    ctx.fillStyle = '#3b82f6';
+    memoryHistory.forEach((value, index) => {
+      const x = padding + (index * pointSpacing);
+      const y = padding + chartHeight - (value / maxMemory) * chartHeight;
+      
+      ctx.beginPath();
+      ctx.arc(x, y, 2, 0, 2 * Math.PI);
+      ctx.fill();
+    });
+    
+    // Draw labels
+    ctx.fillStyle = '#666';
+    ctx.font = '10px sans-serif';
+    ctx.fillText('0 MB', 2, canvas.height - 2);
+    ctx.fillText(`${Math.round(maxMemory)} MB`, 2, 12);
+  }, [memoryHistory]);
+  
+  // Draw CPU chart
+  useEffect(() => {
+    if (!cpuChartRef.current || !systemMetrics?.data?.cpu) return;
+    
+    const canvas = cpuChartRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // Set canvas size
+    canvas.width = canvas.offsetWidth;
+    canvas.height = 100;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    const loadAverage = systemMetrics.data.cpu.loadAverage;
+    const cores = systemMetrics.data.cpu.cores;
+    const barWidth = canvas.width / 4;
+    const maxLoad = Math.max(...loadAverage, cores);
+    
+    // Draw bars for 1min, 5min, 15min load averages
+    const labels = ['1 min', '5 min', '15 min'];
+    loadAverage.forEach((load, index) => {
+      const x = (index * barWidth) + barWidth / 4;
+      const barHeight = (load / maxLoad) * (canvas.height - 30);
+      const y = canvas.height - barHeight - 20;
+      
+      // Color based on load vs cores
+      const loadRatio = load / cores;
+      let color = '#22c55e'; // Green
+      if (loadRatio > 1) {
+        color = '#ef4444'; // Red
+      } else if (loadRatio > 0.7) {
+        color = '#f59e0b'; // Orange
+      }
+      
+      // Draw bar
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, barWidth / 2, barHeight);
+      
+      // Draw value
+      ctx.fillStyle = '#333';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(load.toFixed(2), x + barWidth / 4, y - 5);
+      
+      // Draw label
+      ctx.fillText(labels[index], x + barWidth / 4, canvas.height - 5);
+    });
+    
+    // Draw reference line for number of cores
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]);
+    const coreLineY = canvas.height - 20 - (cores / maxLoad) * (canvas.height - 30);
+    ctx.beginPath();
+    ctx.moveTo(0, coreLineY);
+    ctx.lineTo(canvas.width * 0.75, coreLineY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Draw cores label
+    ctx.fillStyle = '#666';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${cores} cores`, canvas.width - 5, coreLineY - 3);
+  }, [systemMetrics]);
+  
   const formatBytes = (bytes: number): string => {
     const mb = bytes / (1024 * 1024);
     return `${Math.round(mb)} MB`;
@@ -69,6 +272,14 @@ export function SystemDiagnostics() {
     if (ms < 50) return <Badge variant="default" className="bg-green-500" data-testid="ping-good">Good</Badge>;
     if (ms < 200) return <Badge variant="secondary" data-testid="ping-ok">OK</Badge>;
     return <Badge variant="destructive" data-testid="ping-slow">Slow</Badge>;
+  };
+  
+  // Calculate ping time from timestamp if available
+  const calculatePingMs = () => {
+    if (pingData?.data?.timestamp_ms) {
+      return Date.now() - pingData.data.timestamp_ms;
+    }
+    return 0;
   };
 
   if (isLoading || !diagnostics) {
@@ -96,6 +307,49 @@ export function SystemDiagnostics() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Memory Usage Chart */}
+        {systemMetrics?.data && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <LineChart className="h-4 w-4" />
+              <span className="font-medium">Memory Usage Over Time</span>
+              <Badge variant="outline" className="ml-auto" data-testid="text-current-memory">
+                {systemMetrics.data.memory.heap_used_mb.toFixed(1)} MB
+              </Badge>
+            </div>
+            <canvas 
+              ref={memoryChartRef} 
+              className="w-full border rounded" 
+              data-testid="canvas-memory-chart"
+            />
+            <div className="text-xs text-muted-foreground mt-1">
+              Heap Used (Last 60 samples, 3s intervals)
+            </div>
+          </div>
+        )}
+
+        <Separator />
+
+        {/* CPU Load Average Bars */}
+        {systemMetrics?.data && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <BarChart3 className="h-4 w-4" />
+              <span className="font-medium">CPU Load Average</span>
+              <Badge variant="outline" className="ml-auto" data-testid="text-cpu-cores">
+                {systemMetrics.data.cpu.cores} cores
+              </Badge>
+            </div>
+            <canvas 
+              ref={cpuChartRef} 
+              className="w-full border rounded" 
+              data-testid="canvas-cpu-chart"
+            />
+          </div>
+        )}
+
+        <Separator />
+        
         {/* System Stats Row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="space-y-1">
@@ -104,7 +358,7 @@ export function SystemDiagnostics() {
               Uptime
             </div>
             <Badge variant="outline" data-testid="text-uptime">
-              {formatUptime(diagnostics.env.uptime_s)}
+              {systemMetrics?.data ? formatUptime(systemMetrics.data.uptime.process_seconds) : formatUptime(diagnostics.env.uptime_s)}
             </Badge>
           </div>
           
@@ -114,17 +368,17 @@ export function SystemDiagnostics() {
               CPU Load
             </div>
             <Badge variant="outline" data-testid="text-cpu">
-              {diagnostics.cpuLoad.toFixed(2)}
+              {systemMetrics?.data ? systemMetrics.data.cpu.loadAverage[0].toFixed(2) : diagnostics.cpuLoad.toFixed(2)}
             </Badge>
           </div>
           
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-sm font-medium">
               <HardDrive className="h-4 w-4" />
-              Memory
+              Memory RSS
             </div>
             <Badge variant="outline" data-testid="text-memory">
-              {formatBytes(diagnostics.mem.rss)}
+              {systemMetrics?.data ? `${systemMetrics.data.memory.rss_mb.toFixed(0)} MB` : formatBytes(diagnostics.mem.rss)}
             </Badge>
           </div>
           
@@ -163,9 +417,12 @@ export function SystemDiagnostics() {
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Wifi className="h-4 w-4" />
-              Self Ping
+              Ping Status
             </div>
-            {getPingBadge(diagnostics.selfPing.ms, diagnostics.selfPing.ok)}
+            {pingData?.data ? 
+              getPingBadge(calculatePingMs(), pingData.data.ok) : 
+              getPingBadge(diagnostics.selfPing.ms, diagnostics.selfPing.ok)
+            }
           </div>
           
           <div className="space-y-1">
@@ -194,6 +451,51 @@ export function SystemDiagnostics() {
         </div>
 
         <Separator />
+
+        {/* Registered Routes (Collapsible) */}
+        {routesData?.data && (
+          <>
+            <Collapsible open={routesOpen} onOpenChange={setRoutesOpen}>
+              <CollapsibleTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  className="w-full justify-between p-0 h-auto hover:bg-transparent"
+                  data-testid="button-toggle-routes"
+                >
+                  <div className="flex items-center gap-2">
+                    <Route className="h-4 w-4" />
+                    <span className="font-medium">Registered Routes</span>
+                    <Badge variant="outline" data-testid="text-route-count">
+                      {routesData.data.length} routes
+                    </Badge>
+                  </div>
+                  {routesOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3">
+                <div className="max-h-60 overflow-y-auto space-y-1" data-testid="container-routes-list">
+                  {routesData.data.map((route, index) => (
+                    <div 
+                      key={index} 
+                      className="flex items-center gap-2 text-xs font-mono py-1 px-2 rounded hover:bg-muted/50"
+                      data-testid={`route-item-${index}`}
+                    >
+                      <Badge 
+                        variant={route.method === 'GET' ? 'secondary' : 'default'}
+                        className="text-xs"
+                        data-testid={`route-method-${index}`}
+                      >
+                        {route.method}
+                      </Badge>
+                      <span className="flex-1" data-testid={`route-path-${index}`}>{route.path}</span>
+                    </div>
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+            <Separator />
+          </>
+        )}
 
         {/* Session Analytics */}
         <div>

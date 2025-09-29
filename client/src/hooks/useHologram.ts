@@ -43,7 +43,7 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
         z: 0,
         angle: (Math.PI * 2 * i) / particleCount,
         speed: 0.01 + Math.random() * 0.02,
-        radius: 0.15 + Math.random() * 0.05,  // Store as percentage of size (0.15-0.2) to stay within bubble
+        radius: 0.75 + Math.random() * 0.25,  // Store as percentage of sphere radius (0.75-1.0)
       });
     }
     
@@ -124,8 +124,8 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     particlesRef.current.forEach((particle) => {
       particle.angle += particle.speed * (speed / 100);
       
-      // Scale particle radius based on current size
-      const scaledRadius = particle.radius * size;
+      // Scale particle radius based on sphere radius, not canvas size
+      const scaledRadius = particle.radius * sphereRadius;
       const x = centerX + Math.cos(particle.angle) * scaledRadius;
       const y = centerY + Math.sin(particle.angle * 0.7) * scaledRadius * 0.5;
       const depth = Math.sin(particle.angle * 0.5) * 0.5 + 0.5;

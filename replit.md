@@ -2,6 +2,27 @@
 
 This is a full-stack TypeScript application called "Chango AI" that provides advanced voice synthesis and accent emulation capabilities using its proprietary Chango Voice Engine (CVE). The application features a React frontend with a Node.js/Express backend, utilizing PostgreSQL for data persistence. The system allows users to synthesize speech with various accents, record and analyze voice samples to create custom voice profiles, and includes an interactive holographic interface with curiosity-driven AI responses. Chango speaks with natural, conversational responses using dynamic templates, emotional variations, and personality-driven interactions.
 
+# Recent Changes (September 29, 2025)
+
+## Completed Features
+- ✅ **MCP Server Integration**: Clean MCP server implementation for ChatGPT connector support
+  - Working endpoints at `/mcp` and `/mcp/write_file` 
+  - Token authentication via `MCP_TOKEN` environment variable
+  - Successfully tested with public URL access
+- ✅ **Quiet Mode Button**: Added toggle to stop Chango's random chatter
+  - Located in Curiosity Engine card header
+  - Clear visual indicators for Active/Quiet modes
+  - Preserves normal chat functionality
+- ✅ **Voice System Status**: CVE (Chango Voice Engine) fully operational
+  - Advanced prosody control with emotion variations
+  - Multiple accent profiles (British RP, Southern US, etc.)
+  - Voice profile learning from recordings
+  - Real-time voice visualizer
+
+## MCP Endpoints Available
+- Discovery: `https://[your-replit-domain]/mcp?token=mcp-connect-chatgpt`
+- Write File: `https://[your-replit-domain]/mcp/write_file?token=mcp-connect-chatgpt`
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

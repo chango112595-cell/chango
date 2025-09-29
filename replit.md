@@ -19,6 +19,15 @@ This is a full-stack TypeScript application called "Chango AI" that provides adv
   - Anti-loop guard prevents overlapping speech
   - Human speech detection within 30-second window
   - User-initiated actions (chat, buttons) always work regardless of VAD
+- ✅ **Voice Intelligence System**: Advanced voice analysis and profile management
+  - POST `/api/voice/intel/analyze` - Analyzes audio samples for pitch, rate, energy features
+  - POST `/api/voice/intel/profile/save` - Saves voice profiles with custom features
+  - GET `/api/voice/intel/profile/list` - Lists all saved voice profiles
+  - GET `/api/voice/intel/profile/get/:id` - Retrieves specific voice profile
+  - DELETE `/api/voice/intel/profile/delete/:id` - Deletes voice profiles
+  - POST `/api/voice/intel/style` - Applies accent/gender style presets
+  - Voice profiles stored in `data/voice/` as JSON files
+  - UI for recording, analyzing, and managing voice profiles
 - ✅ **Voice Analysis API**: Foundation endpoints for future voice features
   - POST `/api/voice/analyze` - Analyzes WAV audio for voice characteristics
   - POST `/api/voice/clone` - Saves voice profile from analysis

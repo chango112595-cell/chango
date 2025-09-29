@@ -5,6 +5,14 @@ This is a full-stack TypeScript application called "Chango AI" that provides adv
 # Recent Changes (September 29, 2025)
 
 ## Completed Features
+- ✅ **Hands-Free Wake Word System**: Complete voice-activated interaction with "Chango..." trigger
+  - Wake word detection with customizable trigger phrase (default: "chango")
+  - Speech-to-text via Web Speech API for command processing
+  - NLP reply endpoint for natural language responses
+  - Cooldown period (2.5s) to prevent rapid triggers
+  - Maximum utterance time (8s) for commands
+  - UI controls for enabling/disabling and customizing wake word
+  - Real-time status indicators (listening, processing, cooldown)
 - ✅ **Voice Activity Detection (VAD)**: Advanced speech detection system to prevent random talking
   - Auto Listen checkbox enables VAD requirement
   - Visual indicators for speech detection and audio levels

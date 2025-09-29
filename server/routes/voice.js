@@ -36,20 +36,33 @@ r.get('/voice/emotions', (_req, res) => {
 r.get('/voice/ping', (_req, res) => res.json({ ok: true, engine: 'CVE-1', route: 'client' }));
 
 // POST /api/voice/analyze - Analyze WAV audio for voice characteristics
-r.post('/analyze', async (req, res) => {
+r.post('/voice/analyze', async (req, res) => {
   try {
+    const { wavBase64 } = req.body || {};
+    
+    // Validate input
+    if (!wavBase64) {
+      return res.status(400).json({ ok: false, error: 'wavBase64 field is required' });
+    }
+    
+    // Extract base64 data (remove data URL prefix if present)
+    const base64Data = wavBase64.includes(',') ? wavBase64.split(',')[1] : wavBase64;
+    
     // This would typically analyze the audio buffer
     // For now, return mock voice characteristics
-    const analysis = {
+    const features = {
+      pitch: 150 + Math.random() * 100,
+      rate: 0.8 + Math.random() * 0.4,
+      intensity: 0.5 + Math.random() * 0.5,
+      formants: [800, 1200, 2400],
+      accent: 'neutral',
+      confidence: 0.7 + Math.random() * 0.3
+    };
+    
+    return res.json({
       ok: true,
-      characteristics: {
-        pitch: 150 + Math.random() * 100,
-        rate: 0.8 + Math.random() * 0.4,
-        intensity: 0.5 + Math.random() * 0.5,
-        formants: [800, 1200, 2400],
-        accent: 'neutral',
-        confidence: 0.7 + Math.random() * 0.3
-      },
+      features,
+      characteristics: features, // Include both for compatibility
       recommendations: {
         profile: 'custom',
         adjustments: {
@@ -58,15 +71,14 @@ r.post('/analyze', async (req, res) => {
           emotion: 'neutral'
         }
       }
-    };
-    return res.json(analysis);
+    });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
 
 // POST /api/voice/clone - Save voice profile from analysis
-r.post('/clone', async (req, res) => {
+r.post('/voice/clone', async (req, res) => {
   try {
     const { name, characteristics } = req.body || {};
     if (!name || !characteristics) {
@@ -87,7 +99,7 @@ r.post('/clone', async (req, res) => {
 });
 
 // POST /api/voice/mimic - Generate speech using saved profile (stub)
-r.post('/mimic', async (req, res) => {
+r.post('/voice/mimic', async (req, res) => {
   try {
     const { text, profileId } = req.body || {};
     if (!text || !profileId) {
@@ -108,7 +120,7 @@ r.post('/mimic', async (req, res) => {
 });
 
 // POST /api/voice/accent/fix - Fix accent in audio (stub)
-r.post('/accent/fix', async (req, res) => {
+r.post('/voice/accent/fix', async (req, res) => {
   try {
     const { targetAccent = 'neutral' } = req.body || {};
     

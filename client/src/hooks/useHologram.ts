@@ -43,7 +43,7 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
         z: 0,
         angle: (Math.PI * 2 * i) / particleCount,
         speed: 0.01 + Math.random() * 0.02,
-        radius: 0.25 + Math.random() * 0.1,  // Store as percentage of size (0.25-0.35) to stay within bubble
+        radius: 0.2 + Math.random() * 0.1,  // Store as percentage of size (0.2-0.3) for better scaling
       });
     }
     
@@ -59,8 +59,8 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     ctx.fillStyle = 'rgba(0, 10, 20, 0.1)';
     ctx.fillRect(0, 0, size, size);
     
-    // Draw wireframe sphere
-    const sphereRadius = size * 0.3;
+    // Draw wireframe sphere (scale with min/max limits)
+    const sphereRadius = Math.min(size * 0.35, Math.max(30, size * 0.25));
     const rotationSpeed = (speed / 100) * 0.02;
     
     // Meridians
@@ -122,8 +122,9 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
       ctx.fill();
     });
     
-    // Central core (scale based on size)
-    const coreRadius = (size * 0.04) + Math.sin(time * 0.003) * (size * 0.015);
+    // Central core (scale with minimum size for visibility)
+    const baseCoreRadius = Math.max(8, size * 0.06);  // Minimum 8px, otherwise 6% of size
+    const coreRadius = baseCoreRadius + Math.sin(time * 0.003) * 3;
     const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, coreRadius);
     
     if (mode === "awakened") {

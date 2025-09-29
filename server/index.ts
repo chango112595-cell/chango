@@ -4,6 +4,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 import { mcpRouter } from "./mcp/router";
+import { registerSimpleMcp } from "./mcp_simple.js";
 import powerRouter from "./routes/power";
 import devWriteRouter from "./routes/devWrite";
 import checkpointRouter from "./routes/checkpoints";
@@ -16,6 +17,9 @@ const app = express();
 
 // Do NOT add compression() or any redirect middleware in front of /mcp
 app.use("/mcp", mcpRouter);
+
+// Register simple MCP for testing
+registerSimpleMcp(app);
 
 // Global CORS for ChatGPT (skip /mcp paths - they handle their own CORS)
 app.use((req, res, next) => {

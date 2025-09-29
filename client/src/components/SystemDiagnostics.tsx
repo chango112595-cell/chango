@@ -62,7 +62,7 @@ interface SystemMetrics {
 interface RouteInfo {
   method: string;
   path: string;
-  regexp: string;
+  // regexp field removed for security
 }
 
 interface HealthCheck {
@@ -77,27 +77,44 @@ export function SystemDiagnostics() {
   const memoryChartRef = useRef<HTMLCanvasElement>(null);
   const cpuChartRef = useRef<HTMLCanvasElement>(null);
   
+  // Get diagnostics token from environment if available
+  const diagToken = import.meta.env.VITE_DIAGNOSTICS_TOKEN;
+  
+  // Create custom query function that includes token if available
+  const fetchWithToken = async (url: string) => {
+    const urlWithToken = diagToken ? `${url}?token=${encodeURIComponent(diagToken)}` : url;
+    const response = await fetch(urlWithToken, { credentials: "include" });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
+  };
+  
   // Legacy diagnostics endpoint (for session analytics)
   const { data: diagnostics, isLoading } = useQuery<DiagnosticsData>({
     queryKey: ["/api/diagnostics"],
+    queryFn: () => fetchWithToken("/api/diagnostics"),
     refetchInterval: 3000, // Poll every 3 seconds
   });
   
   // New system metrics endpoint
   const { data: systemMetrics } = useQuery<{ ok: boolean; data: SystemMetrics }>({
     queryKey: ["/api/diagnostics/sys"],
+    queryFn: () => fetchWithToken("/api/diagnostics/sys"),
     refetchInterval: 3000,
   });
   
   // Routes endpoint
   const { data: routesData } = useQuery<{ ok: boolean; data: RouteInfo[] }>({
     queryKey: ["/api/diagnostics/routes"],
+    queryFn: () => fetchWithToken("/api/diagnostics/routes"),
     refetchInterval: 30000, // Less frequent for routes
   });
   
   // Ping endpoint
   const { data: pingData } = useQuery<{ ok: boolean; data: HealthCheck }>({
     queryKey: ["/api/diagnostics/ping"],
+    queryFn: () => fetchWithToken("/api/diagnostics/ping"),
     refetchInterval: 3000,
   });
 

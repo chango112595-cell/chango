@@ -90,27 +90,15 @@
 
   .hologram-canvas {
     @apply rounded-full relative overflow-hidden;
-    background: radial-gradient(circle at center, 
-      hsla(217, 91%, 60%, 0.1) 0%, 
-      hsla(188, 88%, 50%, 0.05) 50%, 
-      transparent 100%);
   }
 
   .hologram-awakened {
-    background: radial-gradient(circle at center, 
-      hsla(62, 100%, 70%, 0.15) 0%, 
-      hsla(175, 100%, 60%, 0.1) 50%, 
-      transparent 100%);
     box-shadow: 
       0 0 30px hsla(62, 100%, 70%, 0.3),
       0 0 60px hsla(175, 100%, 60%, 0.2);
   }
 
   .hologram-sentinel {
-    background: radial-gradient(circle at center, 
-      hsla(0, 100%, 60%, 0.15) 0%, 
-      hsla(30, 100%, 60%, 0.1) 50%, 
-      transparent 100%);
     box-shadow: 
       0 0 30px hsla(0, 100%, 60%, 0.3),
       0 0 60px hsla(30, 100%, 60%, 0.2);

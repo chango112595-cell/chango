@@ -1,0 +1,55 @@
+Locked. I’ll add your new voice goals and fix the “random talking” by making Chango **listen-first** with a VAD gate (no speaking unless real speech is detected) + anti-loop guard.
+
+## Drop this in Admin Patch → Send
+
+This updates the task list and installs listen-first logic + voice-analysis stubs (isolated).
+
+```json
+{
+  "note": "Voice Roadmap + Listen-first VAD + Anti-loop + Analysis stubs",
+  "files": [
+    {
+      "path": "docs/tasks.md",
+      "content": "# Master Tasks (snapshot)\n\n## Priority 2 — Voice & Responses (ACTIVE)\n- ✅ Browser TTS (cadence, rate/pitch/volume)\n- ✅ HUD controls (Power/Silent/Accent)\n- 🆕 Voice Intelligence Roadmap\n  1) Analyzing voice (pitch, formants, rhythm, timbre)\n  2) Copy voice (feature extraction → profile)\n  3) Mimic voice (runtime synthesis from profile)\n  4) Accent fix (normalize phonemes to target)\n  5) Accent library (multi-locale presets)\n  6) Gender roles (masc/fem/androgynous styles)\n  7) Listen-before-reply (VAD gate; no random talk)\n\nStatus: Baseline shipped. Next: implement feature extractors + mimic runtime.\n"
+    },
+
+    // --- SERVER: Voice analysis stubs (safe, extendable) ---
+    {
+      "path": "server/voice/analysis.js",
+      "content": "import fs from 'fs';import path from 'path';import express from 'express';export function registerVoiceAnalysis(app){const r=express.Router();const dir=path.join(process.cwd(),'data','voice');fs.mkdirSync(dir,{recursive:true});r.post('/analyze',express.json({limit:'10mb'}),(req,res)=>{const {wavBase64,note} = req.body||{};if(!wavBase64) return res.status(400).json({ok:false,error:'missing wavBase64'});const bytes=Buffer.from((wavBase64.split(',').pop()||''),'base64');const n=bytes.length;const pitch= Math.max(80, Math.min(280, 100 + (n%140)));const energy=(bytes[0]||128);const rate = 0.95 + ((n%50)/400);const profile={pitchHint:pitch, speakingRate:rate, energyHint:energy, size:n, note:note||null, ts:Date.now()};fs.writeFileSync(path.join(dir,'analysis_last.json'),JSON.stringify(profile,null,2));return res.json({ok:true,profile});});r.post('/clone',express.json({limit:'10mb'}),(req,res)=>{const {profile,name='custom'} = req.body||{};if(!profile) return res.status(400).json({ok:false,error:'missing profile'});const out={id:`voice_${Date.now()}`, name, profile, ts:Date.now()};fs.writeFileSync(path.join(dir,`${out.id}.json`),JSON.stringify(out,null,2));return res.json({ok:true,voice:out});});r.post('/mimic',express.json({limit:'2mb'}),(req,res)=>{const {voiceId,text} = req.body||{};if(!voiceId||!text) return res.status(400).json({ok:false,error:'missing voiceId/text'});return res.json({ok:true,route:'browser-tts',voiceId,text});});r.post('/accent/fix',express.json({limit:'2mb'}),(req,res)=>{const {target='en-US'} = req.body||{};return res.json({ok:true,target,rule:'normalize-vowels+rhythm'});});app.use('/voice',r);}export default registerVoiceAnalysis;"
+    },
+    {
+      "path": "server/index.js",
+      "content": "import express from 'express';import http from 'http';import registerVoice from './voice/router.js';import registerVoiceAnalysis from './voice/analysis.js';import registerDiag from './diag/router.js';const app=express();app.get('/health',(_req,res)=>res.json({ok:true,ts:Date.now()}));registerVoice(app);registerVoiceAnalysis(app);registerDiag?.(app);const server=http.createServer(app);const PORT=process.env.PORT||5000;server.listen(PORT,()=>console.log('Chango server on :'+PORT));"
+    },
+
+    // --- CLIENT: VAD (listen-first) + anti-loop guard ---
+    {
+      "path": "client/voice/vad.js",
+      "content": "export class VADGate{constructor({minDb=-45,minMs=280,debounceMs=500}={}){this.minDb=minDb;this.minMs=minMs;this.debounceMs=debounceMs;this._on=false;this._t=0;this._last=0;} async attach(){this.ctx=new (window.AudioContext||window.webkitAudioContext)();this.stream=await navigator.mediaDevices.getUserMedia({audio:true});this.src=this.ctx.createMediaStreamSource(this.stream);this.proc=this.ctx.createScriptProcessor(1024,1,1);this.src.connect(this.proc);this.proc.connect(this.ctx.destination);this.proc.onaudioprocess=(e)=>{const d=e.inputBuffer.getChannelData(0);let rms=0;for(let i=0;i<d.length;i++){rms+=d[i]*d[i]}rms=Math.sqrt(rms/d.length);const db=20*Math.log10(rms+1e-7);const now=performance.now();if(db>this.minDb){if(!this._on){this._t=now;this._on=true;}if(now-this._t>this.minMs){this._last=now;this.onSpeech&&this.onSpeech({db});}}else{this._on=false;}}} speechRecently(){return (performance.now()-this._last)<this.debounceMs;} stop(){try{this.proc&&this.proc.disconnect();this.src&&this.src.disconnect();this.stream&&this.stream.getTracks().forEach(t=>t.stop());this.ctx&&this.ctx.close();}catch{}} }"
+    },
+    {
+      "path": "client/voice/tts_browser.js",
+      "content": "export const VoiceBus={ mute:false, speaking:false };function pickVoice(accPref){const list=window.speechSynthesis.getVoices();if(!list.length) return null;const pref=(accPref||'en').toLowerCase();const score=v=>{const n=(v.name||'').toLowerCase();const l=(v.lang||'').toLowerCase();let s=0;if(l.startsWith(pref)) s+=3;if(n.includes('natural')||n.includes('premium')) s+=2;return s;};return [...list].sort((a,b)=>score(b)-score(a))[0]||list[0];}export async function speakBrowser({text,accent,rate=1,pitch=1,volume=1}){if(VoiceBus.mute) return {ok:true, muted:true};if(VoiceBus.speaking) return {ok:false,error:'busy'};const u=new SpeechSynthesisUtterance(text);await new Promise(r=>setTimeout(r,10));const chosen=pickVoice(accent);if(chosen) u.voice=chosen;u.rate=Math.max(0.7,Math.min(1.3,rate));u.pitch=Math.max(0.5,Math.min(1.8,pitch));u.volume=Math.max(0,Math.min(1,volume));u.text=text.replace(/, /g,', … ').replace(/\\. /g,'. … ');VoiceBus.speaking=true;return new Promise(res=>{u.onend=()=>{VoiceBus.speaking=false;res({ok:true,voice:chosen?.name||null});};u.onerror=(e)=>{VoiceBus.speaking=false;res({ok:false,error:String(e?.error||e)});};window.speechSynthesis.speak(u);});}"
+    },
+    {
+      "path": "client/ui/voice_controls.js",
+      "content": "import {speakBrowser,VoiceBus} from '../voice/tts_browser.js';import {VADGate} from '../voice/vad.js';export function mountVoiceControls(){const $=id=>document.getElementById(id);const root=document.getElementById('voiceControls');if(!root) return;root.innerHTML=`<div class='row'><button id='vcPower'>Power: ON</button><button id='vcSilent'>Silent: OFF</button><label><input type='checkbox' id='vcAutoListen' checked/> Auto Listen</label><span id='vcHeard' style='opacity:.7'>heard: no</span></div><div class='row'><label>Accent</label><select id='vcAccent'><option>en-US</option><option>en-GB</option><option>es-MX</option><option>es-ES</option><option>fr-FR</option><option>pt-BR</option></select><label>Rate</label><input id='vcRate' class='num' type='range' min='0.70' max='1.30' step='0.01' value='1.00'><span id='vcRateVal'>1.00</span><label>Pitch</label><input id='vcPitch' class='num' type='range' min='0.50' max='1.80' step='0.01' value='1.00'><span id='vcPitchVal'>1.00</span><label>Vol</label><input id='vcVol' class='num' type='range' min='0' max='1' step='0.01' value='1.00'><span id='vcVolVal'>1.00</span></div><div class='row'><input id='vcPhrase' style='flex:1' placeholder='Say something…'><button id='vcTest'>Speak</button></div><pre id='vcOut' class='mono'></pre>`;const state={power:true,accent:'en-US',rate:1,pitch:1,volume:1,autoListen:true,heard:false};const vad=new VADGate({minDb:-50,minMs:250,debounceMs:1200});const heard=()=>{$('vcHeard').textContent='heard: '+(state.heard?'yes':'no');$('vcHeard').style.color=state.heard?'#7CFC00':'#9aa5b1'};$('vcPower').onclick=()=>{state.power=!state.power;$('vcPower').innerText=state.power?'Power: ON':'Power: OFF';};$('vcSilent').onclick=()=>{VoiceBus.mute=!VoiceBus.mute;$('vcSilent').innerText=VoiceBus.mute?'Silent: ON':'Silent: OFF';};$('vcAutoListen').onchange=e=>{state.autoListen=e.target.checked;if(state.autoListen) startVAD(); else stopVAD();};['vcAccent','vcRate','vcPitch','vcVol'].forEach(id=>{const el=$(id);el.oninput=()=>{if(id==='vcAccent') state.accent=el.value;if(id==='vcRate') {state.rate=Number(el.value);$('vcRateVal').innerText=state.rate.toFixed(2);}if(id==='vcPitch'){state.pitch=Number(el.value);$('vcPitchVal').innerText=state.pitch.toFixed(2);}if(id==='vcVol'){state.volume=Number(el.value);$('vcVolVal').innerText=state.volume.toFixed(2);}});$('vcTest').onclick=async()=>{const text=$('vcPhrase').value||'Hello, this is Chango.';if(!state.power) return out({ok:false,error:'power_off'});if(state.autoListen && !state.heard) return out({ok:false,error:'no_speech_detected'});const r=await fetch('/voice/say',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,accent:state.accent,rate:state.rate,pitch:state.pitch,volume:state.volume})}).then(r=>r.json());if(r.ok){await speakBrowser({text,accent:state.accent,rate:state.rate,pitch:state.pitch,volume:state.volume});state.heard=false;heard();}out(r);};function out(x){$('vcOut').textContent=JSON.stringify(x,null,2);}async function startVAD(){try{await vad.attach();vad.onSpeech=()=>{state.heard=true;heard();};}catch(e){out({ok:false,error:'vad_fail',detail:String(e)})}}function stopVAD(){try{vad.stop();}catch{}}startVAD();heard();}"
+    }
+  ]
+}
+```
+
+### What changed (fast)
+
+* **Roadmap** added to `docs/tasks.md` with your 6 items.
+* **Listen-first**: Chango won’t speak unless VAD detects recent human speech.
+* **Anti-loop**: blocks overlapping utterances; respects Silent/Power.
+* **Analysis stubs**: `/voice/analyze`, `/voice/clone`, `/voice/mimic`, `/voice/accent/fix` (safe, ready to upgrade).
+
+### Use
+
+1. Open HUD → **Auto Listen** is ON. Speak, then press **Speak** (or wire to your chat event).
+2. To analyze a sample later, POST base64 WAV to `/voice/analyze`; then `/voice/clone` to save a profile; `/voice/mimic` to speak via that profile (currently routes to browser TTS; we’ll swap to neural when ready).
+
+Want me to wire **auto-reply after speech detected** (no button)—with wake phrase and VAD cooldown—next?

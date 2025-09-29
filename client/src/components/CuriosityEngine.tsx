@@ -73,8 +73,9 @@ export function generateChatResponse(message: string, voice: any) {
   }
   
   // Speak the response without changing global voice settings
+  // Force speak for chat responses as they are user-initiated
   if (voice && voice.speak) {
-    voice.speak(response);
+    voice.speak(response, true);
   }
   
   return response;
@@ -321,7 +322,8 @@ export default function CuriosityEngine() {
     
     // Speak the response without changing global voice settings
     // The voice will use the stable configuration set in useEffect
-    voice.speak(naturalResponse);
+    // Don't force speak for random curiosity responses - respect VAD
+    voice.speak(naturalResponse, false);
 
     // Log the curiosity response
     addLogMutation.mutate({
@@ -340,6 +342,22 @@ export default function CuriosityEngine() {
     const interval = setInterval(() => {
       // Check if quiet mode is enabled or if we can speak before rolling the dice
       if (!quietMode && !voice.isSpeaking() && speechCoordination.canCuriositySpeak()) {
+        // Check VAD requirements
+        if (voice.requiresHumanSpeech) {
+          const timeSinceHumanSpeech = Date.now() - voice.lastHumanSpeechTime;
+          if (voice.lastHumanSpeechTime === 0 || timeSinceHumanSpeech > 30000) {
+            // No human speech detected or too long ago
+            console.log('[CuriosityEngine] Skipping auto speech - waiting for human speech');
+            return;
+          }
+        }
+        
+        // Check if muted
+        if (voice.isMuted) {
+          console.log('[CuriosityEngine] Skipping auto speech - muted');
+          return;
+        }
+        
         const chance = curiosityLevel[0] / 100;
         if (Math.random() < chance * 0.6) { // 60% of curiosity level as base chance
           generateCuriousResponse();

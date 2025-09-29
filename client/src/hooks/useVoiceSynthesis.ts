@@ -7,6 +7,9 @@ interface VoiceSynthesisState {
   isPlaying: boolean;
   currentUtterance: string;
   accentConfig: AccentConfig;
+  isMuted: boolean;
+  requiresHumanSpeech: boolean;
+  lastHumanSpeechTime: number;
 }
 
 interface ProsodyStep {
@@ -40,6 +43,9 @@ export function useVoiceSynthesis() {
       pitch: 1.0,
       emotion: "neutral", // Default emotion
     },
+    isMuted: false,
+    requiresHumanSpeech: false,
+    lastHumanSpeechTime: 0,
   });
 
   const { toast } = useToast();
@@ -270,12 +276,55 @@ export function useVoiceSynthesis() {
     }
   }, [state.accentConfig]);
 
+  // Update last human speech time
+  const updateLastHumanSpeech = useCallback(() => {
+    const now = Date.now();
+    setState(prev => ({ ...prev, lastHumanSpeechTime: now }));
+  }, []);
+
+  // Set mute state
+  const setMuted = useCallback((muted: boolean) => {
+    setState(prev => ({ ...prev, isMuted: muted }));
+  }, []);
+
+  // Set whether human speech is required before speaking
+  const setRequiresHumanSpeech = useCallback((required: boolean) => {
+    setState(prev => ({ ...prev, requiresHumanSpeech: required }));
+  }, []);
+
+  // Add disable function
+  const disable = useCallback(() => {
+    speechSynthesis.cancel();
+    isEnabledRef.current = false;
+    setState(prev => ({ ...prev, isEnabled: false, isPlaying: false, currentUtterance: "" }));
+    toast({
+      title: "Voice Disabled",
+      description: "Speech synthesis has been disabled.",
+    });
+  }, [toast]);
+
   // Main speak function with CVE integration
-  const speak = useCallback(async (text: string) => {
+  const speak = useCallback(async (text: string, forceSpeak: boolean = false) => {
+    // Check if muted
+    if (state.isMuted && !forceSpeak) {
+      console.log("[VoiceSynthesis] Speech blocked: Muted");
+      return;
+    }
+
     // Check if already speaking to prevent overlaps
     if (isSpeakingRef.current) {
       console.log("[VoiceSynthesis] Speech blocked: Already speaking");
       return;
+    }
+
+    // Check if human speech is required and not detected
+    if (state.requiresHumanSpeech && !forceSpeak) {
+      const timeSinceHumanSpeech = Date.now() - state.lastHumanSpeechTime;
+      if (state.lastHumanSpeechTime === 0 || timeSinceHumanSpeech > 30000) {
+        // No human speech detected or too long ago (30 seconds)
+        console.log("[VoiceSynthesis] Speech blocked: Waiting for human speech");
+        return;
+      }
     }
     
     if (!isEnabledRef.current || !text.trim()) {
@@ -293,7 +342,7 @@ export function useVoiceSynthesis() {
         if (enabled) {
           console.log("[VoiceSynthesis] Re-enabled successfully, retrying speak");
           // Retry speaking after re-enabling
-          setTimeout(() => speak(text), 100);
+          setTimeout(() => speak(text, forceSpeak), 100);
         }
       }
       return;
@@ -366,7 +415,7 @@ export function useVoiceSynthesis() {
         });
       }
     }
-  }, [state.isEnabled, state.accentConfig, executeProsodyPlan, fallbackLocalSynthesis, toast]);
+  }, [state.isEnabled, state.isMuted, state.requiresHumanSpeech, state.lastHumanSpeechTime, state.accentConfig, executeProsodyPlan, fallbackLocalSynthesis, toast, enable]);
 
   const stop = useCallback(() => {
     speechSynthesis.cancel();
@@ -376,7 +425,7 @@ export function useVoiceSynthesis() {
   }, []);
 
   const test = useCallback(() => {
-    speak("Hello, I'm Chango. How can I help you today?");
+    speak("Hello, I'm Chango. How can I help you today?", true);
   }, [speak]);
 
   const applyAccent = useCallback((config: Partial<AccentConfig>) => {
@@ -396,7 +445,7 @@ export function useVoiceSynthesis() {
 
   const repeatWithAccent = useCallback(() => {
     if (lastUtteranceRef.current) {
-      speak(lastUtteranceRef.current);
+      speak(lastUtteranceRef.current, true);
     }
   }, [speak]);
 
@@ -408,11 +457,15 @@ export function useVoiceSynthesis() {
   return {
     ...state,
     enable,
+    disable,
     speak,
     stop,
     test,
     applyAccent,
     repeatWithAccent,
     isSpeaking,
+    setMuted,
+    setRequiresHumanSpeech,
+    updateLastHumanSpeech,
   };
 }

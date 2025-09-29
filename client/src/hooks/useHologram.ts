@@ -286,7 +286,7 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     }));
   }, []);
 
-  // Start/stop animation based on isRunning state
+  // Start/stop animation based on isRunning state and size changes
   useEffect(() => {
     if (state.isRunning) {
       // Delay to avoid immediate re-creation of animate function
@@ -300,7 +300,7 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     } else {
       cancelAnimationFrame(animationRef.current);
     }
-  }, [state.isRunning]);
+  }, [state.isRunning, state.size, animate]);
 
   return {
     ...state,

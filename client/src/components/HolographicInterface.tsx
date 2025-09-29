@@ -89,15 +89,6 @@ export default function HolographicInterface() {
               data-testid="canvas-hologram-floating"
             />
             
-            {/* Floating Particles */}
-            <div className="particle" style={{ top: '20%', left: '30%', animationDelay: '0s' }}></div>
-            <div className="particle" style={{ top: '60%', left: '70%', animationDelay: '1s' }}></div>
-            <div className="particle" style={{ top: '40%', left: '20%', animationDelay: '2s' }}></div>
-            <div className="particle" style={{ top: '80%', left: '50%', animationDelay: '1.5s' }}></div>
-            
-            {/* Floating Central core */}
-            <div className="w-12 h-12 rounded-full bg-gradient-to-r from-accent to-primary animate-hologram-pulse"></div>
-            
             {/* Floating Status Chip */}
             <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-muted/80 rounded-full text-xs backdrop-blur-sm">
               <span className={`inline-block w-2 h-2 rounded-full mr-2 ${isRunning ? 'bg-green-400' : 'bg-red-400'}`}></span>
@@ -123,7 +114,7 @@ export default function HolographicInterface() {
       </CardHeader>
       <CardContent>
         {/* Hologram Display - Only show in dock when not wandering */}
-        {!wander && (
+        {isVisible && !wander && (
           <div className="relative flex justify-center mb-6">
             <div className={`hologram-canvas ${
               mode === "awakened" ? "hologram-awakened" : "hologram-sentinel"
@@ -139,24 +130,8 @@ export default function HolographicInterface() {
                 width={size[0]} 
                 height={size[0]}
                 className="absolute inset-0"
-                style={{ display: isVisible ? 'block' : 'none' }}
                 data-testid="canvas-hologram"
               />
-              
-              {/* Animated particles */}
-              {isVisible && (
-                <>
-                  <div className="particle" style={{ top: '20%', left: '30%', animationDelay: '0s' }}></div>
-                  <div className="particle" style={{ top: '60%', left: '70%', animationDelay: '1s' }}></div>
-                  <div className="particle" style={{ top: '40%', left: '20%', animationDelay: '2s' }}></div>
-                  <div className="particle" style={{ top: '80%', left: '50%', animationDelay: '1.5s' }}></div>
-                </>
-              )}
-              
-              {/* Central core */}
-              {isVisible && (
-                <div className="w-12 h-12 rounded-full bg-gradient-to-r from-accent to-primary animate-hologram-pulse"></div>
-              )}
             </div>
           </div>
         )}

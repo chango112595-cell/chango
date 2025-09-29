@@ -1,0 +1,246 @@
+Great — next step is Voice Intelligence Expansion (analyze → copy → mimic → accent/gender styles → listen-before-reply enforcement).
+Below is a single drop-in patch (isolated modules). Paste files into your project as shown.
+
+⸻
+
+Patch: Voice Intelligence v1
+
+1) server/voice/intel.js
+
+// server/voice/intel.js
+import fs from "fs";
+import path from "path";
+import express from "express";
+
+export function registerVoiceIntel(app) {
+  const r = express.Router();
+  const base = path.join(process.cwd(), "data", "voice");
+  fs.mkdirSync(base, { recursive: true });
+
+  // naive feature extractor (no heavy libs)
+  function extract(buf) {
+    const n = buf.length;
+    let sum = 0, max = 0;
+    for (let i = 0; i < n; i++) { const v = buf[i]; sum += v; if (v > max) max = v; }
+    const mean = sum / Math.max(1, n);
+    // pseudo “pitch” & “rate” hints (stable placeholders to wire UI)
+    const pitchHint = Math.max(80, Math.min(240, 120 + (n % 110) - (mean % 25)));
+    const speakingRate = 0.9 + ((max % 40) / 200);
+    const energy = Math.min(1, (max / 255));
+    return { pitchHint, speakingRate, energy, size: n };
+  }
+
+  // 1) Analyze voice (wav/webm base64)
+  r.post("/intel/analyze", express.json({ limit: "10mb" }), (req, res) => {
+    const { audioBase64, note } = req.body || {};
+    if (!audioBase64) return res.status(400).json({ ok: false, error: "missing audioBase64" });
+    const b64 = audioBase64.split(",").pop() || audioBase64;
+    const bytes = Buffer.from(b64, "base64");
+    const features = extract(bytes);
+    const out = { id: "analysis_" + Date.now(), ts: Date.now(), note: note || null, features };
+    fs.writeFileSync(path.join(base, "last_analysis.json"), JSON.stringify(out, null, 2));
+    return res.json({ ok: true, analysis: out });
+  });
+
+  // 2) Save profile (copy voice)
+  r.post("/intel/profile/save", express.json({ limit: "1mb" }), (req, res) => {
+    const { name = "custom", features } = req.body || {};
+    if (!features) return res.status(400).json({ ok: false, error: "missing features" });
+    const id = "vp_" + Date.now();
+    fs.writeFileSync(path.join(base, `${id}.json`), JSON.stringify({ id, name, features, ts: Date.now() }, null, 2));
+    return res.json({ ok: true, id, name });
+  });
+
+  // 3) List / read profiles
+  r.get("/intel/profile/list", (_q, res) => {
+    const list = fs.readdirSync(base).filter(f => f.startsWith("vp_") && f.endsWith(".json"));
+    return res.json({ ok: true, list });
+  });
+  r.get("/intel/profile/get/:id", (req, res) => {
+    try {
+      const fp = path.join(base, req.params.id);
+      const json = JSON.parse(fs.readFileSync(fp, "utf8"));
+      return res.json({ ok: true, profile: json });
+    } catch { return res.status(404).json({ ok: false }); }
+  });
+
+  // 4) Accent/Gender style presets (lightweight rules)
+  r.post("/intel/style", express.json(), (req, res) => {
+    const { accent = "en-US", gender = "neutral" } = req.body || {};
+    // map to browser-tts hints (rate/pitch tweaks)
+    const style = {
+      accent,
+      pitchMul: gender === "female" ? 1.15 : gender === "male" ? 0.95 : 1.0,
+      rateMul: accent.startsWith("en-GB") ? 0.98 : accent.startsWith("es-") ? 1.02 : 1.0
+    };
+    res.json({ ok: true, style });
+  });
+
+  app.use("/voice", r);
+}
+export default registerVoiceIntel;
+
+2) client/voice/profile.js
+
+// client/voice/profile.js
+export async function analyzeSample(audioBase64, note) {
+  return fetch("/voice/intel/analyze", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ audioBase64, note })
+  }).then(r => r.json());
+}
+export async function saveProfile(name, features) {
+  return fetch("/voice/intel/profile/save", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, features })
+  }).then(r => r.json());
+}
+export async function listProfiles() {
+  return fetch("/voice/intel/profile/list").then(r => r.json());
+}
+export async function getStyle(accent, gender) {
+  return fetch("/voice/intel/style", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accent, gender })
+  }).then(r => r.json());
+}
+
+3) client/ui/voice_profiles.js
+
+// client/ui/voice_profiles.js
+import { analyzeSample, saveProfile, listProfiles, getStyle } from "../voice/profile.js";
+import { speakBrowser } from "../voice/tts_browser.js";
+
+async function toBase64(blob) {
+  return new Promise(r => {
+    const fr = new FileReader();
+    fr.onload = () => r(fr.result);
+    fr.readAsDataURL(blob);
+  });
+}
+
+export function mountVoiceProfiles() {
+  const root = document.getElementById("voiceProfiles");
+  if (!root) return;
+  root.innerHTML = `
+    <div class="row">
+      <button id="vpRecord">Record sample</button>
+      <input id="vpName" placeholder="Profile name (e.g., Luna-neutral)"/>
+      <button id="vpAnalyze">Analyze & Save</button>
+      <select id="vpGender">
+        <option value="neutral">Neutral</option>
+        <option value="female">Female</option>
+        <option value="male">Male</option>
+      </select>
+      <button id="vpTry">Try Style</button>
+    </div>
+    <div class="row"><label>Profiles</label><select id="vpList"></select></div>
+    <pre id="vpOut" class="mono">—</pre>
+  `;
+
+  const $ = id => document.getElementById(id);
+  let rec = null, chunks = [];
+
+  $("vpRecord").onclick = async () => {
+    if (rec) { rec.stop(); rec = null; $("vpRecord").innerText = "Record sample"; return; }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    rec = new MediaRecorder(stream, { mimeType: "audio/webm" });
+    chunks = [];
+    rec.ondataavailable = e => e.data && chunks.push(e.data);
+    rec.onstop = () => stream.getTracks().forEach(t => t.stop());
+    rec.start(250);
+    $("vpRecord").innerText = "Stop";
+  };
+
+  $("vpAnalyze").onclick = async () => {
+    if (!chunks.length) { $("vpOut").textContent = "No audio recorded."; return; }
+    const blob = new Blob(chunks, { type: "audio/webm" });
+    const b64 = await toBase64(blob);
+    const res = await analyzeSample(b64, $("vpName").value || "");
+    $("vpOut").textContent = JSON.stringify(res, null, 2);
+    if (res.ok) {
+      const s = await saveProfile($("vpName").value || "custom", res.analysis.features);
+      $("vpOut").textContent += "\n\nSaved: " + JSON.stringify(s, null, 2);
+      refreshList();
+    }
+  };
+
+  $("vpTry").onclick = async () => {
+    const accent = document.getElementById("vcAccent")?.value || "en-US";
+    const gender = $("vpGender").value;
+    const st = await getStyle(accent, gender);
+    if (st?.ok) {
+      const rate = Number(document.getElementById("vcRate")?.value || 1) * st.style.rateMul;
+      const pitch = Number(document.getElementById("vcPitch")?.value || 1) * st.style.pitchMul;
+      await speakBrowser({ text: "Testing style preset.", accent, rate, pitch, volume: 1 });
+    }
+  };
+
+  async function refreshList() {
+    const res = await listProfiles();
+    if (res?.ok) {
+      $("vpList").innerHTML = res.list.map(x => `<option>${x}</option>`).join("") || "<option>—</option>";
+    }
+  }
+  refreshList();
+}
+
+4) Wire it up
+
+Update your server entry to mount the intel routes.
+
+server/index.js
+
+import express from "express";
+import http from "http";
+import registerVoice from "./voice/router.js";
+import registerVoiceAnalysis from "./voice/analysis.js";   // if present
+import registerVoiceIntel from "./voice/intel.js";
+import registerDiag from "./diag/router.js";
+import registerReply from "./nlp/reply.js";
+
+const app = express();
+app.get("/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
+
+registerVoice(app);
+registerVoiceAnalysis?.(app);
+registerVoiceIntel(app);
+registerReply(app);
+registerDiag?.(app);
+
+const server = http.createServer(app);
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => console.log("Chango server on :" + PORT));
+
+5) Add the profile panel to HUD
+
+client/index.html (add section)
+
+<section id="profiles">
+  <h3>Voice Profiles</h3>
+  <div id="voiceProfiles"></div>
+</section>
+<script type="module">
+  import { mountVoiceControls } from './ui/voice_controls.js';
+  import { mountDiag } from './ui/diag.js';
+  import { startWakeLoop } from './voice/wake_loop.js';
+  import { mountVoiceProfiles } from './ui/voice_profiles.js';
+  // … existing onload …
+  window.addEventListener('load', () => {
+    // existing mounts …
+    mountVoiceProfiles();
+  });
+</script>
+
+
+⸻
+
+What this gives you now
+	•	Analyze a recorded sample → derive pitch/rate/energy hints → save as profile.
+	•	Copy/Mimic (phase 1): saved profile = stable parameters you can reapply to voice.
+	•	Accent & Gender styles: quick presets that modify rate/pitch for a more human feel.
+	•	Listen-first remains enforced; anti-loop still active.
+
+When ready, we can swap the placeholder feature extractor with a real DSP path (e.g., meyda for browser or node-portaudio + fft server-side) and add true accent normalization (phoneme mapping).
+
+Want me to add a “Use selected profile” button that reads a saved file and automatically sets Rate/Pitch in the HUD for instant mimic?

@@ -88,7 +88,7 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
       ctx.strokeStyle = mode === "awakened" 
         ? `rgba(255, 220, 100, ${0.3 + Math.sin(time * 0.001) * 0.2})`
         : `rgba(255, 120, 60, ${0.3 + Math.sin(time * 0.001) * 0.2})`;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = size / 200; // Scale line width with size
       ctx.beginPath();
       
       for (let j = 0; j <= 20; j++) {
@@ -114,7 +114,7 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
       ctx.strokeStyle = mode === "awakened"
         ? `rgba(60, 255, 170, ${0.2 + Math.sin(time * 0.001 + i) * 0.1})`
         : `rgba(255, 80, 40, ${0.2 + Math.sin(time * 0.001 + i) * 0.1})`;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = size / 200; // Scale line width with size
       ctx.beginPath();
       ctx.arc(centerX, centerY + Math.sin(lat) * sphereRadius, Math.abs(radius), 0, Math.PI * 2);
       ctx.stroke();
@@ -134,15 +134,18 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
         ? `rgba(255, 220, 100, ${depth * 0.8})`
         : `rgba(255, 120, 60, ${depth * 0.8})`;
       
+      // Scale particle size with canvas size
+      const particleSize = (size / 100) * (0.5 + depth * 1);
+      
       ctx.fillStyle = particleColor;
       ctx.beginPath();
-      ctx.arc(x, y, 1 + depth * 2, 0, Math.PI * 2);
+      ctx.arc(x, y, particleSize, 0, Math.PI * 2);
       ctx.fill();
     });
     
-    // Central core (scale with minimum size for visibility)
-    const baseCoreRadius = Math.max(8, size * 0.06);  // Minimum 8px, otherwise 6% of size
-    const coreRadius = baseCoreRadius + Math.sin(time * 0.003) * 3;
+    // Central core (scale proportionally with size)
+    const baseCoreRadius = size * 0.06;  // 6% of canvas size
+    const coreRadius = baseCoreRadius + Math.sin(time * 0.003) * (size * 0.015);  // Pulse scales too
     const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, coreRadius);
     
     if (mode === "awakened") {

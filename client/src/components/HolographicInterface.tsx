@@ -75,7 +75,12 @@ export default function HolographicInterface() {
           <div className={`hologram-canvas ${
             mode === "awakened" ? "hologram-awakened" : "hologram-sentinel"
           } flex items-center justify-center transition-all duration-500 relative`}
-          style={{ width: `${size[0]}px`, height: `${size[0]}px` }}>
+          style={{ 
+            width: `${size[0]}px`, 
+            height: `${size[0]}px`,
+            backgroundSize: `${size[0] * 0.8}px ${size[0] * 0.8}px`,
+            backgroundPosition: 'center'
+          }}>
             
             {/* Floating Canvas */}
             <canvas 
@@ -125,7 +130,12 @@ export default function HolographicInterface() {
             <div className={`hologram-canvas ${
               mode === "awakened" ? "hologram-awakened" : "hologram-sentinel"
             } flex items-center justify-center transition-all duration-500`} 
-            style={{ width: `${size[0]}px`, height: `${size[0]}px` }}>
+            style={{ 
+              width: `${size[0]}px`, 
+              height: `${size[0]}px`,
+              backgroundSize: `${size[0] * 0.8}px ${size[0] * 0.8}px`,
+              backgroundPosition: 'center'
+            }}>
               
               {/* Canvas for 3D rendering */}
               <canvas 

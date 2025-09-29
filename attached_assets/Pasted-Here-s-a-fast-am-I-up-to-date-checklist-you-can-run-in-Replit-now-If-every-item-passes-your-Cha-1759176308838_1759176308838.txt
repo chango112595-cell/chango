@@ -1,0 +1,66 @@
+Here’s a fast “am-I-up-to-date?” checklist you can run in Replit now. If every item passes, your Chango build matches our current spec.
+
+1) Server routes should exist
+
+Open the web preview and hit these URLs:
+	•	/health → { ok: true, ts: … }
+	•	/voice/diag → { ok: true, voice_log_size: … }
+	•	/diag/sys → { ok: true, mem:…, cpu:…, files:[…] }
+	•	/diag/routes → list includes: /voice/say, /voice/diag, /diag/sys, /diag/ping, /diag/metrics/snapshot, /diag/metrics/export, /nlp/reply
+	•	/diag/metrics/snapshot → { ok: true, latest:[…] } (populates after 5–10s)
+	•	(optional) /diag/metrics/export → downloads metrics.zip
+
+If any 404s: ensure server/index.js imports and calls:
+
+import registerVoice from './voice/router.js';
+import registerVoiceAnalysis from './voice/analysis.js';
+import registerDiag from './diag/router.js';
+import registerReply from './nlp/reply.js';
+
+registerVoice(app);
+registerVoiceAnalysis(app);
+registerReply(app);
+registerDiag(app);
+
+2) Client HUD should show
+
+Open root page:
+	•	Header shows links: Voice, Diagnostics.
+	•	Voice panel shows: Power, Silent, Auto Listen, Accent/Rate/Pitch/Vol, Phrase + Speak.
+	•	Wake row shows: Wake word input, Enable hands-free button, state text.
+	•	Diagnostics tab shows: Node, Platform, Uptime, CPU Load, RSS, Heap, Voice Ping, three charts, Export metrics.zip button.
+
+If controls don’t appear: confirm client/index.html imports:
+
+<script type="module">
+import {mountVoiceControls} from './ui/voice_controls.js';
+import {mountDiag} from './ui/diag.js';
+import {startWakeLoop} from './voice/wake_loop.js';
+…
+</script>
+
+3) Listen-first behavior
+	•	Auto Listen is ON by default.
+	•	Speak → “heard: yes” briefly.
+	•	Press Speak → should talk (if Power ON, Silent OFF).
+	•	If you press Enable hands-free:
+	•	Say “Chango …” → brief “Yes?” then reply to your utterance.
+	•	No random talking; cooldown prevents loops.
+
+If it talks randomly: check client/voice/vad.js is referenced by voice_controls.js and wake_loop.js, and that VoiceBus.speaking guard exists in tts_browser.js.
+
+4) Logs and metrics
+	•	logs/voice.log grows when you press Speak.
+	•	data/metrics/metrics-YYYYMMDD.jsonl appears within ~5–10s and grows over time.
+
+If no files: verify the app has write access and those folders are created in code (fs.mkdirSync calls in routers).
+
+⸻
+
+Quick self-fix map (most common misses)
+	•	Missing replies → ensure /nlp/reply route is mounted.
+	•	No charts → client/ui/diag.js not imported or errors in console.
+	•	VAD not hearing → browser mic permission; or Auto Listen toggled off.
+	•	Random speech → set VoiceBus.speaking lock in tts_browser.js and ensure VAD debounce (debounceMs) ≥ 1000ms.
+
+If you want, paste your current server/index.js and client/index.html here and I’ll point out exact diffs line-by-line.

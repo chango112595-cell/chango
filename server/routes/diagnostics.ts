@@ -1,4 +1,4 @@
-import { Router, Request, Response, Application } from 'express';
+import { Router, Request, Response, Application, NextFunction } from 'express';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -26,7 +26,7 @@ interface SystemMetrics {
 interface RouteInfo {
   method: string;
   path: string;
-  regexp: string;
+  // regexp field removed for security
 }
 
 interface HealthCheck {
@@ -45,21 +45,92 @@ interface DiagnosticsResponse<T> {
 // Configuration
 const LOG_DIR = path.join(process.cwd(), 'logs');
 const DIAG_LOG_FILE = path.join(LOG_DIR, 'diag.log');
+const MAX_LOG_LINES = 1000;
+
+/**
+ * Authentication middleware for diagnostics endpoints
+ */
+function authenticateDiagnostics(req: Request, res: Response, next: NextFunction): void {
+  // Get token from environment
+  const expectedToken = process.env.DIAGNOSTICS_TOKEN;
+  
+  // In development mode without token, allow access
+  if (!expectedToken && process.env.NODE_ENV !== 'production') {
+    return next();
+  }
+  
+  // If token is set, require authentication
+  if (expectedToken) {
+    // Check query parameter
+    const queryToken = req.query.token as string;
+    
+    // Check Authorization header
+    const authHeader = req.headers.authorization;
+    const bearerToken = authHeader?.startsWith('Bearer ') 
+      ? authHeader.substring(7) 
+      : undefined;
+    
+    // Validate token
+    if (queryToken === expectedToken || bearerToken === expectedToken) {
+      return next();
+    }
+    
+    // Token mismatch or missing
+    return res.status(401).json({
+      ok: false,
+      error: 'Unauthorized: Invalid or missing diagnostics token',
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  // No token set but in production - deny access
+  return res.status(401).json({
+    ok: false,
+    error: 'Unauthorized: Diagnostics access is disabled',
+    timestamp: new Date().toISOString()
+  });
+}
 
 /**
  * Ensure log directory exists
  */
-function ensureLogDir(): void {
-  if (!fs.existsSync(LOG_DIR)) {
-    fs.mkdirSync(LOG_DIR, { recursive: true });
+async function ensureLogDir(): Promise<void> {
+  try {
+    await fs.promises.mkdir(LOG_DIR, { recursive: true });
+  } catch (error) {
+    // Directory might already exist, ignore error
   }
 }
 
 /**
- * Log diagnostic requests to file
+ * Rotate log file if it exceeds MAX_LOG_LINES
  */
-function logRequest(endpoint: string, status: number, data?: any): void {
-  ensureLogDir();
+async function rotateLogIfNeeded(): Promise<void> {
+  try {
+    const logContent = await fs.promises.readFile(DIAG_LOG_FILE, 'utf-8');
+    const lines = logContent.split('\n').filter(line => line.trim());
+    
+    if (lines.length > MAX_LOG_LINES) {
+      // Keep only the last MAX_LOG_LINES lines
+      const newContent = lines.slice(-MAX_LOG_LINES).join('\n') + '\n';
+      await fs.promises.writeFile(DIAG_LOG_FILE, newContent);
+    }
+  } catch (error) {
+    // File might not exist yet, ignore
+  }
+}
+
+/**
+ * Log diagnostic requests to file (async)
+ * Skip logging for ping requests to reduce noise
+ */
+async function logRequest(endpoint: string, status: number, data?: any): Promise<void> {
+  // Skip logging for frequent ping requests
+  if (endpoint === '/api/diagnostics/ping') {
+    return;
+  }
+  
+  await ensureLogDir();
   
   const logEntry = {
     timestamp: new Date().toISOString(),
@@ -71,7 +142,8 @@ function logRequest(endpoint: string, status: number, data?: any): void {
   const logLine = JSON.stringify(logEntry) + '\n';
   
   try {
-    fs.appendFileSync(DIAG_LOG_FILE, logLine);
+    await fs.promises.appendFile(DIAG_LOG_FILE, logLine);
+    await rotateLogIfNeeded();
   } catch (error) {
     console.error('Failed to write to diagnostic log:', error);
   }
@@ -88,7 +160,7 @@ function bytesToMB(bytes: number): number {
  * GET /api/diagnostics/sys
  * Return system metrics including memory, CPU, and uptime
  */
-router.get('/diagnostics/sys', (req: Request, res: Response<DiagnosticsResponse<SystemMetrics>>) => {
+router.get('/diagnostics/sys', authenticateDiagnostics, async (req: Request, res: Response<DiagnosticsResponse<SystemMetrics>>) => {
   try {
     const memUsage = process.memoryUsage();
     
@@ -115,11 +187,11 @@ router.get('/diagnostics/sys', (req: Request, res: Response<DiagnosticsResponse<
       timestamp: new Date().toISOString()
     };
     
-    logRequest('/api/diagnostics/sys', 200, systemMetrics);
+    await logRequest('/api/diagnostics/sys', 200, systemMetrics);
     res.json(response);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logRequest('/api/diagnostics/sys', 500, { error: errorMessage });
+    await logRequest('/api/diagnostics/sys', 500, { error: errorMessage });
     
     res.status(500).json({
       ok: false,
@@ -131,9 +203,9 @@ router.get('/diagnostics/sys', (req: Request, res: Response<DiagnosticsResponse<
 
 /**
  * GET /api/diagnostics/routes
- * Return list of registered routes
+ * Return list of registered routes (without sensitive regexp info)
  */
-router.get('/diagnostics/routes', (req: Request, res: Response<DiagnosticsResponse<RouteInfo[]>>) => {
+router.get('/diagnostics/routes', authenticateDiagnostics, async (req: Request, res: Response<DiagnosticsResponse<RouteInfo[]>>) => {
   try {
     const routes: RouteInfo[] = [];
     const app = req.app;
@@ -147,12 +219,13 @@ router.get('/diagnostics/routes', (req: Request, res: Response<DiagnosticsRespon
           methods.forEach(method => {
             routes.push({
               method: method.toUpperCase(),
-              path: basePath + layer.route.path,
-              regexp: layer.regexp.toString()
+              path: basePath + layer.route.path
+              // regexp field removed for security - it reveals internal patterns
             });
           });
         } else if (layer.name === 'router' && layer.handle.stack) {
           // This is a router middleware
+          // Extract path without exposing the regexp
           const routerPath = layer.regexp.source.match(/^\^\\(.*?)\$/) 
             ? '' 
             : layer.regexp.source.replace(/\\/g, '').replace(/\^/, '').replace(/\$.*/, '').replace(/\?.*/, '');
@@ -180,11 +253,11 @@ router.get('/diagnostics/routes', (req: Request, res: Response<DiagnosticsRespon
       timestamp: new Date().toISOString()
     };
     
-    logRequest('/api/diagnostics/routes', 200, { count: routes.length });
+    await logRequest('/api/diagnostics/routes', 200, { count: routes.length });
     res.json(response);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logRequest('/api/diagnostics/routes', 500, { error: errorMessage });
+    await logRequest('/api/diagnostics/routes', 500, { error: errorMessage });
     
     res.status(500).json({
       ok: false,
@@ -198,7 +271,7 @@ router.get('/diagnostics/routes', (req: Request, res: Response<DiagnosticsRespon
  * GET /api/diagnostics/ping
  * Basic health check endpoint
  */
-router.get('/diagnostics/ping', (req: Request, res: Response<DiagnosticsResponse<HealthCheck>>) => {
+router.get('/diagnostics/ping', authenticateDiagnostics, async (req: Request, res: Response<DiagnosticsResponse<HealthCheck>>) => {
   try {
     const healthCheck: HealthCheck = {
       ok: true,
@@ -212,11 +285,11 @@ router.get('/diagnostics/ping', (req: Request, res: Response<DiagnosticsResponse
       timestamp: new Date().toISOString()
     };
     
-    logRequest('/api/diagnostics/ping', 200);
+    // Ping requests are not logged to reduce noise
     res.json(response);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logRequest('/api/diagnostics/ping', 500, { error: errorMessage });
+    // Even errors from ping are not logged
     
     res.status(500).json({
       ok: false,

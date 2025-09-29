@@ -276,6 +276,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // System Diagnostics routes
   app.get("/api/diagnostics", async (req, res) => {
+    // Authentication check for legacy diagnostics endpoint
+    const expectedToken = process.env.DIAGNOSTICS_TOKEN;
+    
+    // In development mode without token, allow access
+    if (expectedToken || process.env.NODE_ENV === 'production') {
+      // Check query parameter
+      const queryToken = req.query.token as string;
+      
+      // Check Authorization header
+      const authHeader = req.headers.authorization;
+      const bearerToken = authHeader?.startsWith('Bearer ') 
+        ? authHeader.substring(7) 
+        : undefined;
+      
+      // Validate token if one is expected
+      if (expectedToken && queryToken !== expectedToken && bearerToken !== expectedToken) {
+        return res.status(401).json({ 
+          error: "Unauthorized: Invalid or missing diagnostics token" 
+        });
+      }
+      
+      // In production without token set, deny access
+      if (!expectedToken && process.env.NODE_ENV === 'production') {
+        return res.status(401).json({ 
+          error: "Unauthorized: Diagnostics access is disabled" 
+        });
+      }
+    }
+    
     try {
       // Check ffmpeg availability
       let ffmpegAvailable = false;
@@ -310,7 +339,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const startTime = Date.now();
         const protocol = req.secure ? 'https' : 'http';
         const host = req.get('host') || 'localhost';
-        await fetch(`${protocol}://${host}/api/diagnostics/ping`);
+        const tokenParam = expectedToken ? `?token=${expectedToken}` : '';
+        await fetch(`${protocol}://${host}/api/diagnostics/ping${tokenParam}`);
         selfPing = { ok: true, ms: Date.now() - startTime };
       } catch {
         selfPing = { ok: false, ms: 0 };

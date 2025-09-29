@@ -472,7 +472,8 @@ mcpRouter.options("/sse/", (req: Request, res: Response) => {
 
 // GET /sse - SSE endpoint for ChatGPT (without trailing slash)
 mcpRouter.get("/sse", (req: Request, res: Response) => {
-  if (!authenticate(req, res)) return;
+  // Remove authentication for SSE endpoint specifically for ChatGPT
+  // if (!authenticate(req, res)) return;
   
   console.log(`[MCP] SSE connection established (no trailing slash)`);
   
@@ -506,7 +507,8 @@ mcpRouter.get("/sse", (req: Request, res: Response) => {
 
 // GET /sse/ - SSE endpoint for ChatGPT (with trailing slash)
 mcpRouter.get("/sse/", (req: Request, res: Response) => {
-  if (!authenticate(req, res)) return;
+  // Remove authentication for SSE endpoint specifically for ChatGPT
+  // if (!authenticate(req, res)) return;
   
   console.log(`[MCP] SSE connection established (with trailing slash)`);
   

@@ -121,9 +121,11 @@ export default function VoiceControls() {
                 )}
               </Label>
             </div>
-            <span className="text-sm text-muted-foreground">
-              {vad.isListening ? "Listening for speech..." : "Not listening"}
-            </span>
+            {autoListen && (
+              <span className="text-sm text-muted-foreground">
+                {vad.isListening ? "Listening for speech..." : "Not listening"}
+              </span>
+            )}
           </div>
 
           {/* Speech detection indicator */}

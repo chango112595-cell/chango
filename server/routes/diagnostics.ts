@@ -2,8 +2,14 @@ import { Router, Request, Response, Application, NextFunction } from 'express';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
+// @ts-ignore - JavaScript module
+import metrics from '../diag/metrics.js';
+import { zipPaths, getArchivePath } from '../utils/zip.js';
 
 const router = Router();
+
+// Start metrics collection when server starts
+metrics.startMetrics();
 
 // Types for diagnostic responses
 interface SystemMetrics {
@@ -40,6 +46,25 @@ interface DiagnosticsResponse<T> {
   data?: T;
   error?: string;
   timestamp: string;
+}
+
+interface MetricsSnapshot {
+  timestamp: string;
+  timestamp_ms: number;
+  memory: any;
+  cpu: any;
+  uptime: any;
+  pid: number;
+  platform: string;
+  node_version: string;
+}
+
+interface MetricsFile {
+  filename: string;
+  size_bytes: number;
+  size_mb: number;
+  modified: string;
+  created: string;
 }
 
 // Configuration
@@ -294,6 +319,155 @@ router.get('/diagnostics/ping', authenticateDiagnostics, async (req: Request, re
     res.status(500).json({
       ok: false,
       error: 'Health check failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/diagnostics/metrics/snapshot
+ * Get snapshot of last ~180 data points (15 minutes at 5-second intervals)
+ */
+router.get('/diagnostics/metrics/snapshot', authenticateDiagnostics, async (req: Request, res: Response<DiagnosticsResponse<MetricsSnapshot[]>>) => {
+  try {
+    // Get last 180 metrics points
+    const snapshot = await metrics.readTail(180);
+    
+    const response: DiagnosticsResponse<MetricsSnapshot[]> = {
+      ok: true,
+      data: snapshot,
+      timestamp: new Date().toISOString()
+    };
+    
+    await logRequest('/api/diagnostics/metrics/snapshot', 200, { count: snapshot.length });
+    res.json(response);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await logRequest('/api/diagnostics/metrics/snapshot', 500, { error: errorMessage });
+    
+    res.status(500).json({
+      ok: false,
+      error: 'Failed to retrieve metrics snapshot',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/diagnostics/metrics/files
+ * List all saved metrics files
+ */
+router.get('/diagnostics/metrics/files', authenticateDiagnostics, async (req: Request, res: Response<DiagnosticsResponse<MetricsFile[]>>) => {
+  try {
+    const files = await metrics.listFiles();
+    
+    const response: DiagnosticsResponse<MetricsFile[]> = {
+      ok: true,
+      data: files,
+      timestamp: new Date().toISOString()
+    };
+    
+    await logRequest('/api/diagnostics/metrics/files', 200, { count: files.length });
+    res.json(response);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await logRequest('/api/diagnostics/metrics/files', 500, { error: errorMessage });
+    
+    res.status(500).json({
+      ok: false,
+      error: 'Failed to list metrics files',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/diagnostics/metrics/export
+ * Export all metrics as a ZIP file
+ */
+router.get('/diagnostics/metrics/export', authenticateDiagnostics, async (req: Request, res: Response) => {
+  try {
+    // Get all metrics files
+    const metricsFiles = await metrics.getMetricsFilesForExport();
+    
+    if (metricsFiles.length === 0) {
+      return res.status(404).json({
+        ok: false,
+        error: 'No metrics files found to export',
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    // Create temp directory for the export
+    const tempDir = path.join(process.cwd(), 'temp');
+    await fs.promises.mkdir(tempDir, { recursive: true });
+    
+    // Generate filename with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const zipFilename = `metrics-export-${timestamp}.zip`;
+    const zipPath = path.join(tempDir, zipFilename);
+    
+    // Create ZIP archive
+    await zipPaths(zipPath, metricsFiles);
+    
+    // Get the actual archive path (could be .zip or .tar.gz)
+    const actualPath = getArchivePath(zipPath);
+    if (!actualPath) {
+      throw new Error('Failed to create archive');
+    }
+    
+    const actualFilename = path.basename(actualPath);
+    
+    // Send file to client
+    res.download(actualPath, actualFilename, async (err) => {
+      // Clean up temp file after download
+      try {
+        await fs.promises.unlink(actualPath);
+      } catch (cleanupError) {
+        console.error('Failed to clean up temp file:', cleanupError);
+      }
+      
+      if (err) {
+        console.error('Failed to send metrics export:', err);
+      }
+    });
+    
+    await logRequest('/api/diagnostics/metrics/export', 200, { files: metricsFiles.length });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await logRequest('/api/diagnostics/metrics/export', 500, { error: errorMessage });
+    
+    res.status(500).json({
+      ok: false,
+      error: 'Failed to export metrics',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/diagnostics/metrics/current
+ * Get current metrics sample
+ */
+router.get('/diagnostics/metrics/current', authenticateDiagnostics, async (req: Request, res: Response<DiagnosticsResponse<MetricsSnapshot>>) => {
+  try {
+    const currentMetrics = metrics.sampleOnce();
+    
+    const response: DiagnosticsResponse<MetricsSnapshot> = {
+      ok: true,
+      data: currentMetrics,
+      timestamp: new Date().toISOString()
+    };
+    
+    await logRequest('/api/diagnostics/metrics/current', 200);
+    res.json(response);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await logRequest('/api/diagnostics/metrics/current', 500, { error: errorMessage });
+    
+    res.status(500).json({
+      ok: false,
+      error: 'Failed to sample current metrics',
       timestamp: new Date().toISOString()
     });
   }

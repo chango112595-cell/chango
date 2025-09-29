@@ -3,7 +3,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import OpenAI from "openai";
 import dotenv from "dotenv";
-import { mcpRouter } from "./mcp/router";
+import { mcpRouter } from "./mcp/router.js";
 import { registerSimpleMcp } from "./mcp_simple.js";
 import powerRouter from "./routes/power";
 import devWriteRouter from "./routes/devWrite";

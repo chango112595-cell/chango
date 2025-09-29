@@ -11,6 +11,8 @@ import powerRouter from "./routes/power";
 import devWriteRouter from "./routes/devWrite";
 import checkpointRouter from "./routes/checkpoints";
 import diagnosticsRouter from "./routes/diagnostics";
+// @ts-ignore - JS module without types
+import nlpRouter from "./routes/nlp.js";
 dotenv.config(); // Load environment variables
 
 // Initialize OpenAI client with API key from environment variable
@@ -75,6 +77,9 @@ app.use('/api', checkpointRouter);
 
 // Mount Diagnostics router under /api path
 app.use('/api', diagnosticsRouter);
+
+// Mount NLP router under /api path
+app.use('/api', nlpRouter);
 
 // ChatGPT endpoint using OpenAI SDK
 app.post('/chatgpt', async (req: Request, res: Response) => {

@@ -55,12 +55,30 @@ export function useHologram(canvasRef: React.RefObject<HTMLCanvasElement>) {
     const centerX = size / 2;
     const centerY = size / 2;
     
-    // Clear canvas with fade effect
-    ctx.fillStyle = 'rgba(0, 10, 20, 0.1)';
+    // Clear canvas completely
+    ctx.clearRect(0, 0, size, size);
+    
+    // Define sphere radius for both bubble and wireframe
+    const sphereRadius = size * 0.2;  // 20% of canvas size
+    const bubbleRadius = sphereRadius * 1.2;  // 20% larger than sphere to contain it
+    
+    // Draw background bubble gradient - match the sphere radius
+    const bubbleGradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, bubbleRadius);
+    if (mode === "awakened") {
+      bubbleGradient.addColorStop(0, 'rgba(62, 255, 170, 0.15)');
+      bubbleGradient.addColorStop(0.5, 'rgba(62, 255, 170, 0.08)');
+      bubbleGradient.addColorStop(0.8, 'rgba(60, 180, 255, 0.04)');
+      bubbleGradient.addColorStop(1, 'transparent');
+    } else {
+      bubbleGradient.addColorStop(0, 'rgba(255, 120, 60, 0.15)');
+      bubbleGradient.addColorStop(0.5, 'rgba(255, 120, 60, 0.08)');
+      bubbleGradient.addColorStop(0.8, 'rgba(255, 80, 40, 0.04)');
+      bubbleGradient.addColorStop(1, 'transparent');
+    }
+    ctx.fillStyle = bubbleGradient;
     ctx.fillRect(0, 0, size, size);
     
-    // Draw wireframe sphere (keep within bubble boundary)
-    const sphereRadius = size * 0.2;  // 20% of canvas size to stay well within bubble
+    // Draw wireframe sphere
     const rotationSpeed = (speed / 100) * 0.02;
     
     // Meridians

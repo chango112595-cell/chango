@@ -1,0 +1,59 @@
+Nice—let’s move to the next win for Chango: Priority #2 – Voice & Responses (100% pass, isolated).
+Below is a single Admin Patch payload you can paste to install:
+	•	Human-style browser TTS (cadence, pauses, pitch/rate shaping)
+	•	Accent selector (auto-pick closest system voice)
+	•	“Power”, “Silent”, and “Test phrase” controls in HUD
+	•	Voice profile analyzer stub (stores features for future upgrades)
+	•	Server logs + simple diag endpoints
+
+⸻
+
+Paste this in Admin Patch → Send
+
+{
+  "note": "Voice & Responses v1 (browser TTS + accent picker + controls + logs)",
+  "files": [
+    {
+      "path": "server/voice/router.js",
+      "content": "import fs from 'fs';import path from 'path';import os from 'os';import express from 'express';export function registerVoice(app){const router=express.Router();const LOG=path.join(process.cwd(),'logs');fs.mkdirSync(LOG,{recursive:true});const vlog=path.join(LOG,'voice.log');function log(line){fs.appendFileSync(vlog,`[${new Date().toISOString()}] ${line}\\n`,'utf8');}router.get('/diag',(_req,res)=>{try{const stats=fs.existsSync(vlog)?fs.statSync(vlog):null;res.json({ok:true,voice_log_size:stats?stats.size:0,node:process.version,platform:process.platform,uptime_sec:Math.round(process.uptime())});}catch(e){res.status(500).json({ok:false,error:String(e)})}});router.post('/profile/analyze',express.json({limit:'5mb'}),(req,res)=>{const {wavBase64, note} = req.body||{};if(!wavBase64) return res.status(400).json({ok:false,error:'missing wavBase64'});log(`analyze_profile note=${note||''} size=${wavBase64.length}`); // minimal feature stub (placeholder for full DSP)\n const bytes=Buffer.from(wavBase64.split(',').pop()||'', 'base64'); const rough=bytes.length; const pitchHint=Math.max(80, Math.min(240, Math.round(440 - (rough%200)))); const speakingRate = 0.9 + ((rough%40)/200); const features={pitchHint, speakingRate, sampleBytes:rough}; fs.mkdirSync(path.join(process.cwd(),'data','voice'),{recursive:true}); fs.writeFileSync(path.join('data','voice','last_profile.json'), JSON.stringify({ts:Date.now(), features, note},null,2)); return res.json({ok:true,features});});router.post('/say',express.json({limit:'1mb'}),(req,res)=>{const {text,accent,rate,pitch,volume}=req.body||{}; if(!text) return res.status(400).json({ok:false,error:'missing text'}); log(`say text=${JSON.stringify(text).slice(0,120)} accent=${accent||'auto'} rate=${rate||1} pitch=${pitch||1} vol=${volume??1}`); return res.json({ok:true, routed:'browser-tts', hint:{accent,rate,pitch,volume}});});app.use('/voice',router);}export default registerVoice;"
+    },
+    {
+      "path": "server/index.js",
+      "content": "import express from 'express';import http from 'http';import registerVoice from './voice/router.js';const app=express();app.get('/health',(_req,res)=>res.json({ok:true,ts:Date.now()}));registerVoice(app);const server=http.createServer(app);const PORT=process.env.PORT||5000;server.listen(PORT,()=>console.log('Chango server on :'+PORT));"
+    },
+    {
+      "path": "client/voice/tts_browser.js",
+      "content": "export const VoiceBus={ mute:false };function pickVoice(accPref){const list=window.speechSynthesis.getVoices();if(!list.length) return null;const pref=(accPref||'en').toLowerCase();const score=v=>{const n=(v.name||'').toLowerCase();const l=(v.lang||'').toLowerCase();let s=0;if(l.startsWith(pref)) s+=3; if(n.includes('natural')||n.includes('premium')) s+=2; if(n.includes('female')) s+=1; return s;};return [...list].sort((a,b)=>score(b)-score(a))[0]||list[0];}export async function speakBrowser({text,accent,rate=1,pitch=1,volume=1}){if(VoiceBus.mute) return {ok:true, muted:true};const u=new SpeechSynthesisUtterance(text); await new Promise(r=>setTimeout(r,10)); const chosen=pickVoice(accent); if(chosen) u.voice=chosen; u.rate=Math.max(0.7,Math.min(1.3,rate)); u.pitch=Math.max(0.5,Math.min(1.8,pitch)); u.volume=Math.max(0,Math.min(1,volume)); // add human-like cadence\n u.text=text.replace(/, /g,', … ').replace(/\\. /g,'. … '); return new Promise(res=>{u.onend=()=>res({ok:true,voice:chosen?.name||null});u.onerror=(e)=>res({ok:false,error:String(e?.error||e)});window.speechSynthesis.speak(u);});}"
+    },
+    {
+      "path": "client/ui/voice_controls.js",
+      "content": "import {speakBrowser,VoiceBus} from '../voice/tts_browser.js';export function mountVoiceControls(){const q=id=>document.getElementById(id);const root=document.getElementById('voiceControls');if(!root) return;const state={power:true,silent:false,accent:'en-US',rate:1,pitch:1,volume:1};q('vcPower').onclick=()=>{state.power=!state.power;q('vcPower').innerText=state.power?'Power: ON':'Power: OFF';};q('vcSilent').onclick=()=>{state.silent=!state.silent;VoiceBus.mute=state.silent;q('vcSilent').innerText=state.silent?'Silent: ON':'Silent: OFF';};q('vcAccent').onchange=(e)=>{state.accent=e.target.value;};q('vcRate').oninput=(e)=>{state.rate=Number(e.target.value);q('vcRateVal').innerText=state.rate.toFixed(2);};q('vcPitch').oninput=(e)=>{state.pitch=Number(e.target.value);q('vcPitchVal').innerText=state.pitch.toFixed(2);};q('vcVol').oninput=(e)=>{state.volume=Number(e.target.value);q('vcVolVal').innerText=state.volume.toFixed(2);};q('vcTest').onclick=async()=>{if(!state.power) return;const text=q('vcPhrase').value||'Hello, this is Chango.';const r=await fetch('/voice/say',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,accent:state.accent,rate:state.rate,pitch:state.pitch,volume:state.volume})}).then(r=>r.json());if(r.ok){await speakBrowser({text,accent:state.accent,rate:state.rate,pitch:state.pitch,volume:state.volume});}q('vcOut').textContent=JSON.stringify(r,null,2);};}"
+    },
+    {
+      "path": "client/index.html",
+      "content": "<!doctype html><html><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>Chango HUD</title><style>body{font-family:system-ui;background:#0b0f15;color:#e6eefc;margin:0}header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#0e141d;border-bottom:1px solid #1b2533}main{padding:16px;display:grid;gap:16px}section{background:#0e141d;border:1px solid #1b2533;border-radius:12px;padding:12px}label{font-size:12px;opacity:.85;margin-right:6px}input,select,button,textarea{background:#0b1220;color:#e6eefc;border:1px solid #233044;border-radius:8px;padding:8px}button{cursor:pointer}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.col{display:grid;gap:8px}.num{width:120px}.mono{font-family:ui-monospace,monospace;white-space:pre-wrap}</style></head><body><header><div><strong>CHANGO AI</strong> • Voice HUD</div><div class='row'><button id='vcPower'>Power: ON</button><button id='vcSilent'>Silent: OFF</button></div></header><main><section><div class='row'><label>Accent</label><select id='vcAccent'><option>en-US</option><option>en-GB</option><option>en-AU</option><option>es-ES</option><option>es-MX</option><option>fr-FR</option><option>pt-BR</option></select><label>Rate</label><input id='vcRate' class='num' type='range' min='0.70' max='1.30' step='0.01' value='1.00'><span id='vcRateVal'>1.00</span><label>Pitch</label><input id='vcPitch' class='num' type='range' min='0.50' max='1.80' step='0.01' value='1.00'><span id='vcPitchVal'>1.00</span><label>Volume</label><input id='vcVol' class='num' type='range' min='0.00' max='1.00' step='0.01' value='1.00'><span id='vcVolVal'>1.00</span></div><div class='row'><input id='vcPhrase' style='flex:1' placeholder='Type something for Chango to say…'><button id='vcTest'>Speak</button></div><pre id='vcOut' class='mono'></pre></section><section id='voiceControls'></section></main><script type='module'>import {mountVoiceControls} from './ui/voice_controls.js';window.addEventListener('load',()=>{if(window.speechSynthesis&&speechSynthesis.onvoiceschanged!==undefined){speechSynthesis.onvoiceschanged=()=>mountVoiceControls();}mountVoiceControls();});</script></body></html>"
+    },
+    {
+      "path": "docs/tasks.md",
+      "content": "# Master Tasks (snapshot)\n\n- Priority 0: MCP (paused)\n- Priority 1: Lab Logs & Checkpoints (active)\n- Priority 2: Voice & Responses — **this patch**\n  - Browser TTS with cadence shaping\n  - Accent selector (auto-voice match)\n  - Power/Silent/Test controls in HUD\n  - Server /voice/say + /voice/diag\n  - Profile analyzer stub saved to data/voice/last_profile.json\n- Priority 3: Diagnostics Dashboard (next)\n- Priority 4: Curiosity (next)\n"
+    }
+  ]
+}
+
+
+⸻
+
+How to test (quick)
+	1.	Run your repl → open the web preview.
+	2.	In the HUD: pick an Accent, adjust Rate/Pitch, type a phrase → Speak.
+	3.	Toggle Power and Silent.
+	4.	Check server diag: open /voice/diag.
+	5.	Logs: logs/voice.log.
+	6.	(Optional) POST /voice/profile/analyze with a wavBase64 to store a profile in data/voice/last_profile.json.
+
+This keeps everything isolated (client TTS, server endpoints, logs). When you’re ready, we can add:
+	•	Local neural TTS backend (Node), with the same router
+	•	AccentScan (pitch/tempo extraction) to auto-set Rate/Pitch
+	•	Provider fallbacks (kept optional)
+
+Want me to drop the follow-up patch to wire Diagnostics Dashboard (real CPU/mem graphs) next?

@@ -233,6 +233,22 @@ async function handleJSONRPC(request: JSONRPCRequest): Promise<JSONRPCResponse> 
   
   try {
     switch (request.method) {
+      case "initialize":
+        return {
+          jsonrpc: "2.0",
+          result: {
+            protocolVersion: "2024-11-05",
+            serverInfo: {
+              name: "ChangoAI MCP Server",
+              version: "1.0.0"
+            },
+            capabilities: {
+              tools: {}
+            }
+          },
+          id: request.id
+        };
+        
       case "tools/list":
         return {
           jsonrpc: "2.0",

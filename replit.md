@@ -18,6 +18,12 @@ This is a full-stack TypeScript application called "Chango AI" that provides adv
   - Multiple accent profiles (British RP, Southern US, etc.)
   - Voice profile learning from recordings
   - Real-time voice visualizer
+- ✅ **Diagnostics Dashboard**: Enhanced system monitoring with live charts
+  - Real-time memory usage line chart (60 data points history)
+  - CPU load average bar charts with color coding
+  - Collapsible route listing showing all API endpoints
+  - Secured with token authentication (`DIAGNOSTICS_TOKEN`)
+  - Async logging with automatic rotation
 
 ## MCP Endpoints Available
 - Discovery: `https://[your-replit-domain]/mcp?token=mcp-connect-chatgpt`

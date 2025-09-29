@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import VoiceControls from "@/components/VoiceControls";
+import HandsFreeMode from "@/components/HandsFreeMode";
 import VoiceRouteSelector from "@/components/VoiceRouteSelector";
 import AccentEmulator from "@/components/AccentEmulator";
 import VoiceScanner from "@/components/VoiceScanner";
@@ -94,6 +95,7 @@ export default function Dashboard() {
           <div className="lg:col-span-2 space-y-6">
             {/* Chat Interface - Prominent Position */}
             <Chat />
+            <HandsFreeMode />
             <VoiceControls />
             <VoiceRouteSelector />
             <AccentEmulator />

@@ -13,6 +13,8 @@ import checkpointRouter from "./routes/checkpoints";
 import diagnosticsRouter from "./routes/diagnostics";
 // @ts-ignore - JS module without types
 import nlpRouter from "./routes/nlp.js";
+// @ts-ignore - JS module without types
+import voiceIntelRouter from "./voice/intel.js";
 dotenv.config(); // Load environment variables
 
 // Initialize OpenAI client with API key from environment variable
@@ -41,6 +43,9 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Serve client voice profile API
+app.use('/voice', express.static('client/voice'));
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -80,6 +85,9 @@ app.use('/api', diagnosticsRouter);
 
 // Mount NLP router under /api path
 app.use('/api', nlpRouter);
+
+// Mount Voice Intelligence router under /api path
+app.use('/api', voiceIntelRouter);
 
 // ChatGPT endpoint using OpenAI SDK
 app.post('/chatgpt', async (req: Request, res: Response) => {

@@ -10,6 +10,7 @@ import HolographicInterface from "@/components/HolographicInterface";
 import CuriosityEngine from "@/components/CuriosityEngine";
 import Chat from "@/components/Chat";
 import { SystemDiagnostics } from "@/components/SystemDiagnostics";
+import VoiceProfiles from "@/components/VoiceProfiles";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import type { SystemSettings } from "@shared/schema";
@@ -100,6 +101,7 @@ export default function Dashboard() {
             <VoiceRouteSelector />
             <AccentEmulator />
             <VoiceScanner />
+            <VoiceProfiles />
             <TextToSpeech />
           </div>
 

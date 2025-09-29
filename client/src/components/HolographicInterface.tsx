@@ -17,6 +17,26 @@ export default function HolographicInterface() {
   const [speed, setSpeed] = useState([50]);
   const [wander, setWander] = useState(true);
 
+  // Generate dynamic background that auto-scales with bubble
+  const getDynamicBackground = (currentMode: HologramMode, currentSize: number) => {
+    const bubbleRadius = currentSize * 0.45; // 45% to match the visible bubble
+    const innerRadius = currentSize * 0.15; // 15% for inner glow
+    
+    if (currentMode === "awakened") {
+      return `radial-gradient(circle at center, 
+        hsla(62, 100%, 70%, 0.25) 0%, 
+        hsla(175, 100%, 60%, 0.15) ${innerRadius}px, 
+        hsla(175, 100%, 60%, 0.05) ${bubbleRadius * 0.7}px,
+        transparent ${bubbleRadius}px)`;
+    } else {
+      return `radial-gradient(circle at center, 
+        hsla(0, 100%, 60%, 0.25) 0%, 
+        hsla(30, 100%, 60%, 0.15) ${innerRadius}px,
+        hsla(30, 100%, 60%, 0.05) ${bubbleRadius * 0.7}px,
+        transparent ${bubbleRadius}px)`;
+    }
+  };
+
   const { 
     initializeHologram, 
     toggleVisibility, 
@@ -78,8 +98,7 @@ export default function HolographicInterface() {
           style={{ 
             width: `${size[0]}px`, 
             height: `${size[0]}px`,
-            backgroundSize: `${size[0] * 0.8}px ${size[0] * 0.8}px`,
-            backgroundPosition: 'center'
+            background: getDynamicBackground(mode, size[0])
           }}>
             
             {/* Floating Canvas */}
@@ -133,8 +152,7 @@ export default function HolographicInterface() {
             style={{ 
               width: `${size[0]}px`, 
               height: `${size[0]}px`,
-              backgroundSize: `${size[0] * 0.8}px ${size[0] * 0.8}px`,
-              backgroundPosition: 'center'
+              background: getDynamicBackground(mode, size[0])
             }}>
               
               {/* Canvas for 3D rendering */}

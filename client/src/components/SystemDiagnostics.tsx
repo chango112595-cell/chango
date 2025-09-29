@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Activity, Cpu, HardDrive, Clock, Wifi, Server, Zap, ChevronDown, ChevronUp, LineChart, BarChart3, Route } from "lucide-react";
+import { Activity, Cpu, HardDrive, Clock, Wifi, Server, Zap, ChevronDown, ChevronUp, LineChart, BarChart3, Route, Download, FileText, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 
 interface DiagnosticsData {
   ok: boolean;
@@ -71,11 +72,59 @@ interface HealthCheck {
   timestamp_ms: number;
 }
 
+interface MetricsSnapshot {
+  timestamp: string;
+  timestamp_ms: number;
+  memory: {
+    process: {
+      rss_mb: number;
+      heap_used_mb: number;
+      heap_total_mb: number;
+      external_mb: number;
+      array_buffers_mb: number;
+    };
+    system: {
+      total_mb: number;
+      free_mb: number;
+      used_mb: number;
+      usage_percent: number;
+    };
+  };
+  cpu: {
+    usage_percent: number;
+    load_average: {
+      '1min': number;
+      '5min': number;
+      '15min': number;
+    };
+    cores: number;
+  };
+  uptime: {
+    process_seconds: number;
+    system_seconds: number;
+  };
+  pid: number;
+  platform: string;
+  node_version: string;
+}
+
+interface MetricsFile {
+  filename: string;
+  size_bytes: number;
+  size_mb: number;
+  modified: string;
+  created: string;
+}
+
 export function SystemDiagnostics() {
   const [memoryHistory, setMemoryHistory] = useState<number[]>([]);
+  const [cpuHistory, setCpuHistory] = useState<number[]>([]);
   const [routesOpen, setRoutesOpen] = useState(false);
+  const [metricsFilesOpen, setMetricsFilesOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const memoryChartRef = useRef<HTMLCanvasElement>(null);
   const cpuChartRef = useRef<HTMLCanvasElement>(null);
+  const { toast } = useToast();
   
   // Get diagnostics token from environment if available
   const diagToken = import.meta.env.VITE_DIAGNOSTICS_TOKEN;
@@ -117,17 +166,79 @@ export function SystemDiagnostics() {
     queryFn: () => fetchWithToken("/api/diagnostics/ping"),
     refetchInterval: 3000,
   });
+  
+  // Metrics snapshot endpoint (last ~180 points)
+  const { data: metricsSnapshot } = useQuery<{ ok: boolean; data: MetricsSnapshot[] }>({
+    queryKey: ["/api/diagnostics/metrics/snapshot"],
+    queryFn: () => fetchWithToken("/api/diagnostics/metrics/snapshot"),
+    refetchInterval: 5000, // Poll every 5 seconds (matches metrics collection rate)
+  });
+  
+  // Metrics files list
+  const { data: metricsFiles } = useQuery<{ ok: boolean; data: MetricsFile[] }>({
+    queryKey: ["/api/diagnostics/metrics/files"],
+    queryFn: () => fetchWithToken("/api/diagnostics/metrics/files"),
+    refetchInterval: 30000, // Less frequent for file list
+  });
 
-  // Update memory history when new data arrives
+  // Update memory and CPU history from metrics snapshot
   useEffect(() => {
-    if (systemMetrics?.data?.memory) {
-      setMemoryHistory(prev => {
-        const newHistory = [...prev, systemMetrics.data.memory.heap_used_mb];
-        // Keep only last 60 data points
-        return newHistory.slice(-60);
-      });
+    if (metricsSnapshot?.data && metricsSnapshot.data.length > 0) {
+      // Extract memory history from snapshot
+      const memHistory = metricsSnapshot.data.map(m => m.memory.process.heap_used_mb);
+      setMemoryHistory(memHistory);
+      
+      // Extract CPU history from snapshot
+      const cpuHist = metricsSnapshot.data.map(m => m.cpu.usage_percent);
+      setCpuHistory(cpuHist);
     }
-  }, [systemMetrics]);
+  }, [metricsSnapshot]);
+  
+  // Export metrics handler
+  const handleExportMetrics = async () => {
+    setIsExporting(true);
+    try {
+      const urlWithToken = diagToken 
+        ? `/api/diagnostics/metrics/export?token=${encodeURIComponent(diagToken)}`
+        : `/api/diagnostics/metrics/export`;
+      
+      const response = await fetch(urlWithToken, { credentials: "include" });
+      
+      if (!response.ok) {
+        throw new Error(`Export failed: ${response.statusText}`);
+      }
+      
+      // Get filename from Content-Disposition header or use default
+      const contentDisposition = response.headers.get('content-disposition');
+      const filenameMatch = contentDisposition?.match(/filename="?(.+?)"?(?:;|$)/);
+      const filename = filenameMatch ? filenameMatch[1] : 'metrics-export.zip';
+      
+      // Download the file
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast({
+        title: "Export successful",
+        description: `Metrics exported as ${filename}`,
+      });
+    } catch (error) {
+      console.error('Failed to export metrics:', error);
+      toast({
+        title: "Export failed",
+        description: error instanceof Error ? error.message : "Failed to export metrics",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
   
   // Draw memory chart
   useEffect(() => {
@@ -340,7 +451,7 @@ export function SystemDiagnostics() {
               data-testid="canvas-memory-chart"
             />
             <div className="text-xs text-muted-foreground mt-1">
-              Heap Used (Last 60 samples, 3s intervals)
+              Heap Used (Last {memoryHistory.length} samples, 5s intervals)
             </div>
           </div>
         )}
@@ -465,6 +576,87 @@ export function SystemDiagnostics() {
               <div className="text-xs text-muted-foreground">Phrase-level synthesis active</div>
             </div>
           </div>
+        </div>
+
+        <Separator />
+        
+        {/* Metrics Management Section */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              <span className="font-medium">Metrics Management</span>
+            </div>
+            <Button
+              size="sm"
+              onClick={handleExportMetrics}
+              disabled={isExporting || !metricsFiles?.data?.length}
+              data-testid="button-export-metrics"
+            >
+              {isExporting ? (
+                <>
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-2" />
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export metrics.zip
+                </>
+              )}
+            </Button>
+          </div>
+          
+          {/* Metrics Files List (Collapsible) */}
+          {metricsFiles?.data && metricsFiles.data.length > 0 && (
+            <Collapsible open={metricsFilesOpen} onOpenChange={setMetricsFilesOpen}>
+              <CollapsibleTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  className="w-full justify-between p-2 h-auto hover:bg-muted/50"
+                  data-testid="button-toggle-metrics-files"
+                >
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    <span className="text-sm">Saved Metrics Files</span>
+                    <Badge variant="outline" className="text-xs" data-testid="text-metrics-file-count">
+                      {metricsFiles.data.length} files
+                    </Badge>
+                  </div>
+                  {metricsFilesOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-2">
+                <div className="max-h-40 overflow-y-auto space-y-1 pl-4" data-testid="container-metrics-files-list">
+                  {metricsFiles.data.map((file, index) => (
+                    <div 
+                      key={index} 
+                      className="flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-muted/50"
+                      data-testid={`metrics-file-item-${index}`}
+                    >
+                      <span className="font-mono" data-testid={`metrics-filename-${index}`}>
+                        {file.filename}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="text-xs" data-testid={`metrics-size-${index}`}>
+                          {file.size_mb.toFixed(2)} MB
+                        </Badge>
+                        <span className="text-muted-foreground" data-testid={`metrics-modified-${index}`}>
+                          {new Date(file.modified).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+          
+          {(!metricsFiles?.data || metricsFiles.data.length === 0) && (
+            <div className="text-xs text-muted-foreground pl-2">
+              No metrics files available yet. Metrics are collected every 5 seconds.
+            </div>
+          )}
         </div>
 
         <Separator />

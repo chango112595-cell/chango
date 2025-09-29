@@ -1,0 +1,51 @@
+Awesome — here’s a **drop-in Diagnostics Dashboard** patch. It’s isolated, no external libs, and gives you live CPU/memory, uptime, route health, and voice route pings. Paste this in your **Admin Patch** and hit Send.
+
+---
+
+### Admin Patch JSON
+
+```json
+{
+  "note": "Diagnostics Dashboard v1 (live CPU/mem, uptime, route health, voice ping)",
+  "files": [
+    {
+      "path": "server/diag/router.js",
+      "content": "import os from 'os';import fs from 'fs';import path from 'path';import express from 'express';export function registerDiag(app){const r=express.Router();const LOG=path.join(process.cwd(),'logs');fs.mkdirSync(LOG,{recursive:true});const flog=path.join(LOG,'diag.log');const log=(m)=>fs.appendFileSync(flog,`[${new Date().toISOString()}] ${m}\\n`,'utf8');r.get('/sys',(_q,res)=>{const mem=process.memoryUsage();const load=os.loadavg?.()||[];const uptime=Math.round(process.uptime());res.json({ok:true,ts:Date.now(),node:process.version,platform:process.platform,uptime,mem:{rss:mem.rss,heapUsed:mem.heapUsed,heapTotal:mem.heapTotal},cpu:{load1:load[0]||0,load5:load[1]||0,load15:load[2]||0},env:{PORT:process.env.PORT||null}})});r.get('/routes',(_q,res)=>{const routes=[];try{routes.push({path:'/health',kind:'GET'});}catch{};routes.push({path:'/voice/diag',kind:'GET'});routes.push({path:'/voice/say',kind:'POST'});routes.push({path:'/diag/sys',kind:'GET'});routes.push({path:'/diag/routes',kind:'GET'});routes.push({path:'/diag/ping',kind:'GET'});res.json({ok:true,routes});});r.get('/ping',async(_q,res)=>{const t0=Date.now();try{const r1=await fetch('http://127.0.0.1:'+ (process.env.PORT||5000) +'/voice/diag').then(r=>r.json()).catch(()=>null);const t=Date.now()-t0;res.json({ok:true,latency_ms:t,voice_ok:!!(r1&&r1.ok)});}catch(e){res.json({ok:false,error:String(e)})}});app.use('/diag',r);log('diag router mounted');}export default registerDiag;"
+    },
+    {
+      "path": "server/index.js",
+      "content": "import express from 'express';import http from 'http';import registerVoice from './voice/router.js';import registerDiag from './diag/router.js';const app=express();app.get('/health',(_req,res)=>res.json({ok:true,ts:Date.now()}));registerVoice(app);registerDiag(app);const server=http.createServer(app);const PORT=process.env.PORT||5000;server.listen(PORT,()=>console.log('Chango server on :'+PORT));"
+    },
+    {
+      "path": "client/ui/diag.js",
+      "content": "function fmtMB(b){return (b/1048576).toFixed(1)}function el(id){return document.getElementById(id)}const hist={ts:[],rss:[],heap:[],load:[]};function pushHist(d){if(hist.ts.length>180){['ts','rss','heap','load'].forEach(k=>hist[k].shift())}hist.ts.push(new Date(d.ts));hist.rss.push(d.mem.rss);hist.heap.push(d.mem.heapUsed);hist.load.push(d.cpu.load1)}function drawLine(canvas,vals,label){const ctx=canvas.getContext('2d');const W=canvas.width=canvas.clientWidth;const H=canvas.height=160;ctx.clearRect(0,0,W,H);if(!vals.length) return;const max=Math.max(...vals);const min=Math.min(...vals);const pad=8;const range=(max-min)||1;ctx.beginPath();vals.forEach((v,i)=>{const x=pad + i*( (W-2*pad)/(vals.length-1||1) );const y=H-pad - ( (v-min)/range )*(H-2*pad);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();ctx.fillText(label,8,12)}async function poll(){try{const js=await fetch('/diag/sys').then(r=>r.json());if(js&&js.ok){pushHist(js);el('dgNode').textContent=js.node;el('dgPlat').textContent=js.platform;el('dgUp').textContent=js.uptime+'s';el('dgRSS').textContent=fmtMB(js.mem.rss)+' MB';el('dgHeap').textContent=fmtMB(js.mem.heapUsed)+' MB';el('dgLoad').textContent=js.cpu.load1.toFixed(2);drawLine(el('chartRSS'),hist.rss,'RSS bytes');drawLine(el('chartHeap'),hist.heap,'HeapUsed bytes');drawLine(el('chartLoad'),hist.load,'CPU load');}}catch{}try{const rts=await fetch('/diag/routes').then(r=>r.json());if(rts&&rts.ok){el('dgRoutes').textContent=JSON.stringify(rts.routes,null,2)}const ping=await fetch('/diag/ping').then(r=>r.json());if(ping){el('dgPing').textContent=ping.ok?`${ping.latency_ms} ms (voice_ok=${ping.voice_ok})`:'ERR'}}catch{} setTimeout(poll,1500)}export function mountDiag(){const wrap=document.getElementById('diagPanel');if(!wrap) return;poll();}"
+    },
+    {
+      "path": "client/index.html",
+      "content": "<!doctype html><html><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>Chango HUD</title><style>body{font-family:system-ui;background:#0b0f15;color:#e6eefc;margin:0}header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#0e141d;border-bottom:1px solid #1b2533}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}main{padding:16px;display:grid;gap:16px}section{background:#0e141d;border:1px solid #1b2533;border-radius:12px;padding:12px}pre{white-space:pre-wrap;font-family:ui-monospace,monospace}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.kv{display:grid;gap:6px;padding:8px;border:1px solid #1b2533;border-radius:8px;background:#0b1220}.lbl{opacity:.7;font-size:12px}.val{font-weight:600}.chart{width:100%;height:160px;border:1px solid #1b2533;border-radius:8px;background:#0b1220;padding:6px}</style></head><body><header><div><strong>CHANGO AI</strong> • HUD</div><div class='row'><a href='#voice'>Voice</a><a href='#diag'>Diagnostics</a></div></header><main><section id='voice'><div class='row'><a href='/'>Reload</a></div><div id='voiceControls'></div></section><section id='diag'><h3>Diagnostics</h3><div id='diagPanel'><div class='grid'><div class='kv'><div class='lbl'>Node</div><div class='val' id='dgNode'>—</div></div><div class='kv'><div class='lbl'>Platform</div><div class='val' id='dgPlat'>—</div></div><div class='kv'><div class='lbl'>Uptime</div><div class='val' id='dgUp'>—</div></div><div class='kv'><div class='lbl'>CPU Load(1m)</div><div class='val' id='dgLoad'>—</div></div><div class='kv'><div class='lbl'>RSS</div><div class='val' id='dgRSS'>—</div></div><div class='kv'><div class='lbl'>Heap Used</div><div class='val' id='dgHeap'>—</div></div><div class='kv'><div class='lbl'>Voice Ping</div><div class='val' id='dgPing'>—</div></div></div><div class='grid' style='margin-top:12px'><canvas class='chart' id='chartRSS'></canvas><canvas class='chart' id='chartHeap'></canvas><canvas class='chart' id='chartLoad'></canvas></div><h4>Routes</h4><pre id='dgRoutes'>—</pre></div></section></main><script type='module'>import {mountVoiceControls} from './ui/voice_controls.js';import {mountDiag} from './ui/diag.js';window.addEventListener('load',()=>{if(window.speechSynthesis&&speechSynthesis.onvoiceschanged!==undefined){speechSynthesis.onvoiceschanged=()=>mountVoiceControls();}mountVoiceControls();mountDiag();});</script></body></html>"
+    },
+    {
+      "path": "docs/tasks.md",
+      "content": "# Master Tasks (snapshot)\n- P1: Lab Logs & Checkpoints (active)\n- P2: Voice & Responses — baseline done\n- P3: Diagnostics Dashboard — **v1 shipped** (live sys metrics, route health, voice ping)\n- P4: Curiosity Engine — next\n"
+    }
+  ]
+}
+```
+
+---
+
+### What you get
+
+* `GET /diag/sys` – memory (rss/heap), load, uptime
+* `GET /diag/routes` – exposed route summary
+* `GET /diag/ping` – latency + `/voice/diag` health
+* **HUD → Diagnostics tab** – live charts (no external libs), values auto-update
+
+**Next upgrade options (quick to add):**
+
+* Per-route latency histogram & error rate
+* Session analytics (requests/min, active users)
+* Persistent timeseries (write to `data/metrics/*.jsonl`)
+* CPU% via `/proc/stat` sampler (Linux) for smoother charts
+
+Want me to add **persistent timeseries logging** and a small **“export metrics.zip”** endpoint next?

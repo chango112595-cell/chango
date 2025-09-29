@@ -50,7 +50,7 @@ const MAX_LOG_LINES = 1000;
 /**
  * Authentication middleware for diagnostics endpoints
  */
-function authenticateDiagnostics(req: Request, res: Response, next: NextFunction): void {
+function authenticateDiagnostics(req: Request, res: Response, next: NextFunction): void | Response {
   // Get token from environment
   const expectedToken = process.env.DIAGNOSTICS_TOKEN;
   
@@ -211,7 +211,7 @@ router.get('/diagnostics/routes', authenticateDiagnostics, async (req: Request, 
     const app = req.app;
     
     // Helper function to extract routes from a layer
-    function extractRoutes(stack: any[], basePath: string = ''): void {
+    const extractRoutes = (stack: any[], basePath: string = ''): void => {
       stack.forEach((layer: any) => {
         if (layer.route) {
           // This is a route

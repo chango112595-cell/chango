@@ -61,28 +61,6 @@ export function useVoiceSynthesis() {
   const safetyTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Safety timeout for infinite loops
   const hasInitialized = useRef<boolean>(false); // Track if we've auto-initialized
 
-  // Auto-enable on mount
-  useEffect(() => {
-    if (!hasInitialized.current) {
-      hasInitialized.current = true;
-      console.log("[VoiceSynthesis] Auto-enabling on mount...");
-      // Call enable directly without waiting for the callback to be ready
-      const initVoice = async () => {
-        try {
-          const success = await enable();
-          if (success) {
-            console.log("[VoiceSynthesis] Successfully auto-enabled on mount");
-          } else {
-            console.error("[VoiceSynthesis] Failed to auto-enable on mount");
-          }
-        } catch (error) {
-          console.error("[VoiceSynthesis] Error during auto-enable:", error);
-        }
-      };
-      initVoice();
-    }
-  }, [enable]); // Include enable in deps for proper init
-
   const enable = useCallback(() => {
     console.log("[VoiceSynthesis] Starting enable process...");
     
@@ -156,6 +134,28 @@ export function useVoiceSynthesis() {
       }
     });
   }, [toast]);
+
+  // Auto-enable on mount
+  useEffect(() => {
+    if (!hasInitialized.current) {
+      hasInitialized.current = true;
+      console.log("[VoiceSynthesis] Auto-enabling on mount...");
+      // Call enable directly without waiting for the callback to be ready
+      const initVoice = async () => {
+        try {
+          const success = await enable();
+          if (success) {
+            console.log("[VoiceSynthesis] Successfully auto-enabled on mount");
+          } else {
+            console.error("[VoiceSynthesis] Failed to auto-enable on mount");
+          }
+        } catch (error) {
+          console.error("[VoiceSynthesis] Error during auto-enable:", error);
+        }
+      };
+      initVoice();
+    }
+  }, [enable]); // Include enable in deps for proper init
 
   // Execute a prosody plan step-by-step
   const executeProsodyPlan = useCallback(async (plan: ProsodyStep[], originalText: string) => {

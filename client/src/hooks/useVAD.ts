@@ -78,10 +78,9 @@ export function useVAD(callbacks: VADCallbacks = {}) {
     const now = Date.now();
     const isSpeechDetected = avgDb > config.minDb;
 
-    // Check Voice controller mode before processing speech events
-    const voiceMode = Voice.getMode();
-    if (voiceMode !== 'ACTIVE') {
-      // Don't process if not active
+    // Check if input should be ignored before processing speech events
+    if (Voice.shouldIgnoreInput()) {
+      // Don't process if input should be ignored (TTS speaking, WAKE mode without wake word, etc.)
       return;
     }
     

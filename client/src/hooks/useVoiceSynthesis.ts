@@ -338,9 +338,11 @@ export function useVoiceSynthesis() {
       if (event.error === "synthesis-failed" && voices.length === 0) {
         console.log("Simulating speech for testing environment");
         VoiceBus.setSpeaking(true);
+        Voice.speaking(true); // Start simulated speech
         setState(prev => ({ ...prev, isPlaying: true, currentUtterance: text }));
         setTimeout(() => {
           VoiceBus.setSpeaking(false);
+          Voice.speaking(false); // End simulated speech
           setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
         }, 2000);
       }

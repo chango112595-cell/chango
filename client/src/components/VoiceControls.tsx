@@ -32,7 +32,7 @@ export default function VoiceControls() {
   const [isPowerOn, setIsPowerOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
   const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
-  const [voiceMode, setVoiceMode] = useState<'ACTIVE' | 'MUTED' | 'KILLED'>('ACTIVE');
+  const [voiceMode, setVoiceMode] = useState<'ACTIVE' | 'MUTED' | 'KILLED' | 'WAKE'>('WAKE');
   const [isVoiceListening, setIsVoiceListening] = useState(false);
   const { toast } = useToast();
   
@@ -409,6 +409,30 @@ export default function VoiceControls() {
         {/* Voice Controller Controls */}
         <div className="space-y-2 mb-4 p-3 border rounded-lg bg-secondary/20">
           <div className="text-sm font-medium mb-2">Voice Controller</div>
+          
+          {/* Mode toggle for WAKE/ACTIVE */}
+          <div className="flex items-center gap-2 mb-2">
+            <Button
+              variant={voiceMode === 'WAKE' ? "secondary" : "default"}
+              size="sm"
+              onClick={() => Voice.setMode(voiceMode === 'WAKE' ? 'ACTIVE' : 'WAKE')}
+              disabled={voiceMode === 'KILLED' || voiceMode === 'MUTED'}
+              data-testid="button-mode-toggle"
+            >
+              {voiceMode === 'WAKE' ? (
+                <>🌙 Wake Mode</>
+              ) : voiceMode === 'ACTIVE' ? (
+                <>🔊 Active Mode</>
+              ) : (
+                <>Mode: {voiceMode}</>
+              )}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {voiceMode === 'WAKE' ? "Say 'Chango' to activate" : 
+               voiceMode === 'ACTIVE' ? "Actively listening" : ""}
+            </span>
+          </div>
+          
           <div className="flex items-center gap-2">
             <Button
               variant={voiceMode === 'MUTED' ? "destructive" : "default"}
@@ -445,10 +469,12 @@ export default function VoiceControls() {
           <div className="text-xs text-muted-foreground mt-2">
             Mode: <span className={`font-bold ${
               voiceMode === 'ACTIVE' ? 'text-green-500' : 
+              voiceMode === 'WAKE' ? 'text-blue-500' :
               voiceMode === 'MUTED' ? 'text-yellow-500' : 
               'text-red-500'
             }`}>{voiceMode}</span>
             {isVoiceListening && ' • Listening'}
+            {voiceMode === 'WAKE' && ' • Say "Chango" to wake'}
           </div>
         </div>
 

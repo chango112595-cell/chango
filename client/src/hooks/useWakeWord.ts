@@ -82,12 +82,14 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
   // Handle speech recognition results
   const handleSpeechResult = useCallback((event: any) => {
-    // Check Voice controller state
-    const voiceMode = Voice.getMode();
-    if (voiceMode !== 'ACTIVE') {
-      console.log('[useWakeWord] Voice not ACTIVE, ignoring result');
+    // Check if input should be ignored first
+    if (Voice.shouldIgnoreInput()) {
+      console.log('[useWakeWord] Voice shouldIgnoreInput, ignoring result');
       return;
     }
+    
+    // Check Voice controller state
+    const voiceMode = Voice.getMode();
     
     // Check if power is on
     const busState = VoiceBus.getState();
@@ -96,9 +98,22 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     const resultIndex = event.resultIndex;
     const result = event.results[resultIndex];
     const transcript = result[0].transcript.toLowerCase().trim();
+    const confidence = result[0].confidence || 0.7; // Default to 0.7 if not provided
     const isFinal = result.isFinal;
 
-    console.log('[useWakeWord] Speech result:', { transcript, isFinal, sessionActive: state.sessionActive });
+    console.log('[useWakeWord] Speech result:', { 
+      transcript, 
+      confidence,
+      isFinal, 
+      sessionActive: state.sessionActive,
+      mode: voiceMode 
+    });
+
+    // Check confidence threshold
+    if (config.minConfidence && confidence < (config.minConfidence || 0.6)) {
+      console.log('[useWakeWord] Confidence too low:', confidence);
+      return;
+    }
 
     // Check if in cooldown
     if (state.inCooldown) {
@@ -106,12 +121,49 @@ export function useWakeWord(config: WakeWordConfig = {}) {
       return;
     }
 
-    // Check for wake word
+    // In WAKE mode, only respond to wake word
+    if (voiceMode === 'WAKE') {
+      const wakeWordDetected = transcript.includes(state.wakeWord.toLowerCase());
+      
+      if (wakeWordDetected) {
+        console.log('[useWakeWord] Wake word detected in WAKE mode!');
+        
+        // Notify Voice controller
+        Voice.wakeWordHeard();
+        
+        // Extract command after wake word
+        const wakeWordIndex = transcript.indexOf(state.wakeWord.toLowerCase());
+        const afterWakeWord = transcript.substring(wakeWordIndex + state.wakeWord.length).trim();
+        
+        setState(prev => ({ ...prev, sessionActive: true }));
+        commandBufferRef.current = afterWakeWord;
+        
+        // Start timeout
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        timeoutRef.current = setTimeout(() => {
+          if (commandBufferRef.current) {
+            processCommand(commandBufferRef.current);
+          } else {
+            endSession();
+          }
+        }, config.maxUtteranceMs || 8000);
+        
+        // Process immediately if final and has command
+        if (isFinal && afterWakeWord) {
+          processCommand(afterWakeWord);
+        }
+      }
+      // Ignore non-wake-word input in WAKE mode
+      return;
+    }
+
+    // In ACTIVE mode, handle normally
+    // Check for wake word to start session
     if (!state.sessionActive) {
       const wakeWordDetected = transcript.includes(state.wakeWord.toLowerCase());
       
       if (wakeWordDetected) {
-        console.log('[useWakeWord] Wake word detected!');
+        console.log('[useWakeWord] Wake word detected in ACTIVE mode!');
         
         // Extract command after wake word
         const wakeWordIndex = transcript.indexOf(state.wakeWord.toLowerCase());

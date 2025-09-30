@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
 import { useSpeechCoordination } from "@/lib/speechCoordination";
 import { VoiceBus } from "@/lib/voiceBus";
+import { Voice } from "@/lib/voiceController";
 import { Volume2, VolumeX } from "lucide-react";
 import type { CuriosityLog } from "@shared/schema";
 
@@ -333,9 +334,11 @@ export default function CuriosityEngine() {
     const isExcited = naturalResponse.includes('!') || naturalResponse.includes('excited') || naturalResponse.includes('love');
     const isGreeting = naturalResponse.toLowerCase().includes('hello') || naturalResponse.toLowerCase().includes('hi ') || naturalResponse.toLowerCase().includes('hey');
     
-    // Check VoiceBus state again before speaking
+    // Check VoiceBus state and Voice mode before speaking
     const currentBusState = VoiceBus.getState();
-    if (currentBusState.power && !currentBusState.mute && !quietMode) {
+    const voiceMode = Voice.getMode();
+    // Only speak if power is on, not muted, not in quiet mode, AND in ACTIVE mode
+    if (currentBusState.power && !currentBusState.mute && !quietMode && voiceMode === 'ACTIVE') {
       // Speak the response without changing global voice settings
       // The voice will use the stable configuration set in useEffect
       // Don't force speak for random curiosity responses - respect VAD
@@ -365,7 +368,14 @@ export default function CuriosityEngine() {
       // Guard to check if already generating
       if (isGeneratingRef.current) return;
       
-      // Check VoiceBus state first
+      // Check Voice controller mode first - only allow in ACTIVE mode
+      const voiceMode = Voice.getMode();
+      if (voiceMode !== 'ACTIVE') {
+        console.log('[CuriosityEngine] Skipping auto response - Voice mode is', voiceMode);
+        return; // Don't generate curiosity responses unless actively listening
+      }
+      
+      // Check VoiceBus state
       const busState = VoiceBus.getState();
       if (!busState.power || busState.mute) {
         return; // Don't speak if power is off or muted

@@ -155,7 +155,7 @@ export function useVoiceSynthesis() {
       };
       initVoice();
     }
-  }, [enable]); // Include enable in deps for proper init
+  }, []); // Empty deps - only run once on mount
 
   // Execute a prosody plan step-by-step
   const executeProsodyPlan = useCallback(async (plan: ProsodyStep[], originalText: string) => {

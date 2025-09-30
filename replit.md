@@ -5,8 +5,15 @@ This is a full-stack TypeScript application called "Chango AI" that provides adv
 # Recent Changes (September 30, 2025)
 
 ## Fixed Issues
+- ✅ **Self-Listening Loop Prevention**: Comprehensive voice system improvements
+  - **Hard-gate STT during TTS**: Speech recognition disabled while Chango speaks with 450ms cooldown
+  - **Echo cancellation**: Browser-level audio processing (echo cancellation, noise suppression, auto gain control)
+  - **WAKE mode default**: System requires "Chango" wake word to activate 10-second listening window
+  - **No random replies**: Voice input ignored unless explicitly activated
+  - **Single recognizer instance**: Prevents duplicate listeners and HMR issues
+  
 - ✅ **Stack Overflow Fix**: Resolved Maximum call stack size exceeded error in voice control system
-  - Implemented singleton VoiceController with ACTIVE/MUTED/KILLED state management
+  - Implemented singleton VoiceController with ACTIVE/MUTED/KILLED/WAKE state management
   - Added execution guards to prevent concurrent prosody executions
   - Fixed circular dependencies between Voice controller and VoiceBus
   - Added HMR-safe initialization to prevent duplicate listeners

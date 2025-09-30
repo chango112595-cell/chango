@@ -19,6 +19,8 @@ This is a full-stack TypeScript application called "Chango AI" that provides adv
   - Added HMR-safe initialization to prevent duplicate listeners
   - Implemented audit logging for debugging voice state changes
   - Added Kill/Revive functionality with passphrase protection for emergency control
+  - Fixed mute toggle stack overflow with re-entrancy guard in cancelSpeak()
+  - Implemented async event emission with queueMicrotask() to break synchronous loops
   - System now handles rapid control toggling without errors
 
 ## Completed Features (September 29, 2025)

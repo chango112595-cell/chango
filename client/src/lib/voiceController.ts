@@ -4,7 +4,7 @@
  * Prevents duplicate getUserMedia calls and stack overflow issues
  */
 
-type VoiceMode = 'ACTIVE' | 'MUTED' | 'KILLED';
+type VoiceMode = 'ACTIVE' | 'MUTED' | 'KILLED' | 'WAKE';
 
 interface VoiceControllerState {
   mode: VoiceMode;
@@ -13,10 +13,13 @@ interface VoiceControllerState {
 }
 
 class VoiceController {
-  private mode: VoiceMode = 'ACTIVE';
+  private mode: VoiceMode = 'WAKE';  // Default to WAKE mode
   private mediaStream: MediaStream | null = null;
   private isListeningFlag = false;
   private isSpeakingFlag = false;
+  private speakingNow = false;  // Hard-gate flag for TTS speaking
+  private rearmTimer: NodeJS.Timeout | null = null;  // Timer for re-enabling after TTS
+  private wakeWindowUntil = 0;  // Timestamp for when ACTIVE window expires
   private killPassphrase = '';
   private recognizer: any = null;
   private listeners: Set<(state: VoiceControllerState) => void> = new Set();
@@ -75,7 +78,8 @@ class VoiceController {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          sampleRate: 44100
+          channelCount: 1,
+          sampleRate: 48000
         }
       });
       
@@ -142,20 +146,39 @@ class VoiceController {
     const wasListening = this.isListeningFlag;
     
     this.isSpeakingFlag = isSpeaking;
+    this.speakingNow = isSpeaking;  // Update hard-gate flag
     this.log(`Speaking state: ${isSpeaking}, mode: ${this.mode}`);
     
     if (isSpeaking) {
+      // Clear any pending rearm timer
+      if (this.rearmTimer) {
+        clearTimeout(this.rearmTimer);
+        this.rearmTimer = null;
+      }
+      
       // Stop listening while speaking to prevent feedback
       if (this.isListeningFlag) {
+        this.log('Stopping listening due to TTS speaking');
         this.stopListening();
       }
     } else {
-      // Resume listening after speaking if in ACTIVE mode
-      if (this.mode === 'ACTIVE' && !this.isListeningFlag) {
-        this.startListening().catch(err => {
-          this.log(`Failed to resume listening: ${err}`, 'error');
-        });
+      // Add 450ms cooldown after TTS ends before re-enabling listening
+      if (this.rearmTimer) {
+        clearTimeout(this.rearmTimer);
       }
+      
+      this.rearmTimer = setTimeout(() => {
+        this.speakingNow = false;  // Clear hard-gate after cooldown
+        
+        // Resume listening after speaking if in ACTIVE mode or open wake window
+        if ((this.mode === 'ACTIVE' || (this.mode === 'WAKE' && Date.now() < this.wakeWindowUntil)) && !this.isListeningFlag) {
+          this.log('Re-enabling listening after TTS cooldown');
+          this.startListening().catch(err => {
+            this.log(`Failed to resume listening: ${err}`, 'error');
+          });
+        }
+        this.rearmTimer = null;
+      }, 450);  // 450ms cooldown to avoid catching tail of TTS
     }
     
     // Notify listeners
@@ -179,7 +202,12 @@ class VoiceController {
     }
 
     const previousMode = this.mode;
-    this.mode = this.mode === 'MUTED' ? 'ACTIVE' : 'MUTED';
+    // Toggle between ACTIVE/WAKE and MUTED
+    if (this.mode === 'MUTED') {
+      this.mode = 'WAKE'; // Default back to WAKE mode
+    } else {
+      this.mode = 'MUTED';
+    }
     
     this.log(`Mode changed: ${previousMode} -> ${this.mode}`);
     
@@ -269,10 +297,91 @@ class VoiceController {
   }
 
   /**
-   * Check if currently speaking
+   * Check if currently speaking (hard-gate flag)
    */
   isSpeaking(): boolean {
-    return this.isSpeakingFlag;
+    return this.speakingNow;
+  }
+  
+  /**
+   * Open a wake window for ACTIVE mode (10 seconds default)
+   */
+  openWakeWindow(ms: number = 10000): void {
+    this.wakeWindowUntil = Date.now() + ms;
+    
+    if (this.mode === 'WAKE') {
+      this.log(`Wake window opened for ${ms}ms, temporarily enabling ACTIVE mode`);
+      // Temporarily activate mode
+      this.setMode('ACTIVE');
+      
+      // Set timer to return to WAKE mode
+      setTimeout(() => {
+        if (this.mode === 'ACTIVE' && Date.now() >= this.wakeWindowUntil) {
+          this.log('Wake window expired, returning to WAKE mode');
+          this.setMode('WAKE');
+        }
+      }, ms);
+    }
+  }
+  
+  /**
+   * Wake word was heard
+   */
+  wakeWordHeard(): void {
+    this.log('Wake word detected!');
+    this.openWakeWindow();
+  }
+  
+  /**
+   * Check if input should be ignored
+   */
+  shouldIgnoreInput(): boolean {
+    // Ignore if killed, muted, or speaking
+    if (this.mode === 'KILLED' || this.mode === 'MUTED' || this.speakingNow) {
+      return true;
+    }
+    
+    // In WAKE mode, check if window is active
+    if (this.mode === 'WAKE' && Date.now() >= this.wakeWindowUntil) {
+      return true;
+    }
+    
+    // In ACTIVE mode with expired window, return to WAKE
+    if (this.mode === 'ACTIVE' && this.wakeWindowUntil > 0 && Date.now() >= this.wakeWindowUntil) {
+      this.log('Active window expired, returning to WAKE mode');
+      this.setMode('WAKE');
+      return true;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Set mode directly (with notification)
+   */
+  setMode(mode: VoiceMode): void {
+    const previousMode = this.mode;
+    this.mode = mode;
+    
+    this.log(`Mode changed: ${previousMode} -> ${mode}`);
+    
+    // Handle mode-specific actions
+    if (mode === 'MUTED' || mode === 'KILLED') {
+      this.stopListening();
+    } else if (mode === 'ACTIVE' && !this.speakingNow) {
+      this.startListening().catch(err => {
+        this.log(`Failed to start listening after mode change: ${err}`, 'error');
+      });
+    }
+    
+    // Notify listeners
+    this.notifyListeners();
+    
+    // Send audit log
+    this.audit('MODE_CHANGE', {
+      from: previousMode,
+      to: mode
+    });
   }
 
   /**

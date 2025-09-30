@@ -1,0 +1,153 @@
+Got you—this behavior is almost always one (or more) of these:
+	1.	Self-listening loop (TTS audio leaks back into STT).
+	2.	Recognizer isn’t paused while speaking.
+	3.	Auto-listen stays armed and fires on background noise.
+
+Below is a compact patch set that stops all three. Copy/paste over your current pieces.
+
+⸻
+
+1) Hard-gate STT while TTS is playing
+
+src/lib/voiceController.ts
+
+// add near top
+let speakingNow = false;
+let rearmTimer: number | null = null;
+
+export const Voice = {
+  // ...
+  speaking(on: boolean) {
+    speakingNow = on;
+    if (on) {
+      this.stopListening({ reason: 'tts-playing' });
+      if (rearmTimer) { clearTimeout(rearmTimer); rearmTimer = null; }
+    } else {
+      // small cooldown to avoid catching our own tail
+      rearmTimer = window.setTimeout(() => this.startListening({ reason: 'tts-ended' }), 450);
+    }
+    this.emit('speaking', on);
+  },
+  isSpeaking(){ return speakingNow; },
+};
+
+In your TTS player:
+
+import { Voice } from '@/lib/voiceController';
+
+async function speakBlob(blob: Blob) {
+  Voice.speaking(true);
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio.onended = () => { URL.revokeObjectURL(url); Voice.speaking(false); };
+  await audio.play().catch(() => Voice.speaking(false));
+}
+
+
+⸻
+
+2) Echo cancellation + noise suppression (browser)
+
+Use once—only inside Voice.startListening():
+
+this.mediaStream = await navigator.mediaDevices.getUserMedia({
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: 1,
+    sampleRate: 48000
+  }
+});
+
+
+⸻
+
+3) Wake-word gate (prevents random replies)
+
+Add a wake mode; only the word “Chango” opens a 10-second window to listen.
+
+src/lib/voiceController.ts
+
+type Mode = 'ACTIVE' | 'MUTED' | 'KILLED' | 'WAKE';
+let mode: Mode = 'WAKE';
+let wakeWindowUntil = 0;
+
+export const Voice = {
+  setMode(next: Mode){ mode = next; this.emit('mode', mode); },
+  getMode(){ return mode; },
+  openWakeWindow(ms=10000){ wakeWindowUntil = Date.now()+ms; mode = 'ACTIVE'; this.emit('mode', mode); },
+  wakeWordHeard(){ this.openWakeWindow(10000); },
+  shouldIgnoreInput(){
+    if (mode === 'KILLED' || mode === 'MUTED' || speakingNow) return true;
+    if (mode === 'ACTIVE' && Date.now() > wakeWindowUntil) { mode = 'WAKE'; this.emit('mode', mode); return true; }
+    return false;
+  }
+};
+
+In your STT handler:
+
+recognizer.on('result', (res) => {
+  const { text, confidence } = res;
+  if (Voice.shouldIgnoreInput()) return;
+
+  // simple wake word
+  if (Voice.getMode() === 'WAKE') {
+    if (/\bchango\b/i.test(text)) { Voice.wakeWordHeard(); return; }
+    return; // ignore anything else in WAKE mode
+  }
+
+  if (!text?.trim() || (confidence !== undefined && confidence < 0.6)) return;
+  onFinalUserUtterance(text); // your existing pipeline
+});
+
+
+⸻
+
+4) One recognizer instance, no HMR re-attach
+
+// src/lib/stt.ts
+let recognizer: YourRecognizer | null = null;
+export async function ensureRecognizer(stream: MediaStream) {
+  if (recognizer) return recognizer;
+  recognizer = new YourRecognizer(stream);
+  // attach listeners here (once)
+  return recognizer;
+}
+
+// src/main.tsx or App.tsx
+if (!(window as any).__voice_boot__) {
+  (window as any).__voice_boot__ = true;
+  Voice.startListening();
+}
+
+
+⸻
+
+5) Auto-listen defaults
+
+In UI state on load:
+	•	Auto Listen = OFF
+	•	Mode = WAKE (say “Chango” to talk)
+	•	Provide a toggle to set Always-Active if you want background hands-free later.
+
+⸻
+
+6) Optional: barge-in (interrupt TTS when user starts talking)
+
+// when VAD says user speech began:
+if (Voice.isSpeaking()) {
+  // stop current audio output (track stop or pause your Audio instance)
+  currentAudio?.pause?.();
+  Voice.speaking(false); // will rearm listen after cooldown
+}
+
+
+⸻
+
+What this fixes
+	•	No more self-feedback loops (TTS pauses STT + echoCancellation).
+	•	No random replies (wake-word gate + confidence check + cooldown).
+	•	Proper turn-taking (cooldown after TTS end).
+
+If you still see auto-speech after this, it means there’s another spot directly calling getUserMedia/recognizer .start() or re-wiring listeners on every render. Search your repo for those calls and route them only through voiceController.

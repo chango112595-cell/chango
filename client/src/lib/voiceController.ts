@@ -69,45 +69,97 @@ class VoiceController {
   }
 
   private async _initializeListening(): Promise<void> {
-    try {
-      this.log('Requesting microphone access...');
-      
-      // Request microphone with optimized settings
-      this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 48000
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount < maxRetries) {
+      try {
+        this.log(`Requesting microphone access... (attempt ${retryCount + 1}/${maxRetries})`);
+        
+        // Request microphone with optimized settings
+        // Start with simpler constraints and then try more advanced ones
+        const constraints = retryCount === 0 ? {
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+            sampleRate: 48000
+          }
+        } : {
+          audio: true // Fallback to simplest constraint
+        };
+        
+        this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        // Verify stream has audio tracks
+        const audioTracks = this.mediaStream.getAudioTracks();
+        if (audioTracks.length === 0) {
+          throw new Error('No audio tracks in stream');
         }
-      });
-      
-      this.isListeningFlag = true;
-      this.log('Microphone access granted, stream active');
-      
-      // Set up audio analysis
-      if (!this.audioContext) {
-        this.audioContext = new AudioContext();
-        this.analyser = this.audioContext.createAnalyser();
-        this.analyser.fftSize = 2048;
+        
+        this.isListeningFlag = true;
+        this.log(`Microphone access granted, stream active with ${audioTracks.length} audio track(s)`);
+        
+        // Set up audio analysis (but make it optional - don't fail if it can't be created)
+        try {
+          if (!this.audioContext) {
+            this.audioContext = new AudioContext();
+            this.analyser = this.audioContext.createAnalyser();
+            this.analyser.fftSize = 2048;
+          }
+          
+          const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+          source.connect(this.analyser!);
+        } catch (audioCtxError) {
+          this.log(`Audio context setup failed (non-critical): ${audioCtxError}`, 'warn');
+          // Continue anyway - the basic stream is working
+        }
+        
+        // Notify listeners
+        this.notifyListeners();
+        
+        // Send audit log
+        await this.audit('LISTENING_STARTED', { mode: this.mode });
+        
+        // Success - exit the retry loop
+        return;
+        
+      } catch (error: any) {
+        retryCount++;
+        this.log(`Failed to start listening (attempt ${retryCount}/${maxRetries}): ${error}`, 'error');
+        
+        // Clean up any partial state
+        if (this.mediaStream) {
+          this.mediaStream.getTracks().forEach(track => track.stop());
+          this.mediaStream = null;
+        }
+        this.isListeningFlag = false;
+        
+        // Check specific error types
+        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+          this.log('Microphone permission denied by user', 'error');
+          this.notifyListeners();
+          throw new Error('Microphone permission denied. Please allow microphone access and try again.');
+        } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+          this.log('No microphone found', 'error');
+          this.notifyListeners();
+          throw new Error('No microphone found. Please connect a microphone and try again.');
+        } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+          this.log('Microphone is in use or blocked', 'warn');
+          // Wait a bit before retrying
+          if (retryCount < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            continue;
+          }
+        }
+        
+        // If we've exhausted retries, throw the error
+        if (retryCount >= maxRetries) {
+          this.notifyListeners();
+          throw error;
+        }
       }
-      
-      const source = this.audioContext.createMediaStreamSource(this.mediaStream);
-      source.connect(this.analyser!);
-      
-      // Notify listeners
-      this.notifyListeners();
-      
-      // Send audit log
-      await this.audit('LISTENING_STARTED', { mode: this.mode });
-      
-    } catch (error) {
-      this.log(`Failed to start listening: ${error}`, 'error');
-      this.isListeningFlag = false;
-      this.mediaStream = null;
-      this.notifyListeners();
-      throw error;
     }
   }
 
@@ -146,10 +198,12 @@ class VoiceController {
     const wasListening = this.isListeningFlag;
     
     this.isSpeakingFlag = isSpeaking;
-    this.speakingNow = isSpeaking;  // Update hard-gate flag
     this.log(`Speaking state: ${isSpeaking}, mode: ${this.mode}`);
     
     if (isSpeaking) {
+      // Set speakingNow flag immediately when speaking starts
+      this.speakingNow = true;
+      
       // Clear any pending rearm timer
       if (this.rearmTimer) {
         clearTimeout(this.rearmTimer);
@@ -162,13 +216,16 @@ class VoiceController {
         this.stopListening();
       }
     } else {
-      // Add 450ms cooldown after TTS ends before re-enabling listening
+      // Speaking ended - clear flag after a short cooldown
+      // Clear any existing timer first
       if (this.rearmTimer) {
         clearTimeout(this.rearmTimer);
       }
       
+      // Immediately set speakingNow to false but with a short delay to avoid capturing tail of TTS
       this.rearmTimer = setTimeout(() => {
         this.speakingNow = false;  // Clear hard-gate after cooldown
+        this.log('Speaking ended, hard-gate cleared');
         
         // Resume listening after speaking if in ACTIVE mode or open wake window
         if ((this.mode === 'ACTIVE' || (this.mode === 'WAKE' && Date.now() < this.wakeWindowUntil)) && !this.isListeningFlag) {
@@ -178,7 +235,7 @@ class VoiceController {
           });
         }
         this.rearmTimer = null;
-      }, 450);  // 450ms cooldown to avoid catching tail of TTS
+      }, 300);  // Reduced to 300ms cooldown for faster response
     }
     
     // Notify listeners

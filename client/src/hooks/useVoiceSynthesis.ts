@@ -35,7 +35,7 @@ interface CVEResponse {
 
 export function useVoiceSynthesis() {
   const [state, setState] = useState<VoiceSynthesisState>({
-    isEnabled: false,
+    isEnabled: true, // Start with synthesis enabled by default
     isPlaying: false,
     currentUtterance: "",
     accentConfig: {
@@ -54,11 +54,34 @@ export function useVoiceSynthesis() {
   const lastUtteranceRef = useRef<string>("");
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const isCancelledRef = useRef<boolean>(false);
-  const isEnabledRef = useRef<boolean>(false); // Track enabled state immediately
+  const isEnabledRef = useRef<boolean>(true); // Track enabled state immediately - start enabled
   const isSpeakingRef = useRef<boolean>(false); // Track if currently speaking
   const isMutedRef = useRef<boolean>(false); // Track mute state immediately
   const isExecutingProsodyRef = useRef<boolean>(false); // Prevent concurrent prosody executions
   const safetyTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Safety timeout for infinite loops
+  const hasInitialized = useRef<boolean>(false); // Track if we've auto-initialized
+
+  // Auto-enable on mount
+  useEffect(() => {
+    if (!hasInitialized.current) {
+      hasInitialized.current = true;
+      console.log("[VoiceSynthesis] Auto-enabling on mount...");
+      // Call enable directly without waiting for the callback to be ready
+      const initVoice = async () => {
+        try {
+          const success = await enable();
+          if (success) {
+            console.log("[VoiceSynthesis] Successfully auto-enabled on mount");
+          } else {
+            console.error("[VoiceSynthesis] Failed to auto-enable on mount");
+          }
+        } catch (error) {
+          console.error("[VoiceSynthesis] Error during auto-enable:", error);
+        }
+      };
+      initVoice();
+    }
+  }, [enable]); // Include enable in deps for proper init
 
   const enable = useCallback(() => {
     console.log("[VoiceSynthesis] Starting enable process...");

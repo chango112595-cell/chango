@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Mic, MicOff, Save, Trash2, Volume2, User } from "lucide-react";
+import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
 
 // Import the Voice Profile API
 declare global {
@@ -42,6 +43,7 @@ export default function VoiceProfiles() {
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const voiceAPIRef = useRef<any>(null);
   const { toast } = useToast();
+  const { applyAccent } = useVoiceSynthesis();
 
   // Initialize Voice Profile API
   useEffect(() => {
@@ -262,6 +264,16 @@ export default function VoiceProfiles() {
 
       if (result.ok) {
         setCurrentFeatures(result.features);
+        
+        // Apply the accent configuration to the voice synthesis
+        applyAccent({
+          profile: accent,
+          rate: result.features?.speakingRate || 1.0,
+          pitch: result.features?.pitchHint ? (result.features.pitchHint / 200) : 1.0,
+          intensity: 0.5,
+          emotion: 'neutral'
+        });
+        
         toast({
           title: "Style Applied",
           description: result.message
@@ -287,6 +299,17 @@ export default function VoiceProfiles() {
       setCurrentFeatures(fullProfile.features);
       setGender(fullProfile.gender || 'neutral');
       setAccent(fullProfile.accent || 'neutral');
+      
+      // Apply the loaded profile accent configuration to the voice synthesis
+      if (fullProfile.features) {
+        applyAccent({
+          profile: fullProfile.accent || 'neutral',
+          rate: fullProfile.features?.speakingRate || 1.0,
+          pitch: fullProfile.features?.pitchHint ? (fullProfile.features.pitchHint / 200) : 1.0,
+          intensity: 0.5,
+          emotion: 'neutral'
+        });
+      }
     } catch (error) {
       console.error('Failed to load profile details:', error);
       toast({

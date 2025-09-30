@@ -54,6 +54,7 @@ export function useVoiceSynthesis() {
   const isCancelledRef = useRef<boolean>(false);
   const isEnabledRef = useRef<boolean>(false); // Track enabled state immediately
   const isSpeakingRef = useRef<boolean>(false); // Track if currently speaking
+  const isMutedRef = useRef<boolean>(false); // Track mute state immediately
 
   const enable = useCallback(() => {
     console.log("[VoiceSynthesis] Starting enable process...");
@@ -146,8 +147,9 @@ export function useVoiceSynthesis() {
     ) || voices.find(voice => voice.default) || voices[0];
 
     for (const step of plan) {
-      if (isCancelledRef.current) {
-        console.log("[VoiceSynthesis] Prosody plan execution cancelled");
+      // Check if muted or cancelled before each step
+      if (isCancelledRef.current || isMutedRef.current) {
+        console.log("[VoiceSynthesis] Prosody plan execution stopped:", { cancelled: isCancelledRef.current, muted: isMutedRef.current });
         break;
       }
 
@@ -161,21 +163,31 @@ export function useVoiceSynthesis() {
             utterance.voice = preferredVoice;
           }
           
-          // Apply prosody parameters from the plan
-          utterance.rate = step.rate !== undefined ? Math.max(0.1, Math.min(10, step.rate)) : 1.0;
-          utterance.pitch = step.pitch !== undefined ? Math.max(0, Math.min(2, step.pitch)) : 1.0;
+          // Apply prosody parameters from the plan, combining with base accent config
+          const baseRate = state.accentConfig.rate || 1.0;
+          const basePitch = state.accentConfig.pitch || 1.0;
+          utterance.rate = step.rate !== undefined ? Math.max(0.1, Math.min(10, step.rate * baseRate)) : baseRate;
+          utterance.pitch = step.pitch !== undefined ? Math.max(0, Math.min(2, step.pitch * basePitch)) : basePitch;
           utterance.volume = step.volume !== undefined ? Math.max(0, Math.min(1, step.volume)) : 1.0;
           
           utterance.onend = () => {
             resolve();
           };
           
-          utterance.onerror = (event) => {
-            console.error("Error speaking phrase:", step.text, event);
+          utterance.onerror = (event: any) => {
+            // Don't log error if it's due to cancellation and we're muted or cancelled
+            if (!((event.error === 'canceled' || event.error === 'interrupted') && (isMutedRef.current || isCancelledRef.current))) {
+              console.error("Error speaking phrase:", step.text, event);
+            }
             resolve(); // Continue with next phrase even if error
           };
           
-          speechSynthesis.speak(utterance);
+          // Check if muted before speaking
+          if (!isMutedRef.current) {
+            speechSynthesis.speak(utterance);
+          } else {
+            resolve();
+          }
         });
       } else if (step.type === "word" && step.w) {
         // Legacy word-by-word support for backward compatibility
@@ -187,21 +199,31 @@ export function useVoiceSynthesis() {
             utterance.voice = preferredVoice;
           }
           
-          // Apply prosody parameters from the plan
-          utterance.rate = step.rate !== undefined ? Math.max(0.1, Math.min(10, step.rate)) : 1.0;
-          utterance.pitch = step.pitch !== undefined ? Math.max(0, Math.min(2, step.pitch)) : 1.0;
+          // Apply prosody parameters from the plan, combining with base accent config
+          const baseRate = state.accentConfig.rate || 1.0;
+          const basePitch = state.accentConfig.pitch || 1.0;
+          utterance.rate = step.rate !== undefined ? Math.max(0.1, Math.min(10, step.rate * baseRate)) : baseRate;
+          utterance.pitch = step.pitch !== undefined ? Math.max(0, Math.min(2, step.pitch * basePitch)) : basePitch;
           utterance.volume = step.volume !== undefined ? Math.max(0, Math.min(1, step.volume)) : 1.0;
           
           utterance.onend = () => {
             resolve();
           };
           
-          utterance.onerror = () => {
-            console.error("Error speaking word:", step.w);
+          utterance.onerror = (event: any) => {
+            // Don't log error if it's due to cancellation and we're muted or cancelled
+            if (!((event.error === 'canceled' || event.error === 'interrupted') && (isMutedRef.current || isCancelledRef.current))) {
+              console.error("Error speaking word:", step.w);
+            }
             resolve(); // Continue with next word even if error
           };
           
-          speechSynthesis.speak(utterance);
+          // Check if muted before speaking
+          if (!isMutedRef.current) {
+            speechSynthesis.speak(utterance);
+          } else {
+            resolve();
+          }
         });
       } else if (step.type === "pause" && step.ms) {
         // Add a pause
@@ -212,7 +234,7 @@ export function useVoiceSynthesis() {
     console.log("[VoiceSynthesis] Prosody plan execution completed");
     isSpeakingRef.current = false;
     setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
-  }, []);
+  }, [state.accentConfig]);
 
   // Fallback to local synthesis
   const fallbackLocalSynthesis = useCallback((text: string) => {
@@ -284,7 +306,17 @@ export function useVoiceSynthesis() {
 
   // Set mute state
   const setMuted = useCallback((muted: boolean) => {
-    setState(prev => ({ ...prev, isMuted: muted }));
+    // Update ref immediately
+    isMutedRef.current = muted;
+    
+    // If muting, stop any ongoing speech immediately
+    if (muted) {
+      speechSynthesis.cancel();
+      isCancelledRef.current = true;
+      setState(prev => ({ ...prev, isMuted: muted, isPlaying: false, currentUtterance: "" }));
+    } else {
+      setState(prev => ({ ...prev, isMuted: muted }));
+    }
   }, []);
 
   // Set whether human speech is required before speaking
@@ -378,6 +410,8 @@ export function useVoiceSynthesis() {
           accent: state.accentConfig.profile,
           intensity: state.accentConfig.intensity,
           emotion: state.accentConfig.emotion || 'neutral',
+          rate: state.accentConfig.rate,
+          pitch: state.accentConfig.pitch,
         }),
       });
 

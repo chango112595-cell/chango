@@ -3,12 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
 import { useVAD } from "@/hooks/useVAD";
 import { useWakeWord } from "@/hooks/useWakeWord";
 import { VoiceBus } from "@/lib/voiceBus";
 import { Voice, type VoiceControllerState } from "@/lib/voiceController";
-import { Mic, MicOff, Volume2, VolumeX, Power, PowerOff, ShieldOff, Shield } from "lucide-react";
+import { Mic, MicOff, Volume2, VolumeX, Power, PowerOff, ShieldOff, Shield, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function VoiceControls() {
@@ -34,6 +35,7 @@ export default function VoiceControls() {
   const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
   const [voiceMode, setVoiceMode] = useState<'ACTIVE' | 'MUTED' | 'KILLED' | 'WAKE'>('WAKE');
   const [isVoiceListening, setIsVoiceListening] = useState(false);
+  const [askInputValue, setAskInputValue] = useState("");
   const { toast } = useToast();
   
   // Add refs for debouncing and transition states
@@ -275,6 +277,72 @@ export default function VoiceControls() {
             data-testid="button-stop-speech"
           >
             Stop
+          </Button>
+        </div>
+
+        {/* Ask Button with Input */}
+        <div className="flex gap-2 mb-6">
+          <Input
+            type="text"
+            placeholder="Type a question (e.g., 'what time is it?')"
+            value={askInputValue}
+            onChange={(e) => setAskInputValue(e.target.value)}
+            onKeyPress={async (e) => {
+              if (e.key === 'Enter') {
+                const text = askInputValue || 'what time is it?';
+                try {
+                  const response = await fetch('/api/nlp/reply', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                  });
+                  const data = await response.json();
+                  if (data.ok && data.reply) {
+                    // Force speak the reply using Voice controller (bypass WAKE mode)
+                    Voice.speak(data.reply, true);
+                  }
+                } catch (error) {
+                  console.error('Failed to get reply:', error);
+                  toast({
+                    title: "Failed to get reply",
+                    description: "Could not process your question",
+                    variant: "destructive",
+                  });
+                }
+              }
+            }}
+            disabled={!isPowerOn || !isEnabled}
+            data-testid="input-ask-question"
+          />
+          <Button
+            onClick={async () => {
+              const text = askInputValue || 'what time is it?';
+              try {
+                const response = await fetch('/api/nlp/reply', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ text })
+                });
+                const data = await response.json();
+                if (data.ok && data.reply) {
+                  // Force speak the reply using Voice controller (bypass WAKE mode)
+                  Voice.speak(data.reply, true);
+                }
+              } catch (error) {
+                console.error('Failed to get reply:', error);
+                toast({
+                  title: "Failed to get reply",
+                  description: "Could not process your question",
+                  variant: "destructive",
+                });
+              }
+            }}
+            disabled={!isPowerOn || !isEnabled}
+            size="sm"
+            data-testid="button-ask"
+          >
+            <Send className="h-4 w-4 mr-1" />
+            Ask
           </Button>
         </div>
 

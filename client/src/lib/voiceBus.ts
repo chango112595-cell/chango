@@ -29,14 +29,19 @@ class VoiceBusManager {
     
     // Subscribe to Voice controller state changes for synchronization
     Voice.subscribe((voiceState) => {
+      // Prevent re-entrant updates during transition
+      if (this.isTransitioning) return;
+      
       // Sync mute state with Voice controller mode
       const isMuted = voiceState.mode === 'MUTED' || voiceState.mode === 'KILLED';
       const isPowered = voiceState.mode !== 'KILLED';
       
       if (this.state.mute !== isMuted || this.state.power !== isPowered) {
+        this.isTransitioning = true; // Set flag to prevent loops
         this.state.mute = isMuted;
         this.state.power = isPowered;
         this.notifyListeners();
+        this.isTransitioning = false; // Clear flag after notification
       }
     });
   }
@@ -94,8 +99,8 @@ class VoiceBusManager {
     
     this.state.speaking = speaking;
     
-    // Sync with Voice controller
-    Voice.speaking(speaking);
+    // NOTE: Removed Voice.speaking() call here to prevent circular dependency
+    // Voice controller should be notified directly by the component that initiates speech
     
     this.notifyListeners();
   }

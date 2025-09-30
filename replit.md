@@ -2,9 +2,18 @@
 
 This is a full-stack TypeScript application called "Chango AI" that provides advanced voice synthesis and accent emulation capabilities using its proprietary Chango Voice Engine (CVE). The application features a React frontend with a Node.js/Express backend, utilizing PostgreSQL for data persistence. The system allows users to synthesize speech with various accents, record and analyze voice samples to create custom voice profiles, and includes an interactive holographic interface with curiosity-driven AI responses. Chango speaks with natural, conversational responses using dynamic templates, emotional variations, and personality-driven interactions.
 
-# Recent Changes (September 29, 2025)
+# Recent Changes (September 30, 2025)
 
-## Completed Features
+## Fixed Issues
+- ✅ **Stack Overflow Fix**: Resolved Maximum call stack size exceeded error in voice control system
+  - Added `isTransitioning` flag to VoiceBus to prevent concurrent state changes
+  - Implemented safety guards in all hooks (useVoiceSynthesis, useVAD, useWakeWord)
+  - Added debouncing (100ms) to control toggles in VoiceControls component
+  - Added `isGeneratingRef` flag in CuriosityEngine to prevent concurrent generation
+  - Properly managed state transitions with guards and timeouts
+  - System now handles rapid control toggling without errors
+
+## Completed Features (September 29, 2025)
 - ✅ **Hands-Free Wake Word System**: Complete voice-activated interaction with "Chango..." trigger
   - Wake word detection with customizable trigger phrase (default: "chango")
   - Speech-to-text via Web Speech API for command processing

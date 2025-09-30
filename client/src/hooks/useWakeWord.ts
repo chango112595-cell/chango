@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { VoiceBus, cancelSpeak } from "@/lib/voiceBus";
 import { Voice } from "@/lib/voiceController";
+import { WebSpeechSTT } from "@/lib/webSpeechSTT";
 
 interface WakeWordConfig {
   wakeWord?: string;
@@ -36,6 +37,7 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
   const { toast } = useToast();
   const recognitionRef = useRef<any>(null);
+  const sttRef = useRef<WebSpeechSTT | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const cooldownRef = useRef<NodeJS.Timeout | null>(null);
   const commandBufferRef = useRef<string>("");
@@ -126,31 +128,49 @@ export function useWakeWord(config: WakeWordConfig = {}) {
       const wakeWordDetected = transcript.includes(state.wakeWord.toLowerCase());
       
       if (wakeWordDetected) {
-        console.log('[useWakeWord] Wake word detected in WAKE mode!');
+        console.log('[useWakeWord] Wake word detected in WAKE mode! Starting STT...');
         
         // Notify Voice controller
         Voice.wakeWordHeard();
         
-        // Extract command after wake word
+        // Extract command after wake word if present
         const wakeWordIndex = transcript.indexOf(state.wakeWord.toLowerCase());
         const afterWakeWord = transcript.substring(wakeWordIndex + state.wakeWord.length).trim();
         
         setState(prev => ({ ...prev, sessionActive: true }));
-        commandBufferRef.current = afterWakeWord;
         
-        // Start timeout
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        timeoutRef.current = setTimeout(() => {
-          if (commandBufferRef.current) {
-            processCommand(commandBufferRef.current);
-          } else {
+        // Initialize and start WebSpeechSTT for capturing the actual command
+        if (!sttRef.current) {
+          sttRef.current = new WebSpeechSTT();
+          sttRef.current.setLangFromAccent('en-US');
+          
+          sttRef.current.onfinal((finalTranscript: string) => {
+            console.log('[useWakeWord] STT captured:', finalTranscript);
+            if (finalTranscript) {
+              processCommand(finalTranscript);
+            }
+          });
+          
+          sttRef.current.onerror((error: any) => {
+            console.error('[useWakeWord] STT error:', error);
             endSession();
-          }
-        }, config.maxUtteranceMs || 8000);
+          });
+        }
         
-        // Process immediately if final and has command
-        if (isFinal && afterWakeWord) {
+        // If we already have command after wake word, process it
+        if (afterWakeWord) {
           processCommand(afterWakeWord);
+        } else {
+          // Start STT to capture the command
+          console.log('[useWakeWord] Starting STT to capture command...');
+          sttRef.current.start();
+          
+          // Set timeout for STT
+          if (timeoutRef.current) clearTimeout(timeoutRef.current);
+          timeoutRef.current = setTimeout(() => {
+            sttRef.current?.stop();
+            endSession();
+          }, config.maxUtteranceMs || 8000);
         }
       }
       // Ignore non-wake-word input in WAKE mode
@@ -252,11 +272,8 @@ export function useWakeWord(config: WakeWordConfig = {}) {
         console.log('[useWakeWord] Got reply:', data.reply);
         setState(prev => ({ ...prev, lastResponse: data.reply }));
         
-        // Speak the response using Web Speech API
-        if (window.speechSynthesis) {
-          const utterance = new SpeechSynthesisUtterance(data.reply);
-          window.speechSynthesis.speak(utterance);
-        }
+        // Force speak the reply using Voice controller (bypass WAKE mode)
+        Voice.speak(data.reply, true);
       }
       
     } catch (error) {
@@ -276,6 +293,11 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     console.log('[useWakeWord] Ending session, starting cooldown');
     
     commandBufferRef.current = "";
+    
+    // Stop STT if running
+    if (sttRef.current) {
+      sttRef.current.stop();
+    }
     
     // Clear timeouts
     if (timeoutRef.current) {

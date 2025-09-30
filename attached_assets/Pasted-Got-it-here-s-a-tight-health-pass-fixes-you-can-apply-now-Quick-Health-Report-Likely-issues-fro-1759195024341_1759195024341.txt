@@ -1,0 +1,136 @@
+Got it—here’s a tight health pass + fixes you can apply now.
+
+Quick Health Report
+
+Likely issues from your screenshots & recent changes
+	1.	Stack overflow = duplicate mic start loops or repeated listeners on every render/HMR.
+	2.	Mute/Kill not sticking = UI toggles bypassing the central state or recreating streams.
+	3.	Random replies = TTS finishing re-enables listening while recognizer is still emitting buffered text.
+
+Must-Apply Patches (copy/paste)
+
+1) Singleton voice guard (prevents loops)
+
+(If you already added this, keep it. It’s the core.)
+	•	src/lib/voiceController.ts (from previous message)
+	•	Ensure all mic/TTS code calls Voice.startListening(), Voice.stopListening(), Voice.speaking(on) and never touches getUserMedia directly elsewhere.
+
+2) TTS safe hooks
+
+In your TTS player (where you call audio.play()):
+
+import { Voice } from '@/lib/voiceController';
+
+async function speak(blob: Blob) {
+  Voice.speaking(true);
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio.onended = () => {
+    URL.revokeObjectURL(url);
+    Voice.speaking(false);
+  };
+  await audio.play();
+}
+
+3) Recognizer attach once
+
+Where you wire STT / VAD:
+
+// src/lib/stt.ts
+import { Voice } from '@/lib/voiceController';
+
+let recognizer: YourRecognizer | null = null;
+export async function ensureRecognizer(stream: MediaStream) {
+  if (recognizer) return recognizer;
+  recognizer = new YourRecognizer(stream);
+
+  recognizer.on('result', (text: string) => {
+    // If muted or killed, ignore results
+    if (Voice.getMode() !== 'ACTIVE') return;
+    // Optional: wake-word while MUTED (handled by Voice.nudgeWakeWord if you want)
+  });
+
+  recognizer.on('error', (e: any) => console.error('STT error', e));
+  return recognizer;
+}
+
+// In Voice.startListening() after getUserMedia:
+this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+await ensureRecognizer(this.mediaStream);
+
+4) HMR-safe mount (Vite)
+
+Prevent re-initializing listeners on hot reload:
+
+// src/main.tsx or App.tsx
+import { Voice } from '@/lib/voiceController';
+
+if (!(window as any).__voice_bootstrapped__) {
+  (window as any).__voice_bootstrapped__ = true;
+  Voice.startListening();
+}
+
+5) UI wiring (Mute/Kill)
+
+Ensure your buttons call only the controller:
+
+import { Voice } from '@/lib/voiceController';
+<button onClick={() => Voice.toggleMute()}>Mute/Unmute</button>
+<button onClick={() => Voice.kill()}>Kill</button>
+<button onClick={() => { const s = prompt('Passphrase'); if (s) try { Voice.revive(s); } catch {} }}>Revive</button>
+
+6) Minimal audit endpoint (optional but useful)
+
+// server/routes/audit.ts
+import type { Request, Response } from 'express';
+import fs from 'fs'; import path from 'path';
+const file = path.join(process.cwd(), 'logs/voice_audit.log');
+
+export function auditRoutes(app: any) {
+  app.post('/api/logs', express.text({ type: '*/*' }), (req: Request, res: Response) => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, req.body + '\n');
+    res.sendStatus(204);
+  });
+}
+
+Then in your server index.ts:
+
+import express from 'express';
+import cors from 'cors';
+import { auditRoutes } from './routes/audit';
+
+const app = express();
+app.use(cors());
+auditRoutes(app);
+app.listen(process.env.PORT || 5000);
+
+And in voiceController.ts replace the comment in log() with:
+
+fetch('/api/logs', { method:'POST', headers:{'Content-Type':'text/plain'}, body: line }).catch(()=>{});
+
+Sanity Checks (2 minutes)
+
+In Replit Console
+	1.	npm run dev — no errors.
+	2.	Open site → DevTools Console:
+	•	Run Voice.getMode() → "ACTIVE".
+	•	Toggle your UI buttons: Voice.toggleMute(), Voice.kill() → mode changes; mic icon updates.
+	3.	Speak → TTS plays → after onended, Voice.isListening() becomes true only if mode is ACTIVE.
+	4.	Check logs/voice_audit.log accumulates entries (if you added the endpoint).
+
+If the stack error persists
+	•	Search for any direct getUserMedia, recognizer .start() or .onresult outside voiceController and move them behind it.
+	•	Ensure React effects have empty deps if they initialize audio: useEffect(()=>{ … }, []).
+	•	Last resort for Vite overlay (dev only): add to vite.config.ts
+
+server: { hmr: { overlay: true } } // keep overlay ON to catch real issues
+
+What I just added to your task list
+	•	✅ Voice guard (ACTIVE/MUTED/KILLED) with passphrase revive
+	•	✅ HMR-safe singleton init
+	•	✅ TTS speaking hooks
+	•	✅ Recognizer single attach
+	•	✅ Audit logging stub
+
+Tell me if you want me to also wire a tiny Diagnostics panel (CPU/mem, stream state, last errors) in the HUD; it helps catch regressions fast.

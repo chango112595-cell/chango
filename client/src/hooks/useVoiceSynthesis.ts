@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { applyAccentToText, type AccentConfig } from "@/lib/accentEngine";
 import { VoiceBus, cancelSpeak } from "@/lib/voiceBus";
+import { Voice } from "@/lib/voiceController";
 
 interface VoiceSynthesisState {
   isEnabled: boolean;
@@ -137,6 +138,7 @@ export function useVoiceSynthesis() {
     isCancelledRef.current = false;
     isSpeakingRef.current = true;
     VoiceBus.setSpeaking(true);
+    Voice.speaking(true); // Notify Voice controller we're speaking
     
     const voices = speechSynthesis.getVoices();
     
@@ -244,6 +246,7 @@ export function useVoiceSynthesis() {
     console.log("[VoiceSynthesis] Prosody plan execution completed");
     isSpeakingRef.current = false;
     VoiceBus.setSpeaking(false);
+    Voice.speaking(false); // Notify Voice controller we're done speaking
     setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
   }, [state.accentConfig]);
 
@@ -278,12 +281,14 @@ export function useVoiceSynthesis() {
     utterance.onstart = () => {
       isSpeakingRef.current = true;
       VoiceBus.setSpeaking(true);
+      Voice.speaking(true); // Notify Voice controller we're speaking
       setState(prev => ({ ...prev, isPlaying: true, currentUtterance: text }));
     };
 
     utterance.onend = () => {
       isSpeakingRef.current = false;
       VoiceBus.setSpeaking(false);
+      Voice.speaking(false); // Notify Voice controller we're done speaking
       setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
     };
 
@@ -291,6 +296,7 @@ export function useVoiceSynthesis() {
       console.error("Speech error:", event.error);
       isSpeakingRef.current = false;
       VoiceBus.setSpeaking(false);
+      Voice.speaking(false); // Notify Voice controller on error
       setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
       
       // For testing environments, simulate successful speech
@@ -382,6 +388,18 @@ export function useVoiceSynthesis() {
 
   // Main speak function with CVE integration
   const speak = useCallback(async (text: string, forceSpeak: boolean = false) => {
+    // Check Voice controller mode first
+    const voiceMode = Voice.getMode();
+    if (voiceMode === 'KILLED') {
+      console.error("[VoiceSynthesis] Voice is KILLED - cannot speak");
+      return;
+    }
+    
+    if (voiceMode === 'MUTED' && !forceSpeak) {
+      console.log("[VoiceSynthesis] Speech blocked: Voice is MUTED");
+      return;
+    }
+    
     // Hard gates - check power and mute first
     const busState = VoiceBus.getState();
     if (!busState.power) {
@@ -445,6 +463,7 @@ export function useVoiceSynthesis() {
     isCancelledRef.current = false;
     isSpeakingRef.current = true; // Set speaking flag immediately
     VoiceBus.setSpeaking(true);
+    Voice.speaking(true); // Notify Voice controller we're starting to speak
 
     // Save the text for repeat functionality
     lastUtteranceRef.current = text;
@@ -509,6 +528,7 @@ export function useVoiceSynthesis() {
     cancelSpeak();
     isCancelledRef.current = true;
     isSpeakingRef.current = false;
+    Voice.speaking(false); // Notify Voice controller we stopped
     setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
   }, []);
 

@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { VoiceBus, cancelSpeak } from "@/lib/voiceBus";
+import { Voice } from "@/lib/voiceController";
 
 interface WakeWordConfig {
   wakeWord?: string;
@@ -42,6 +43,13 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
   // Initialize speech recognition
   const initializeRecognition = useCallback(() => {
+    // Check Voice controller state first
+    const voiceMode = Voice.getMode();
+    if (voiceMode === 'KILLED') {
+      console.error("[useWakeWord] Voice is KILLED - cannot initialize");
+      return false;
+    }
+    
     if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
       console.error("[useWakeWord] Speech recognition not supported");
       toast({
@@ -74,6 +82,13 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
   // Handle speech recognition results
   const handleSpeechResult = useCallback((event: any) => {
+    // Check Voice controller state
+    const voiceMode = Voice.getMode();
+    if (voiceMode !== 'ACTIVE') {
+      console.log('[useWakeWord] Voice not ACTIVE, ignoring result');
+      return;
+    }
+    
     // Check if power is on
     const busState = VoiceBus.getState();
     if (!busState.power || !state.isEnabled) return;
@@ -278,6 +293,18 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     // Guard against multiple enable calls
     if (state.isEnabled) return false;
     
+    // Check Voice controller state
+    const voiceMode = Voice.getMode();
+    if (voiceMode === 'KILLED' || voiceMode === 'MUTED') {
+      console.error('[useWakeWord] Cannot enable - Voice is', voiceMode);
+      toast({
+        title: "Cannot Enable",
+        description: `Voice is ${voiceMode}. ${voiceMode === 'KILLED' ? 'Revive voice first.' : 'Unmute voice first.'}`,
+        variant: "destructive",
+      });
+      return false;
+    }
+    
     // Check if power is on
     const busState = VoiceBus.getState();
     if (!busState.power) {
@@ -295,6 +322,15 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     }
 
     try {
+      // Ensure Voice controller is listening
+      await Voice.startListening();
+      
+      // Use Voice controller's media stream if available
+      const mediaStream = Voice.getMediaStream();
+      if (!mediaStream) {
+        console.warn('[useWakeWord] No media stream from Voice controller, will use browser SpeechRecognition');
+      }
+      
       await recognitionRef.current.start();
       setState(prev => ({ ...prev, isEnabled: true }));
       

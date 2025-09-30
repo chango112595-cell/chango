@@ -1,0 +1,169 @@
+Thanks—this is almost certainly because no transcript ever reaches the reply route. Let’s make Chango answer now by wiring a guaranteed STT → NLU → TTS path with a fallback. Copy/paste these 4 quick patches.
+
+⸻
+
+1) Ensure the reply API exists
+
+server/nlp/reply.js (ESM)
+
+import express from 'express';
+export function registerReply(app){
+  const r = express.Router();
+  r.post('/reply', express.json({limit:'1mb'}), (req,res)=>{
+    const q = (req.body?.text||'').trim();
+    let out = 'Okay.';
+    if(!q) out='I did not catch that.';
+    else if(/time|hour/i.test(q)) out = 'It is ' + new Date().toLocaleTimeString() + '.';
+    else if(/who.*you|what.*chango/i.test(q)) out='I am Chango, your adaptive assistant.';
+    else if(/how.*you/i.test(q)) out='Feeling sharp and online.';
+    return res.json({ok:true, reply: out});
+  });
+  app.use('/nlp', r);
+}
+export default registerReply;
+
+Add to server/index.js (if not already):
+
+import registerReply from './nlp/reply.js';
+...
+registerReply(app);
+
+
+⸻
+
+2) Drop-in Web Speech STT (works in Chrome)
+
+client/voice/stt_webspeech.js
+
+// Simple STT using Web Speech API. Falls back to null if unsupported.
+export class WebSpeechSTT {
+  constructor() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    this.supported = !!SR;
+    if (!this.supported) return;
+    this.rec = new SR();
+    this.rec.continuous = false;
+    this.rec.interimResults = false;
+    this.rec.maxAlternatives = 1;
+    this._onfinal = null;
+    this._onerror = null;
+    this.rec.onresult = (e)=>{
+      const t = e.results?.[0]?.[0]?.transcript || '';
+      this._onfinal && this._onfinal(t);
+    };
+    this.rec.onerror = (e)=> this._onerror && this._onerror(e);
+  }
+  setLangFromAccent(accent='en-US'){ if(this.supported) this.rec.lang = accent; }
+  onfinal(fn){ this._onfinal = fn; }
+  onerror(fn){ this._onerror = fn; }
+  start(){ try{ this.supported && this.rec.start(); }catch{} }
+  stop(){ try{ this.supported && this.rec.stop(); }catch{} }
+}
+
+
+⸻
+
+3) Make the wake loop actually get text and answer
+
+Replace client/voice/wake_loop.js with this minimal version that uses the STT above and speaks the reply:
+
+import {VADGate} from './vad.js';
+import {speakBrowser, VoiceBus, cancelSpeak} from './tts_browser.js';
+import { WebSpeechSTT } from './stt_webspeech.js';
+
+export function startWakeLoop(opts={}){
+  const cfg={wakeWord:(opts.wakeWord||'chango').toLowerCase(), cooldownMs:2000};
+  const el=id=>document.getElementById(id);
+  const vad=new VADGate({minDb:-50,minMs:250,debounceMs:1200});
+  const stt=new WebSpeechSTT();
+
+  let engaged=false, lastSpeak=0;
+
+  function cooling(){ return (performance.now()-lastSpeak)<cfg.cooldownMs; }
+  function saidWake(s){ return (s||'').toLowerCase().includes(cfg.wakeWord); }
+
+  async function replyAndSpeak(text){
+    const r = await fetch('/nlp/reply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})}).then(r=>r.json()).catch(()=>null);
+    const msg = r?.ok ? r.reply : 'Okay.';
+    lastSpeak = performance.now();
+    await speakBrowser({
+      text: msg,
+      accent: el('vcAccent')?.value||'en-US',
+      rate: Number(el('vcRate')?.value||1),
+      pitch:Number(el('vcPitch')?.value||1),
+      volume:Number(el('vcVol')?.value||1)
+    });
+  }
+
+  function armSTT(){
+    if(!stt.supported) return; // still works with manual Ask button
+    stt.setLangFromAccent(el('vcAccent')?.value||'en-US');
+    stt.onfinal(async (txt)=>{
+      engaged=false;
+      if(!txt?.trim()) return;
+      if (saidWake(txt)) { await speakBrowser({text:'Yes?', accent: el('vcAccent')?.value||'en-US'}); return; }
+      await replyAndSpeak(txt);
+    });
+    stt.onerror(()=>{ engaged=false; });
+  }
+
+  async function init(){
+    armSTT();
+    await vad.attach();
+    vad.onSpeech=()=>{
+      el('vcHeard') && (el('vcHeard').textContent='heard: yes');
+      if (engaged || VoiceBus.mute) return;
+      if (cooling()) return;
+      engaged = true;
+      stt.supported ? stt.start() : (engaged=false);
+    };
+  }
+
+  init();
+
+  return {
+    stop(){
+      try{ vad.stop(); }catch{}
+      try{ stt.stop(); }catch{}
+      cancelSpeak();
+    }
+  };
+}
+
+
+⸻
+
+4) Add a guaranteed “Ask” button (fallback path)
+
+Update client/ui/voice_controls.js “Speak” row to include an Ask button that goes through /nlp/reply even if STT fails:
+
+Find the controls markup and replace that row with:
+
+<div class='row'>
+  <input id='vcPhrase' style='flex:1' placeholder='Ask me something…'>
+  <button id='vcAsk'>Ask</button>
+  <button id='vcTest'>Speak</button>
+</div>
+
+Then add this handler:
+
+$('vcAsk').onclick = async ()=>{
+  const q = $('vcPhrase').value || 'what time is it?';
+  const r = await fetch('/nlp/reply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:q})}).then(r=>r.json()).catch(()=>null);
+  if (r?.ok){
+    await speakBrowser({ text: r.reply, accent:$('vcAccent').value, rate:Number($('vcRate').value), pitch:Number($('vcPitch').value), volume:Number($('vcVol').value) });
+    out({ok:true,asked:q,reply:r.reply});
+  } else {
+    out({ok:false,error:'nlp_fail'});
+  }
+};
+
+
+⸻
+
+Quick test (no guessing)
+	1.	Type & Ask: In the HUD, type “how are you” → click Ask → Chango speaks back.
+	2.	Wake & Talk (Chrome): Click Enable hands-free, say “Chango… what time is it?” → Chango answers.
+	3.	Mute: Toggle Silent or Power OFF → no reply. Toggle back ON → works again.
+
+If you still get silence, open DevTools → Network tab and confirm /nlp/reply returns {ok:true, reply: ...}. If it does and there’s no audio, the issue is only in TTS—tell me and I’ll swap in an <audio>-based speak that bypasses speechSynthesis.

@@ -1,7 +1,10 @@
 /**
  * Global VoiceBus State Manager
  * Singleton pattern to manage voice state globally across all components
+ * Integrates with Voice controller for unified state management
  */
+
+import { Voice } from './voiceController';
 
 interface VoiceBusState {
   mute: boolean;
@@ -23,6 +26,19 @@ class VoiceBusManager {
     };
     this.listeners = new Set();
     this.isTransitioning = false;
+    
+    // Subscribe to Voice controller state changes for synchronization
+    Voice.subscribe((voiceState) => {
+      // Sync mute state with Voice controller mode
+      const isMuted = voiceState.mode === 'MUTED' || voiceState.mode === 'KILLED';
+      const isPowered = voiceState.mode !== 'KILLED';
+      
+      if (this.state.mute !== isMuted || this.state.power !== isPowered) {
+        this.state.mute = isMuted;
+        this.state.power = isPowered;
+        this.notifyListeners();
+      }
+    });
   }
 
   static getInstance(): VoiceBusManager {
@@ -56,6 +72,14 @@ class VoiceBusManager {
     
     this.isTransitioning = true;
     this.state.mute = mute;
+    
+    // Sync with Voice controller
+    if (mute && Voice.getMode() === 'ACTIVE') {
+      Voice.toggleMute(); // Will set to MUTED
+    } else if (!mute && Voice.getMode() === 'MUTED') {
+      Voice.toggleMute(); // Will set to ACTIVE
+    }
+    
     if (mute) {
       // If muting, stop all speech
       this.cancelSpeak();
@@ -69,6 +93,10 @@ class VoiceBusManager {
     if (this.state.speaking === speaking || this.isTransitioning) return;
     
     this.state.speaking = speaking;
+    
+    // Sync with Voice controller
+    Voice.speaking(speaking);
+    
     this.notifyListeners();
   }
 
@@ -100,6 +128,16 @@ export const VoiceBus = VoiceBusManager.getInstance();
 
 // Export convenience functions
 export const cancelSpeak = () => VoiceBus.cancelSpeak();
-export const isPowerOn = () => VoiceBus.getState().power;
-export const isMuted = () => VoiceBus.getState().mute;
+export const isPowerOn = () => {
+  // Check both VoiceBus and Voice controller states
+  const busState = VoiceBus.getState();
+  const voiceMode = Voice.getMode();
+  return busState.power && voiceMode !== 'KILLED';
+};
+export const isMuted = () => {
+  // Check both VoiceBus and Voice controller states
+  const busState = VoiceBus.getState();
+  const voiceMode = Voice.getMode();
+  return busState.mute || voiceMode === 'MUTED' || voiceMode === 'KILLED';
+};
 export const isSpeaking = () => VoiceBus.getState().speaking;

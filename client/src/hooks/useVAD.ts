@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { VoiceBus } from "@/lib/voiceBus";
+import { Voice } from "@/lib/voiceController";
 
 interface VADConfig {
   minDb: number; // Minimum decibel level to consider as speech
@@ -77,6 +78,13 @@ export function useVAD(callbacks: VADCallbacks = {}) {
     const now = Date.now();
     const isSpeechDetected = avgDb > config.minDb;
 
+    // Check Voice controller mode before processing speech events
+    const voiceMode = Voice.getMode();
+    if (voiceMode !== 'ACTIVE') {
+      // Don't process if not active
+      return;
+    }
+    
     // Check if power is on before processing speech events
     const busState = VoiceBus.getState();
     if (!busState.power) {
@@ -150,6 +158,19 @@ export function useVAD(callbacks: VADCallbacks = {}) {
     
     isProcessingRef.current = true;
     
+    // Check Voice controller mode
+    const voiceMode = Voice.getMode();
+    if (voiceMode === 'KILLED' || voiceMode === 'MUTED') {
+      console.error(`[useVAD] Cannot start - Voice is ${voiceMode}`);
+      toast({
+        title: "Cannot Start VAD",
+        description: `Voice is ${voiceMode}. ${voiceMode === 'KILLED' ? 'Revive voice first.' : 'Unmute voice first.'}`,
+        variant: "destructive",
+      });
+      isProcessingRef.current = false;
+      return;
+    }
+    
     // Check if power is on
     const busState = VoiceBus.getState();
     if (!busState.power) {
@@ -164,15 +185,14 @@ export function useVAD(callbacks: VADCallbacks = {}) {
     }
     
     try {
-      // Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 44100,
-        }
-      });
+      // Use Voice controller to manage mic access
+      await Voice.startListening();
+      
+      // Get the media stream from Voice controller
+      const stream = Voice.getMediaStream();
+      if (!stream) {
+        throw new Error("Voice controller failed to provide media stream");
+      }
       
       streamRef.current = stream;
 
@@ -251,13 +271,8 @@ export function useVAD(callbacks: VADCallbacks = {}) {
       audioContextRef.current = null;
     }
 
-    // Stop media stream - properly release microphone
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => {
-        track.stop();
-      });
-      streamRef.current = null;
-    }
+    // Don't stop the stream directly - let Voice controller manage it
+    streamRef.current = null;
 
     // Reset refs
     analyserRef.current = null;

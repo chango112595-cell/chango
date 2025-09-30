@@ -7,7 +7,9 @@ import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
 import { useVAD } from "@/hooks/useVAD";
 import { useWakeWord } from "@/hooks/useWakeWord";
 import { VoiceBus } from "@/lib/voiceBus";
-import { Mic, MicOff, Volume2, VolumeX, Power, PowerOff } from "lucide-react";
+import { Voice, type VoiceControllerState } from "@/lib/voiceController";
+import { Mic, MicOff, Volume2, VolumeX, Power, PowerOff, ShieldOff, Shield } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 export default function VoiceControls() {
   const { 
@@ -30,6 +32,9 @@ export default function VoiceControls() {
   const [isPowerOn, setIsPowerOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
   const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
+  const [voiceMode, setVoiceMode] = useState<'ACTIVE' | 'MUTED' | 'KILLED'>('ACTIVE');
+  const [isVoiceListening, setIsVoiceListening] = useState(false);
+  const { toast } = useToast();
   
   // Add refs for debouncing and transition states
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -81,6 +86,15 @@ export default function VoiceControls() {
         setWakeWordEnabled(false);
         setIsMicOn(false);
       }
+    });
+    return unsubscribe;
+  }, []);
+  
+  // Subscribe to Voice controller state
+  useEffect(() => {
+    const unsubscribe = Voice.subscribe((state: VoiceControllerState) => {
+      setVoiceMode(state.mode);
+      setIsVoiceListening(state.isListening);
     });
     return unsubscribe;
   }, []);
@@ -157,6 +171,45 @@ export default function VoiceControls() {
       }
     });
   }, [isMicOn, vad, wakeWord, debounce]);
+  
+  // Handle Voice Controller mute toggle
+  const handleVoiceMuteToggle = useCallback(() => {
+    Voice.toggleMute();
+    toast({
+      title: "Voice Mode Changed",
+      description: Voice.getMode() === 'MUTED' ? "Voice muted" : "Voice activated",
+    });
+  }, [toast]);
+  
+  // Handle Voice Controller kill
+  const handleVoiceKill = useCallback(() => {
+    const passphrase = Voice.kill();
+    toast({
+      title: "Voice System Killed",
+      description: `Passphrase to revive: ${passphrase}`,
+      variant: "destructive",
+    });
+  }, [toast]);
+  
+  // Handle Voice Controller revive
+  const handleVoiceRevive = useCallback(() => {
+    const pass = prompt('Enter passphrase to revive voice system:');
+    if (pass) {
+      try {
+        Voice.revive(pass);
+        toast({
+          title: "Voice System Revived",
+          description: "Voice system is now active",
+        });
+      } catch (e) {
+        toast({
+          title: "Invalid Passphrase",
+          description: "Could not revive voice system",
+          variant: "destructive",
+        });
+      }
+    }
+  }, [toast]);
 
   return (
     <Card>
@@ -350,6 +403,52 @@ export default function VoiceControls() {
                 <Volume2 className="h-4 w-4 text-green-500" />
               )}
             </Label>
+          </div>
+        </div>
+        
+        {/* Voice Controller Controls */}
+        <div className="space-y-2 mb-4 p-3 border rounded-lg bg-secondary/20">
+          <div className="text-sm font-medium mb-2">Voice Controller</div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={voiceMode === 'MUTED' ? "destructive" : "default"}
+              size="sm"
+              onClick={handleVoiceMuteToggle}
+              disabled={voiceMode === 'KILLED'}
+              data-testid="button-voice-mute"
+            >
+              {voiceMode === 'MUTED' ? (
+                <><VolumeX className="h-4 w-4 mr-1" /> Unmute Voice</>
+              ) : (
+                <><Volume2 className="h-4 w-4 mr-1" /> Mute Voice</>
+              )}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleVoiceKill}
+              disabled={voiceMode === 'KILLED'}
+              data-testid="button-voice-kill"
+            >
+              <ShieldOff className="h-4 w-4 mr-1" /> Kill
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleVoiceRevive}
+              disabled={voiceMode !== 'KILLED'}
+              data-testid="button-voice-revive"
+            >
+              <Shield className="h-4 w-4 mr-1" /> Revive
+            </Button>
+          </div>
+          <div className="text-xs text-muted-foreground mt-2">
+            Mode: <span className={`font-bold ${
+              voiceMode === 'ACTIVE' ? 'text-green-500' : 
+              voiceMode === 'MUTED' ? 'text-yellow-500' : 
+              'text-red-500'
+            }`}>{voiceMode}</span>
+            {isVoiceListening && ' • Listening'}
           </div>
         </div>
 

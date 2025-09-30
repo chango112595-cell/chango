@@ -22,6 +22,7 @@ export default function VoiceControls() {
     disable, 
     test, 
     stop,
+    speak,
     setMuted,
     setPower,
     setRequiresHumanSpeech,
@@ -298,8 +299,8 @@ export default function VoiceControls() {
                   });
                   const data = await response.json();
                   if (data.ok && data.reply) {
-                    // Force speak the reply using Voice controller (bypass WAKE mode)
-                    Voice.speak(data.reply, true);
+                    // Force speak the reply using voice synthesis hook (bypass WAKE mode)
+                    speak(data.reply, true);
                   }
                 } catch (error) {
                   console.error('Failed to get reply:', error);
@@ -325,8 +326,8 @@ export default function VoiceControls() {
                 });
                 const data = await response.json();
                 if (data.ok && data.reply) {
-                  // Force speak the reply using Voice controller (bypass WAKE mode)
-                  Voice.speak(data.reply, true);
+                  // Force speak the reply using voice synthesis hook (bypass WAKE mode)
+                  speak(data.reply, true);
                 }
               } catch (error) {
                 console.error('Failed to get reply:', error);

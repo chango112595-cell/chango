@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
 import { VoiceBus, cancelSpeak } from "@/lib/voiceBus";
 import { Voice } from "@/lib/voiceController";
 import { WebSpeechSTT } from "@/lib/webSpeechSTT";
@@ -36,6 +37,7 @@ export function useWakeWord(config: WakeWordConfig = {}) {
   });
 
   const { toast } = useToast();
+  const { speak } = useVoiceSynthesis();
   const recognitionRef = useRef<any>(null);
   const sttRef = useRef<WebSpeechSTT | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -272,8 +274,8 @@ export function useWakeWord(config: WakeWordConfig = {}) {
         console.log('[useWakeWord] Got reply:', data.reply);
         setState(prev => ({ ...prev, lastResponse: data.reply }));
         
-        // Force speak the reply using Voice controller (bypass WAKE mode)
-        Voice.speak(data.reply, true);
+        // Force speak the reply using voice synthesis hook (bypass WAKE mode)
+        speak(data.reply, true);
       }
       
     } catch (error) {
@@ -286,7 +288,7 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     } finally {
       endSession();
     }
-  }, [state.isProcessing, state.wakeWord, toast]);
+  }, [state.isProcessing, state.wakeWord, toast, speak]);
 
   // End the current session
   const endSession = useCallback(() => {

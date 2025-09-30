@@ -57,6 +57,8 @@ export function useVoiceSynthesis() {
   const isEnabledRef = useRef<boolean>(false); // Track enabled state immediately
   const isSpeakingRef = useRef<boolean>(false); // Track if currently speaking
   const isMutedRef = useRef<boolean>(false); // Track mute state immediately
+  const isExecutingProsodyRef = useRef<boolean>(false); // Prevent concurrent prosody executions
+  const safetyTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Safety timeout for infinite loops
 
   const enable = useCallback(() => {
     console.log("[VoiceSynthesis] Starting enable process...");
@@ -134,11 +136,31 @@ export function useVoiceSynthesis() {
 
   // Execute a prosody plan step-by-step
   const executeProsodyPlan = useCallback(async (plan: ProsodyStep[], originalText: string) => {
+    // Prevent concurrent executions
+    if (isExecutingProsodyRef.current) {
+      console.log("[VoiceSynthesis] Prosody execution already in progress, skipping");
+      return;
+    }
+    
     console.log("[VoiceSynthesis] Executing prosody plan:", plan.length, "steps");
+    isExecutingProsodyRef.current = true;
     isCancelledRef.current = false;
     isSpeakingRef.current = true;
     VoiceBus.setSpeaking(true);
     Voice.speaking(true); // Notify Voice controller we're speaking
+    
+    // Set safety timeout to prevent infinite loops
+    if (safetyTimeoutRef.current) {
+      clearTimeout(safetyTimeoutRef.current);
+    }
+    safetyTimeoutRef.current = setTimeout(() => {
+      console.error("[VoiceSynthesis] Safety timeout triggered - stopping speech");
+      speechSynthesis.cancel();
+      isExecutingProsodyRef.current = false;
+      isSpeakingRef.current = false;
+      VoiceBus.setSpeaking(false);
+      Voice.speaking(false);
+    }, 30000); // 30 second safety timeout
     
     const voices = speechSynthesis.getVoices();
     
@@ -189,7 +211,9 @@ export function useVoiceSynthesis() {
             if (!((event.error === 'canceled' || event.error === 'interrupted') && (isMutedRef.current || isCancelledRef.current))) {
               console.error("Error speaking phrase:", step.text, event);
             }
-            resolve(); // Continue with next phrase even if error
+            // Stop execution on error to prevent stack overflow
+            isCancelledRef.current = true;
+            resolve();
           };
           
           // Check if muted or power off before speaking
@@ -224,9 +248,11 @@ export function useVoiceSynthesis() {
           utterance.onerror = (event: any) => {
             // Don't log error if it's due to cancellation and we're muted or cancelled
             if (!((event.error === 'canceled' || event.error === 'interrupted') && (isMutedRef.current || isCancelledRef.current))) {
-              console.error("Error speaking word:", step.w);
+              console.error("Error speaking word:", step.w, event);
             }
-            resolve(); // Continue with next word even if error
+            // Stop execution on error to prevent stack overflow
+            isCancelledRef.current = true;
+            resolve();
           };
           
           // Check if muted or power off before speaking
@@ -244,6 +270,15 @@ export function useVoiceSynthesis() {
     }
     
     console.log("[VoiceSynthesis] Prosody plan execution completed");
+    
+    // Clear safety timeout
+    if (safetyTimeoutRef.current) {
+      clearTimeout(safetyTimeoutRef.current);
+      safetyTimeoutRef.current = null;
+    }
+    
+    // Reset all flags
+    isExecutingProsodyRef.current = false;
     isSpeakingRef.current = false;
     VoiceBus.setSpeaking(false);
     Voice.speaking(false); // Notify Voice controller we're done speaking
@@ -412,9 +447,9 @@ export function useVoiceSynthesis() {
       return;
     }
 
-    // Check if already speaking to prevent overlaps
-    if (isSpeakingRef.current) {
-      console.log("[VoiceSynthesis] Speech blocked: Already speaking");
+    // Check if already speaking or executing prosody to prevent overlaps
+    if (isSpeakingRef.current || isExecutingProsodyRef.current) {
+      console.log("[VoiceSynthesis] Speech blocked: Already speaking or executing");
       return;
     }
 
@@ -527,7 +562,15 @@ export function useVoiceSynthesis() {
   const stop = useCallback(() => {
     cancelSpeak();
     isCancelledRef.current = true;
+    isExecutingProsodyRef.current = false;
     isSpeakingRef.current = false;
+    
+    // Clear safety timeout
+    if (safetyTimeoutRef.current) {
+      clearTimeout(safetyTimeoutRef.current);
+      safetyTimeoutRef.current = null;
+    }
+    
     Voice.speaking(false); // Notify Voice controller we stopped
     setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
   }, []);

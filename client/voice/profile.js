@@ -278,7 +278,9 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = VoiceProfileAPI;
 }
 
-// Export for browser use
+// Export for browser use - check if already exists to avoid duplicates
 if (typeof window !== 'undefined') {
-  window.VoiceProfileAPI = VoiceProfileAPI;
+  if (!window.VoiceProfileAPI) {
+    window.VoiceProfileAPI = VoiceProfileAPI;
+  }
 }

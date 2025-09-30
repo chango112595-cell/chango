@@ -90,7 +90,7 @@ export function useVoiceSynthesisWithExport() {
       console.log("[VoiceSynthesisWithExport] Auto-enabling on mount...");
       enable();
     }
-  }, [enable]);
+  }, []); // Empty deps - only run once on mount
 
   const setupAudioRecording = useCallback(async () => {
     try {

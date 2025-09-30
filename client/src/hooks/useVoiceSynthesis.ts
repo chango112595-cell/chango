@@ -149,13 +149,14 @@ export function useVoiceSynthesis() {
     ) || voices.find(voice => voice.default) || voices[0];
 
     for (const step of plan) {
-      // Check if power is off, muted or cancelled before each step
+      // Early return check before each step to prevent recursion
       const busState = VoiceBus.getState();
-      if (!busState.power || busState.mute || isCancelledRef.current || isMutedRef.current) {
+      if (!busState.power || busState.mute || isCancelledRef.current || isMutedRef.current || !isSpeakingRef.current) {
         console.log("[VoiceSynthesis] Prosody plan execution stopped:", { 
           power: busState.power,
           muted: busState.mute || isMutedRef.current,
-          cancelled: isCancelledRef.current 
+          cancelled: isCancelledRef.current,
+          speaking: isSpeakingRef.current
         });
         break;
       }
@@ -321,6 +322,10 @@ export function useVoiceSynthesis() {
 
   // Set mute state
   const setMuted = useCallback((muted: boolean) => {
+    // Guard against same state to prevent recursion
+    const busState = VoiceBus.getState();
+    if (busState.mute === muted) return;
+    
     // Update ref immediately
     isMutedRef.current = muted;
     VoiceBus.setMute(muted);
@@ -337,6 +342,10 @@ export function useVoiceSynthesis() {
   }, []);
 
   const setPower = useCallback((power: boolean) => {
+    // Guard against same state to prevent recursion
+    const busState = VoiceBus.getState();
+    if (busState.power === power) return;
+    
     VoiceBus.setPower(power);
     if (!power) {
       // Turning off power, stop everything
@@ -359,7 +368,10 @@ export function useVoiceSynthesis() {
 
   // Add disable function
   const disable = useCallback(() => {
-    speechSynthesis.cancel();
+    // Only cancel if there's something to cancel
+    if (speechSynthesis.speaking || speechSynthesis.pending) {
+      speechSynthesis.cancel();
+    }
     isEnabledRef.current = false;
     setState(prev => ({ ...prev, isEnabled: false, isPlaying: false, currentUtterance: "" }));
     toast({
@@ -426,8 +438,10 @@ export function useVoiceSynthesis() {
       stateEnabled: state.isEnabled
     });
 
-    // Stop any ongoing speech
-    speechSynthesis.cancel();
+    // Stop any ongoing speech only if necessary
+    if (speechSynthesis.speaking || speechSynthesis.pending) {
+      speechSynthesis.cancel();
+    }
     isCancelledRef.current = false;
     isSpeakingRef.current = true; // Set speaking flag immediately
     VoiceBus.setSpeaking(true);

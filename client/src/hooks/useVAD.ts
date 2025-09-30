@@ -38,6 +38,7 @@ export function useVAD(callbacks: VADCallbacks = {}) {
   const speechStartTimeRef = useRef(0);
   const silenceStartTimeRef = useRef(0);
   const lastSpeechEndRef = useRef(0);
+  const isProcessingRef = useRef(false); // Flag to prevent re-entrant processing
 
   // VAD configuration
   const config: VADConfig = {
@@ -144,6 +145,11 @@ export function useVAD(callbacks: VADCallbacks = {}) {
 
   // Start VAD
   const startListening = useCallback(async () => {
+    // Guard against re-entrant calls
+    if (state.isListening || isProcessingRef.current) return;
+    
+    isProcessingRef.current = true;
+    
     // Check if power is on
     const busState = VoiceBus.getState();
     if (!busState.power) {
@@ -153,6 +159,7 @@ export function useVAD(callbacks: VADCallbacks = {}) {
         description: "Voice power is OFF. Turn on power first.",
         variant: "destructive",
       });
+      isProcessingRef.current = false;
       return;
     }
     
@@ -197,6 +204,8 @@ export function useVAD(callbacks: VADCallbacks = {}) {
         title: "VAD Enabled",
         description: "Voice Activity Detection is now active",
       });
+      
+      isProcessingRef.current = false;
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -210,11 +219,17 @@ export function useVAD(callbacks: VADCallbacks = {}) {
         description: `Could not access microphone: ${errorMessage}`,
         variant: "destructive",
       });
+      isProcessingRef.current = false;
     }
-  }, [analyzeAudio, toast]);
+  }, [analyzeAudio, toast, state.isListening]);
 
   // Stop VAD
   const stopListening = useCallback(() => {
+    // Guard against re-entrant calls
+    if (!state.isListening || isProcessingRef.current) return;
+    
+    isProcessingRef.current = true;
+    
     // Cancel animation frame
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -256,7 +271,9 @@ export function useVAD(callbacks: VADCallbacks = {}) {
       audioLevel: 0,
       status: "VAD inactive"
     });
-  }, []);
+    
+    isProcessingRef.current = false;
+  }, [state.isListening]);
 
   // Check if human spoke recently (for anti-loop guard)
   const hasRecentHumanSpeech = useCallback(() => {

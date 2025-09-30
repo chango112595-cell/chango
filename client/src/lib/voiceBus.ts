@@ -13,6 +13,7 @@ class VoiceBusManager {
   private static instance: VoiceBusManager;
   private state: VoiceBusState;
   private listeners: Set<(state: VoiceBusState) => void>;
+  private isTransitioning: boolean = false;
 
   private constructor() {
     this.state = {
@@ -21,6 +22,7 @@ class VoiceBusManager {
       power: true, // Start with power ON by default
     };
     this.listeners = new Set();
+    this.isTransitioning = false;
   }
 
   static getInstance(): VoiceBusManager {
@@ -35,24 +37,37 @@ class VoiceBusManager {
   }
 
   setPower(power: boolean): void {
+    // Guard against same state or transitioning
+    if (this.state.power === power || this.isTransitioning) return;
+    
+    this.isTransitioning = true;
     this.state.power = power;
     if (!power) {
       // If turning off power, stop all speech
       this.cancelSpeak();
     }
     this.notifyListeners();
+    this.isTransitioning = false;
   }
 
   setMute(mute: boolean): void {
+    // Guard against same state or transitioning
+    if (this.state.mute === mute || this.isTransitioning) return;
+    
+    this.isTransitioning = true;
     this.state.mute = mute;
     if (mute) {
       // If muting, stop all speech
       this.cancelSpeak();
     }
     this.notifyListeners();
+    this.isTransitioning = false;
   }
 
   setSpeaking(speaking: boolean): void {
+    // Guard against same state or transitioning
+    if (this.state.speaking === speaking || this.isTransitioning) return;
+    
     this.state.speaking = speaking;
     this.notifyListeners();
   }

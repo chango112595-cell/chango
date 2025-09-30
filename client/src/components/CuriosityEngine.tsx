@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
@@ -88,6 +88,7 @@ export default function CuriosityEngine() {
   const [learningRate, setLearningRate] = useState([75]);
   const [currentResponse, setCurrentResponse] = useState("Hello! I'm Chango, your AI assistant. I'm here to help with voice synthesis and more!");
   const [quietMode, setQuietMode] = useState(false); // Add quiet mode state
+  const isGeneratingRef = useRef(false); // Flag to prevent concurrent generation
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -142,27 +143,26 @@ export default function CuriosityEngine() {
   });
 
   // Generate more natural, conversational responses
-  const generateCuriousResponse = () => {
-    // Check VoiceBus power and mute states first
+  const generateCuriousResponse = useCallback(() => {
+    // Check VoiceBus power and mute states first, and generation flag
     const busState = VoiceBus.getState();
-    if (!busState.power) {
-      console.log("[CuriosityEngine] Skipping response - power is OFF");
+    if (!busState.power || busState.mute || isGeneratingRef.current) {
+      console.log("[CuriosityEngine] Skipping response - power OFF, muted, or already generating");
       return;
     }
     
-    if (busState.mute) {
-      console.log("[CuriosityEngine] Skipping response - muted");
-      return;
-    }
+    isGeneratingRef.current = true;
     
     // Don't generate response if speech is already active or chat was recently active
     if (voice.isSpeaking()) {
       console.log("[CuriosityEngine] Skipping response - already speaking");
+      isGeneratingRef.current = false;
       return;
     }
     
     if (!speechCoordination.canCuriositySpeak()) {
       console.log("[CuriosityEngine] Skipping response - chat recently active");
+      isGeneratingRef.current = false;
       return;
     }
     // Response templates with dynamic elements - now more conversational and engaging
@@ -333,10 +333,14 @@ export default function CuriosityEngine() {
     const isExcited = naturalResponse.includes('!') || naturalResponse.includes('excited') || naturalResponse.includes('love');
     const isGreeting = naturalResponse.toLowerCase().includes('hello') || naturalResponse.toLowerCase().includes('hi ') || naturalResponse.toLowerCase().includes('hey');
     
-    // Speak the response without changing global voice settings
-    // The voice will use the stable configuration set in useEffect
-    // Don't force speak for random curiosity responses - respect VAD
-    voice.speak(naturalResponse, false);
+    // Check VoiceBus state again before speaking
+    const currentBusState = VoiceBus.getState();
+    if (currentBusState.power && !currentBusState.mute && !quietMode) {
+      // Speak the response without changing global voice settings
+      // The voice will use the stable configuration set in useEffect
+      // Don't force speak for random curiosity responses - respect VAD
+      voice.speak(naturalResponse, false);
+    }
 
     // Log the curiosity response
     addLogMutation.mutate({
@@ -348,11 +352,19 @@ export default function CuriosityEngine() {
         timestamp: new Date().toISOString(),
       },
     });
-  };
+    
+    // Always clear the generating flag with a timeout for safety
+    setTimeout(() => {
+      isGeneratingRef.current = false;
+    }, 100);
+  }, [voice, speechCoordination, curiosityLevel, personalityVariance, addLogMutation, quietMode]);
 
   // Auto-generate responses based on curiosity level
   useEffect(() => {
     const interval = setInterval(() => {
+      // Guard to check if already generating
+      if (isGeneratingRef.current) return;
+      
       // Check VoiceBus state first
       const busState = VoiceBus.getState();
       if (!busState.power || busState.mute) {

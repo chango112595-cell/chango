@@ -38,6 +38,7 @@ export function useWakeWord(config: WakeWordConfig = {}) {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const cooldownRef = useRef<NodeJS.Timeout | null>(null);
   const commandBufferRef = useRef<string>("");
+  const isStoppingRef = useRef<boolean>(false); // Guard to prevent multiple stop calls
 
   // Initialize speech recognition
   const initializeRecognition = useCallback(() => {
@@ -274,6 +275,9 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
   // Enable wake word detection
   const enable = useCallback(async () => {
+    // Guard against multiple enable calls
+    if (state.isEnabled) return false;
+    
     // Check if power is on
     const busState = VoiceBus.getState();
     if (!busState.power) {
@@ -313,6 +317,11 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
   // Disable wake word detection
   const disable = useCallback(() => {
+    // Guard against multiple disable calls
+    if (!state.isEnabled || isStoppingRef.current) return;
+    
+    isStoppingRef.current = true;
+    
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -341,7 +350,9 @@ export function useWakeWord(config: WakeWordConfig = {}) {
       title: "Wake Word Detection Disabled",
       description: "Voice commands are now disabled",
     });
-  }, [toast]);
+    
+    isStoppingRef.current = false;
+  }, [toast, state.isEnabled]);
 
   // Set wake word
   const setWakeWord = useCallback((word: string) => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -30,6 +30,11 @@ export default function VoiceControls() {
   const [isPowerOn, setIsPowerOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
   const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
+  
+  // Add refs for debouncing and transition states
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isTransitioningRef = useRef(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   
   const wakeWord = useWakeWord();
 
@@ -92,34 +97,66 @@ export default function VoiceControls() {
     };
   }, []);
   
-  // Handle power toggle
-  const handlePowerToggle = () => {
-    const newPowerState = !isPowerOn;
-    setIsPowerOn(newPowerState);
-    setPower(newPowerState);
-    
-    if (!newPowerState) {
-      // Turning power off - disable everything
-      setAutoListen(false);
-      setWakeWordEnabled(false);
-      setIsMicOn(false);
-      stop();
+  // Debounce function for control changes
+  const debounce = useCallback((fn: () => void, delay: number = 100) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
     }
-  };
+    debounceTimerRef.current = setTimeout(fn, delay);
+  }, []);
+  
+  // Handle power toggle
+  const handlePowerToggle = useCallback(() => {
+    if (isTransitioningRef.current) return;
+    
+    debounce(() => {
+      isTransitioningRef.current = true;
+      setIsTransitioning(true);
+      
+      try {
+        const newPowerState = !isPowerOn;
+        setIsPowerOn(newPowerState);
+        setPower(newPowerState);
+        
+        if (!newPowerState) {
+          // Turning power off - disable everything
+          setAutoListen(false);
+          setWakeWordEnabled(false);
+          setIsMicOn(false);
+          stop();
+        }
+      } finally {
+        isTransitioningRef.current = false;
+        setIsTransitioning(false);
+      }
+    });
+  }, [isPowerOn, setPower, stop, debounce]);
   
   // Handle mic toggle
-  const handleMicToggle = () => {
-    const newMicState = !isMicOn;
-    setIsMicOn(newMicState);
+  const handleMicToggle = useCallback(() => {
+    if (isTransitioningRef.current) return;
     
-    if (!newMicState) {
-      // Turning mic off
-      if (vad.isListening) vad.stopListening();
-      if (wakeWord.isEnabled) wakeWord.disable();
-      setAutoListen(false);
-      setWakeWordEnabled(false);
-    }
-  };
+    debounce(() => {
+      isTransitioningRef.current = true;
+      setIsTransitioning(true);
+      
+      try {
+        const newMicState = !isMicOn;
+        setIsMicOn(newMicState);
+        
+        if (!newMicState) {
+          // Turning mic off
+          if (vad.isListening) vad.stopListening();
+          if (wakeWord.isEnabled) wakeWord.disable();
+          setAutoListen(false);
+          setWakeWordEnabled(false);
+        }
+      } finally {
+        isTransitioningRef.current = false;
+        setIsTransitioning(false);
+      }
+    });
+  }, [isMicOn, vad, wakeWord, debounce]);
 
   return (
     <Card>
@@ -132,6 +169,7 @@ export default function VoiceControls() {
               size="sm"
               onClick={handlePowerToggle}
               data-testid="button-power"
+              disabled={isTransitioning}
             >
               {isPowerOn ? (
                 <><Power className="h-4 w-4 mr-1" /> ON</>
@@ -203,7 +241,7 @@ export default function VoiceControls() {
             variant={isMicOn ? "outline" : "destructive"}
             size="sm"
             onClick={handleMicToggle}
-            disabled={!isPowerOn}
+            disabled={!isPowerOn || isTransitioning}
             data-testid="button-mic-toggle"
           >
             {isMicOn ? "ON" : "OFF"}
@@ -218,7 +256,7 @@ export default function VoiceControls() {
                 id="auto-listen"
                 checked={autoListen}
                 onCheckedChange={(checked) => setAutoListen(!!checked)}
-                disabled={!isPowerOn || !isEnabled || !isMicOn}
+                disabled={!isPowerOn || !isEnabled || !isMicOn || isTransitioning}
                 data-testid="checkbox-auto-listen"
               />
               <Label 

@@ -98,6 +98,14 @@ export function useVAD(callbacks: VADCallbacks = {}) {
         speechStartTimeRef.current = now;
       } else if (now - speechStartTimeRef.current > config.minMs) {
         // Confirmed speech after minimum duration
+        
+        // Check if TTS is currently speaking (barge-in detection)
+        if (Voice.isSpeaking()) {
+          // User is interrupting TTS - stop current speech
+          console.log('[VAD] User interrupting TTS - stopping speech (barge-in)');
+          Voice.speaking(false); // This will trigger cooldown and stop TTS
+        }
+        
         isSpeakingRef.current = true;
         lastSpeechEndRef.current = 0;
         setState(prev => ({ 

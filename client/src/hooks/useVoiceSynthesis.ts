@@ -577,6 +577,29 @@ export function useVoiceSynthesis() {
     setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
   }, []);
 
+  // Interrupt function for barge-in functionality
+  const interrupt = useCallback(() => {
+    console.log("[VoiceSynthesis] Barge-in interrupt - stopping TTS");
+    
+    // Cancel any ongoing speech synthesis
+    cancelSpeak();
+    isCancelledRef.current = true;
+    isExecutingProsodyRef.current = false;
+    isSpeakingRef.current = false;
+    
+    // Clear safety timeout
+    if (safetyTimeoutRef.current) {
+      clearTimeout(safetyTimeoutRef.current);
+      safetyTimeoutRef.current = null;
+    }
+    
+    // Notify Voice controller about interruption
+    Voice.speaking(false); // This will trigger cooldown
+    VoiceBus.setSpeaking(false);
+    
+    setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
+  }, []);
+
   const test = useCallback(() => {
     speak("Hello, I'm Chango. How can I help you today?", true);
   }, [speak]);
@@ -646,6 +669,7 @@ export function useVoiceSynthesis() {
     disable,
     speak,
     stop,
+    interrupt,
     test,
     applyAccent,
     repeatWithAccent,

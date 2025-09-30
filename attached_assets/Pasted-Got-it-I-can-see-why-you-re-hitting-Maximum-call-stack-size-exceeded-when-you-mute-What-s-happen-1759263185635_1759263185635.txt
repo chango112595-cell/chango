@@ -1,0 +1,143 @@
+Got it—I can see why you’re hitting “Maximum call stack size exceeded” when you mute.
+
+What’s happening (in plain English)
+	•	cancelSpeak() calls window.speechSynthesis.cancel().
+	•	Your VoiceBus then notifies listeners.
+	•	One of those listeners (in useVoiceSynthesis.ts @ ~651) calls cancelSpeak() again in response.
+	•	That creates a synchronous loop: cancelSpeak → notifyListeners → cancelSpeak → ... until the stack blows up.
+
+Minimal, robust fix
+
+Break the loop with:
+	1.	a reentrancy guard inside cancelSpeak();
+	2.	async event emission (queue the callbacks so they don’t run inline);
+	3.	a small tweak in the hook listener so it doesn’t call cancelSpeak() in response to a cancel event.
+
+Below are copy-paste patches.
+
+⸻
+
+1) voiceBus.ts — make cancel re-entry-safe and emit asynchronously
+
+// ...existing imports...
+
+type VoiceEvent =
+  | { type: 'start' }
+  | { type: 'end' }
+  | { type: 'error'; err: unknown }
+  | { type: 'cancel'; source?: 'user' | 'system' }
+  | { type: 'muteChange'; muted: boolean };
+
+export class VoiceBusManager {
+  private listeners = new Set<(ev: VoiceEvent) => void>();
+  // add this:
+  private _isCancelling = false;
+
+  on(fn: (ev: VoiceEvent) => void) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  // Emit asynchronously to avoid inline recursion into producers.
+  private emitAsync(ev: VoiceEvent) {
+    const fns = Array.from(this.listeners);
+    for (const fn of fns) queueMicrotask(() => fn(ev));
+  }
+
+  cancelSpeak(source: 'user' | 'system' = 'user'): void {
+    // ---- reentrancy guard ----
+    if (this._isCancelling) return;
+    this._isCancelling = true;
+    try {
+      // Cancel all ongoing speech synthesis
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      // clear internal speaking/queue state here if you keep it
+      // this.queue = [];
+      // this.speaking = false;
+    } finally {
+      this._isCancelling = false;
+    }
+    // Fire event AFTER we exit cancelling state, and async
+    this.emitAsync({ type: 'cancel', source });
+  }
+
+  // wherever you previously used notifyListeners(ev), call this.emitAsync(ev)
+}
+
+
+⸻
+
+2) useVoiceSynthesis.ts — don’t call cancelSpeak() on a cancel event
+
+Find your subscription to the VoiceBus (around the stack’s useVoiceSynthesis.ts:651).
+
+Change the listener so it does not call cancelSpeak() when it receives a cancel event (that event is the result of a cancel, not a trigger to cancel again):
+
+useEffect(() => {
+  const off = voiceBus.on(ev => {
+    switch (ev.type) {
+      case 'cancel':
+        // IMPORTANT: do NOT call voiceBus.cancelSpeak() here.
+        // Just update local UI state.
+        setSpeaking(false);
+        setQueue([]);
+        return;
+
+      case 'muteChange':
+        // If you want mute to stop speech, trigger a single cancel from here
+        // ONLY when mute toggles ON (to avoid loops), and not in response to 'cancel'.
+        if (ev.muted) {
+          voiceBus.cancelSpeak('system'); // this is okay; it won't recurse now
+        }
+        return;
+
+      // ...handle start/end/error as before...
+    }
+  });
+  return off;
+}, [voiceBus]);
+
+If you previously called cancelSpeak() both in a mute handler and again inside the event listener, delete the duplicate call. One path is enough.
+
+⸻
+
+3) (Optional) micro-debounce for cancel storm protection
+
+If rapid toggles are common, add a tiny debounce in voiceBus.ts:
+
+private _cancelScheduled = false;
+
+cancelSpeak(source: 'user' | 'system' = 'user'): void {
+  if (this._cancelScheduled) return;
+  this._cancelScheduled = true;
+  queueMicrotask(() => {
+    this._cancelScheduled = false;
+    this._cancelNow(source);
+  });
+}
+
+private _cancelNow(source: 'user' | 'system') {
+  if (this._isCancelling) return;
+  this._isCancelling = true;
+  try {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  } finally {
+    this._isCancelling = false;
+  }
+  this.emitAsync({ type: 'cancel', source });
+}
+
+
+⸻
+
+Quick test checklist
+	1.	Toggle Mute while speaking → speech stops, no red overlay, no stack explosion.
+	2.	Re-toggle Mute quickly → still stable, no repeated cancels.
+	3.	Start speaking again after a cancel → works as expected.
+	4.	Verify that cancel events update UI state but never trigger another cancel.
+
+If you paste these changes and still see a loop, tell me which lines in your versions call cancelSpeak() and I’ll tailor the guard to that flow.

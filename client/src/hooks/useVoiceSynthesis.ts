@@ -630,33 +630,59 @@ export function useVoiceSynthesis() {
     return isSpeakingRef.current || state.isPlaying;
   }, [state.isPlaying]);
 
-  // Subscribe to VoiceBus state changes
+  // Subscribe to VoiceBus event changes - use event-based system to prevent circular dependencies
   useEffect(() => {
-    const unsubscribe = VoiceBus.subscribe((busState) => {
-      // If power turned off while speaking, stop immediately
-      if (!busState.power && isSpeakingRef.current) {
-        cancelSpeak();
-        isCancelledRef.current = true;
-        isSpeakingRef.current = false;
-        setState(prev => ({ 
-          ...prev, 
-          isPlaying: false,
-          currentUtterance: "",
-          isEnabled: false
-        }));
-      }
-      
-      // If muted while speaking, stop immediately
-      if (busState.mute && isSpeakingRef.current) {
-        cancelSpeak();
-        isCancelledRef.current = true;
-        isSpeakingRef.current = false;
-        setState(prev => ({ 
-          ...prev, 
-          isPlaying: false,
-          currentUtterance: "",
-          isMuted: true
-        }));
+    const unsubscribe = VoiceBus.on((event) => {
+      switch (event.type) {
+        case 'cancel':
+          // IMPORTANT: do NOT call VoiceBus.cancelSpeak() here - that would cause circular recursion
+          // Just update local UI state
+          isCancelledRef.current = true;
+          isSpeakingRef.current = false;
+          setState(prev => ({ 
+            ...prev, 
+            isPlaying: false,
+            currentUtterance: "",
+          }));
+          return;
+
+        case 'muteChange':
+          // Update mute state
+          setState(prev => ({ ...prev, isMuted: event.muted || false }));
+          
+          // Only trigger cancel when mute toggles ON and we're speaking
+          if (event.muted && isSpeakingRef.current && !isCancelledRef.current) {
+            // Use VoiceBus.cancelSpeak to stop speech when muted
+            VoiceBus.cancelSpeak('system');
+          }
+          return;
+        
+        case 'powerChange':
+          // Handle power state changes
+          if (!event.powered) {
+            // Power turned off - stop everything
+            isCancelledRef.current = true;
+            isSpeakingRef.current = false;
+            setState(prev => ({ 
+              ...prev, 
+              isPlaying: false,
+              currentUtterance: "",
+              isEnabled: false
+            }));
+          }
+          return;
+
+        case 'speakingChange':
+          // Just update speaking state if needed
+          // This is handled elsewhere, so we can skip it
+          return;
+
+        case 'stateChange':
+          // Handle general state changes if needed
+          return;
+
+        default:
+          return;
       }
     });
     

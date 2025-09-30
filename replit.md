@@ -6,11 +6,12 @@ This is a full-stack TypeScript application called "Chango AI" that provides adv
 
 ## Fixed Issues
 - ✅ **Stack Overflow Fix**: Resolved Maximum call stack size exceeded error in voice control system
-  - Added `isTransitioning` flag to VoiceBus to prevent concurrent state changes
-  - Implemented safety guards in all hooks (useVoiceSynthesis, useVAD, useWakeWord)
-  - Added debouncing (100ms) to control toggles in VoiceControls component
-  - Added `isGeneratingRef` flag in CuriosityEngine to prevent concurrent generation
-  - Properly managed state transitions with guards and timeouts
+  - Implemented singleton VoiceController with ACTIVE/MUTED/KILLED state management
+  - Added execution guards to prevent concurrent prosody executions
+  - Fixed circular dependencies between Voice controller and VoiceBus
+  - Added HMR-safe initialization to prevent duplicate listeners
+  - Implemented audit logging for debugging voice state changes
+  - Added Kill/Revive functionality with passphrase protection for emergency control
   - System now handles rapid control toggling without errors
 
 ## Completed Features (September 29, 2025)

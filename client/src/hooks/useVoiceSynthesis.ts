@@ -1,6 +1,7 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { applyAccentToText, type AccentConfig } from "@/lib/accentEngine";
+import { VoiceBus, cancelSpeak } from "@/lib/voiceBus";
 
 interface VoiceSynthesisState {
   isEnabled: boolean;
@@ -135,6 +136,7 @@ export function useVoiceSynthesis() {
     console.log("[VoiceSynthesis] Executing prosody plan:", plan.length, "steps");
     isCancelledRef.current = false;
     isSpeakingRef.current = true;
+    VoiceBus.setSpeaking(true);
     
     const voices = speechSynthesis.getVoices();
     
@@ -147,9 +149,14 @@ export function useVoiceSynthesis() {
     ) || voices.find(voice => voice.default) || voices[0];
 
     for (const step of plan) {
-      // Check if muted or cancelled before each step
-      if (isCancelledRef.current || isMutedRef.current) {
-        console.log("[VoiceSynthesis] Prosody plan execution stopped:", { cancelled: isCancelledRef.current, muted: isMutedRef.current });
+      // Check if power is off, muted or cancelled before each step
+      const busState = VoiceBus.getState();
+      if (!busState.power || busState.mute || isCancelledRef.current || isMutedRef.current) {
+        console.log("[VoiceSynthesis] Prosody plan execution stopped:", { 
+          power: busState.power,
+          muted: busState.mute || isMutedRef.current,
+          cancelled: isCancelledRef.current 
+        });
         break;
       }
 
@@ -182,8 +189,9 @@ export function useVoiceSynthesis() {
             resolve(); // Continue with next phrase even if error
           };
           
-          // Check if muted before speaking
-          if (!isMutedRef.current) {
+          // Check if muted or power off before speaking
+          const busState = VoiceBus.getState();
+          if (!busState.mute && !isMutedRef.current && busState.power) {
             speechSynthesis.speak(utterance);
           } else {
             resolve();
@@ -218,8 +226,9 @@ export function useVoiceSynthesis() {
             resolve(); // Continue with next word even if error
           };
           
-          // Check if muted before speaking
-          if (!isMutedRef.current) {
+          // Check if muted or power off before speaking
+          const busState = VoiceBus.getState();
+          if (!busState.mute && !isMutedRef.current && busState.power) {
             speechSynthesis.speak(utterance);
           } else {
             resolve();
@@ -233,6 +242,7 @@ export function useVoiceSynthesis() {
     
     console.log("[VoiceSynthesis] Prosody plan execution completed");
     isSpeakingRef.current = false;
+    VoiceBus.setSpeaking(false);
     setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
   }, [state.accentConfig]);
 
@@ -266,24 +276,29 @@ export function useVoiceSynthesis() {
     // Set up event handlers
     utterance.onstart = () => {
       isSpeakingRef.current = true;
+      VoiceBus.setSpeaking(true);
       setState(prev => ({ ...prev, isPlaying: true, currentUtterance: text }));
     };
 
     utterance.onend = () => {
       isSpeakingRef.current = false;
+      VoiceBus.setSpeaking(false);
       setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
     };
 
     utterance.onerror = (event) => {
       console.error("Speech error:", event.error);
       isSpeakingRef.current = false;
+      VoiceBus.setSpeaking(false);
       setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
       
       // For testing environments, simulate successful speech
       if (event.error === "synthesis-failed" && voices.length === 0) {
         console.log("Simulating speech for testing environment");
+        VoiceBus.setSpeaking(true);
         setState(prev => ({ ...prev, isPlaying: true, currentUtterance: text }));
         setTimeout(() => {
+          VoiceBus.setSpeaking(false);
           setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
         }, 2000);
       }
@@ -308,14 +323,32 @@ export function useVoiceSynthesis() {
   const setMuted = useCallback((muted: boolean) => {
     // Update ref immediately
     isMutedRef.current = muted;
+    VoiceBus.setMute(muted);
     
     // If muting, stop any ongoing speech immediately
     if (muted) {
-      speechSynthesis.cancel();
+      cancelSpeak();
       isCancelledRef.current = true;
+      isSpeakingRef.current = false;
       setState(prev => ({ ...prev, isMuted: muted, isPlaying: false, currentUtterance: "" }));
     } else {
       setState(prev => ({ ...prev, isMuted: muted }));
+    }
+  }, []);
+
+  const setPower = useCallback((power: boolean) => {
+    VoiceBus.setPower(power);
+    if (!power) {
+      // Turning off power, stop everything
+      cancelSpeak();
+      isCancelledRef.current = true;
+      isSpeakingRef.current = false;
+      setState(prev => ({ 
+        ...prev, 
+        isPlaying: false,
+        currentUtterance: "",
+        isEnabled: false
+      }));
     }
   }, []);
 
@@ -337,8 +370,14 @@ export function useVoiceSynthesis() {
 
   // Main speak function with CVE integration
   const speak = useCallback(async (text: string, forceSpeak: boolean = false) => {
-    // Check if muted
-    if (state.isMuted && !forceSpeak) {
+    // Hard gates - check power and mute first
+    const busState = VoiceBus.getState();
+    if (!busState.power) {
+      console.error("[VoiceSynthesis] Power is OFF - cannot speak");
+      return;
+    }
+    
+    if ((busState.mute || state.isMuted) && !forceSpeak) {
       console.log("[VoiceSynthesis] Speech blocked: Muted");
       return;
     }
@@ -389,8 +428,9 @@ export function useVoiceSynthesis() {
 
     // Stop any ongoing speech
     speechSynthesis.cancel();
-    isCancelledRef.current = true;
+    isCancelledRef.current = false;
     isSpeakingRef.current = true; // Set speaking flag immediately
+    VoiceBus.setSpeaking(true);
 
     // Save the text for repeat functionality
     lastUtteranceRef.current = text;
@@ -452,7 +492,7 @@ export function useVoiceSynthesis() {
   }, [state.isEnabled, state.isMuted, state.requiresHumanSpeech, state.lastHumanSpeechTime, state.accentConfig, executeProsodyPlan, fallbackLocalSynthesis, toast, enable]);
 
   const stop = useCallback(() => {
-    speechSynthesis.cancel();
+    cancelSpeak();
     isCancelledRef.current = true;
     isSpeakingRef.current = false;
     setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
@@ -488,6 +528,39 @@ export function useVoiceSynthesis() {
     return isSpeakingRef.current || state.isPlaying;
   }, [state.isPlaying]);
 
+  // Subscribe to VoiceBus state changes
+  useEffect(() => {
+    const unsubscribe = VoiceBus.subscribe((busState) => {
+      // If power turned off while speaking, stop immediately
+      if (!busState.power && isSpeakingRef.current) {
+        cancelSpeak();
+        isCancelledRef.current = true;
+        isSpeakingRef.current = false;
+        setState(prev => ({ 
+          ...prev, 
+          isPlaying: false,
+          currentUtterance: "",
+          isEnabled: false
+        }));
+      }
+      
+      // If muted while speaking, stop immediately
+      if (busState.mute && isSpeakingRef.current) {
+        cancelSpeak();
+        isCancelledRef.current = true;
+        isSpeakingRef.current = false;
+        setState(prev => ({ 
+          ...prev, 
+          isPlaying: false,
+          currentUtterance: "",
+          isMuted: true
+        }));
+      }
+    });
+    
+    return unsubscribe;
+  }, []);
+
   return {
     ...state,
     enable,
@@ -499,6 +572,7 @@ export function useVoiceSynthesis() {
     repeatWithAccent,
     isSpeaking,
     setMuted,
+    setPower,
     setRequiresHumanSpeech,
     updateLastHumanSpeech,
   };

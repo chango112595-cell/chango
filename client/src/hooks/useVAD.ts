@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { VoiceBus } from "@/lib/voiceBus";
 
 interface VADConfig {
   minDb: number; // Minimum decibel level to consider as speech
@@ -75,6 +76,13 @@ export function useVAD(callbacks: VADCallbacks = {}) {
     const now = Date.now();
     const isSpeechDetected = avgDb > config.minDb;
 
+    // Check if power is on before processing speech events
+    const busState = VoiceBus.getState();
+    if (!busState.power) {
+      // Don't process if power is off
+      return;
+    }
+    
     // Handle speech detection state machine
     if (isSpeechDetected && !isSpeakingRef.current) {
       // Speech started
@@ -136,6 +144,18 @@ export function useVAD(callbacks: VADCallbacks = {}) {
 
   // Start VAD
   const startListening = useCallback(async () => {
+    // Check if power is on
+    const busState = VoiceBus.getState();
+    if (!busState.power) {
+      console.error("[useVAD] Cannot start - power is OFF");
+      toast({
+        title: "Cannot Start VAD",
+        description: "Voice power is OFF. Turn on power first.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     try {
       // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -201,15 +221,26 @@ export function useVAD(callbacks: VADCallbacks = {}) {
       animationFrameRef.current = null;
     }
 
+    // Disconnect and close audio nodes properly
+    if (analyserRef.current && audioContextRef.current) {
+      try {
+        analyserRef.current.disconnect();
+      } catch (e) {
+        // Ignore disconnect errors
+      }
+    }
+    
     // Close audio context
     if (audioContextRef.current) {
       audioContextRef.current.close();
       audioContextRef.current = null;
     }
 
-    // Stop media stream
+    // Stop media stream - properly release microphone
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+      });
       streamRef.current = null;
     }
 

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { VoiceBus, cancelSpeak } from "@/lib/voiceBus";
 
 interface WakeWordConfig {
   wakeWord?: string;
@@ -72,7 +73,9 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
   // Handle speech recognition results
   const handleSpeechResult = useCallback((event: any) => {
-    if (!state.isEnabled) return;
+    // Check if power is on
+    const busState = VoiceBus.getState();
+    if (!busState.power || !state.isEnabled) return;
 
     const resultIndex = event.resultIndex;
     const result = event.results[resultIndex];
@@ -271,6 +274,18 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
   // Enable wake word detection
   const enable = useCallback(async () => {
+    // Check if power is on
+    const busState = VoiceBus.getState();
+    if (!busState.power) {
+      console.error("[useWakeWord] Cannot enable - power is OFF");
+      toast({
+        title: "Cannot Enable",
+        description: "Voice power is OFF. Turn on power first.",
+        variant: "destructive",
+      });
+      return false;
+    }
+    
     if (!initializeRecognition()) {
       return false;
     }
@@ -305,6 +320,9 @@ export function useWakeWord(config: WakeWordConfig = {}) {
         // Ignore
       }
     }
+    
+    // Stop any ongoing speech
+    cancelSpeak();
     
     // Clear all timeouts
     if (timeoutRef.current) clearTimeout(timeoutRef.current);

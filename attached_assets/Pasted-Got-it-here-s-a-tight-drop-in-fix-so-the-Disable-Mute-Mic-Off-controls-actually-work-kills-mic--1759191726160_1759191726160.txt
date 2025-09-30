@@ -1,0 +1,246 @@
+Got it—here’s a tight drop-in fix so the Disable / Mute / Mic Off controls actually work (kills mic stream, cancels current TTS, blocks auto-reply/wake).
+
+⸻
+
+1) client/voice/tts_browser.js (add cancel + hard gate)
+
+// replace file with this
+export const VoiceBus = { mute:false, speaking:false, power:true };
+
+export function cancelSpeak() {
+  try { window.speechSynthesis.cancel(); } catch {}
+  VoiceBus.speaking = false;
+}
+
+function pickVoice(accPref){
+  const list = window.speechSynthesis.getVoices();
+  if (!list.length) return null;
+  const pref = (accPref||'en').toLowerCase();
+  const score = v => {
+    const n=(v.name||'').toLowerCase(), l=(v.lang||'').toLowerCase();
+    let s=0; if(l.startsWith(pref)) s+=3; if(n.includes('natural')||n.includes('premium')) s+=2; return s;
+  };
+  return [...list].sort((a,b)=>score(b)-score(a))[0]||list[0];
+}
+
+export async function speakBrowser({text,accent,rate=1,pitch=1,volume=1}){
+  if (!VoiceBus.power) return {ok:false,error:'power_off'};
+  if (VoiceBus.mute)   return {ok:true, muted:true};
+  if (VoiceBus.speaking) return {ok:false,error:'busy'};
+
+  const u = new SpeechSynthesisUtterance(text);
+  await new Promise(r=>setTimeout(r,10));
+  const chosen = pickVoice(accent);
+  if (chosen) u.voice = chosen;
+
+  u.rate=Math.max(0.7,Math.min(1.3,rate));
+  u.pitch=Math.max(0.5,Math.min(1.8,pitch));
+  u.volume=Math.max(0,Math.min(1,volume));
+  u.text=text.replace(/, /g,', … ').replace(/\. /g,'. … ');
+
+  VoiceBus.speaking = true;
+  return new Promise(res=>{
+    u.onend=()=>{VoiceBus.speaking=false;res({ok:true,voice:chosen?.name||null});};
+    u.onerror=e=>{VoiceBus.speaking=false;res({ok:false,error:String(e?.error||e)});};
+    window.speechSynthesis.speak(u);
+  });
+}
+
+
+⸻
+
+2) client/voice/wake_loop.js (respect Power + external stop)
+
+// replace file with this
+import {VADGate} from './vad.js';
+import {speakBrowser, VoiceBus, cancelSpeak} from './tts_browser.js';
+
+export function startWakeLoop(opts={}){
+  const cfg={wakeWord:(opts.wakeWord||'chango').toLowerCase(), cooldownMs:2500, maxUtterMs:8000};
+  const st={heard:false,lastSpeak:0,engaged:false, stopped:false};
+  const el=id=>document.getElementById(id);
+  const vad=new VADGate({minDb:-50,minMs:250,debounceMs:1200});
+  let rec, chunks=[];
+
+  function cooling(){ return (performance.now()-st.lastSpeak)<cfg.cooldownMs; }
+  function saidWake(s){ return (s||'').toLowerCase().includes(cfg.wakeWord); }
+
+  async function ensureRec(){
+    if (rec) return rec;
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    const mediaRec = new MediaRecorder(stream,{mimeType:'audio/webm'});
+    mediaRec.ondataavailable=e=>{ if(e.data&&e.data.size>0) chunks.push(e.data); };
+    mediaRec.onstop=()=>{ try{stream.getTracks().forEach(t=>t.stop());}catch{} };
+    return rec = mediaRec;
+  }
+
+  async function engage(){
+    if (st.engaged || st.stopped || !VoiceBus.power || cooling()) return;
+    st.engaged = true; chunks=[];
+    const m = await ensureRec(); m.start(250);
+    setTimeout(()=>{ try{m.stop();}catch{} }, cfg.maxUtterMs);
+  }
+
+  async function speak(text){
+    if (!VoiceBus.power || VoiceBus.mute || st.stopped) return;
+    st.lastSpeak = performance.now();
+    await speakBrowser({
+      text,
+      accent: el('vcAccent')?.value||'en-US',
+      rate: Number(el('vcRate')?.value||1),
+      pitch:Number(el('vcPitch')?.value||1),
+      volume:Number(el('vcVol')?.value||1)
+    });
+  }
+
+  async function init(){
+    await vad.attach();
+    vad.onSpeech=()=>{
+      if (st.stopped || !VoiceBus.power) return;
+      st.heard=true; const h=el('vcHeard'); if(h){h.textContent='heard: yes'; h.style.color='#7CFC00';}
+      if (!st.engaged && !cooling()) engage();
+    };
+  }
+
+  async function pump(){
+    if (st.stopped) return;
+    if (chunks.length){
+      const blob=new Blob(chunks,{type:'audio/webm'}); chunks=[];
+      // placeholder “transcript”
+      const txt = (await blob.text()).slice(0,400);
+      if (saidWake(txt))      await speak('Yes?');
+      else if (txt.trim())    await fetch('/nlp/reply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt})})
+                                  .then(r=>r.json()).then(j=>speak(j?.reply||'Okay.')).catch(()=>{});
+      st.engaged=false;
+    }
+    requestAnimationFrame(pump);
+  }
+
+  init(); pump();
+
+  return {
+    stop(){
+      st.stopped = true;
+      try{ vad.stop(); }catch{}
+      try{ rec?.state==='recording' && rec.stop(); }catch{}
+      cancelSpeak();
+    }
+  };
+}
+
+
+⸻
+
+3) client/ui/voice_controls.js (working buttons)
+
+// replace file with this
+import {speakBrowser, VoiceBus, cancelSpeak} from '../voice/tts_browser.js';
+import {VADGate} from '../voice/vad.js';
+import {startWakeLoop} from '../voice/wake_loop.js';
+
+export function mountVoiceControls(){
+  const $=id=>document.getElementById(id);
+  const root=$('voiceControls'); if(!root) return;
+
+  root.innerHTML = `
+    <div class="row">
+      <button id="vcPower">Power: ON</button>
+      <button id="vcSilent">Silent: OFF</button>
+      <button id="vcMic">Mic: ON</button>
+      <button id="vcSpeakDisable">Speech: ON</button>
+      <span id="vcHeard" style="opacity:.7">heard: no</span>
+    </div>
+    <div class="row">
+      <label>Accent</label><select id="vcAccent"><option>en-US</option><option>en-GB</option><option>es-MX</option><option>es-ES</option><option>fr-FR</option><option>pt-BR</option></select>
+      <label>Rate</label><input id="vcRate" class="num" type="range" min="0.70" max="1.30" step="0.01" value="1.00"><span id="vcRateVal">1.00</span>
+      <label>Pitch</label><input id="vcPitch" class="num" type="range" min="0.50" max="1.80" step="0.01" value="1.00"><span id="vcPitchVal">1.00</span>
+      <label>Vol</label><input id="vcVol" class="num" type="range" min="0" max="1" step="0.01" value="1.00"><span id="vcVolVal">1.00</span>
+    </div>
+    <div class="row">
+      <input id="vcPhrase" style="flex:1" placeholder="Say something…">
+      <button id="vcTest">Speak</button>
+    </div>
+    <pre id="vcOut" class="mono"></pre>
+  `;
+
+  // state
+  let micOn = true;
+  let wakeLoop = null;
+  const vad = new VADGate({minDb:-50,minMs:250,debounceMs:1200});
+
+  function heard(flag){
+    const h=$('vcHeard'); h.textContent='heard: ' + (flag?'yes':'no'); h.style.color=flag?'#7CFC00':'#9aa5b1';
+  }
+
+  // init VAD
+  (async()=>{
+    try{
+      await vad.attach();
+      vad.onSpeech=()=>heard(true);
+    }catch(e){ out({ok:false,error:'vad_attach_fail',detail:String(e)}); }
+  })();
+
+  // buttons
+  $('vcPower').onclick=()=>{
+    VoiceBus.power = !VoiceBus.power;
+    $('vcPower').innerText = VoiceBus.power ? 'Power: ON' : 'Power: OFF';
+    if (!VoiceBus.power){ cancelSpeak(); heard(false); }
+  };
+
+  $('vcSilent').onclick=()=>{
+    VoiceBus.mute = !VoiceBus.mute;
+    $('vcSilent').innerText = VoiceBus.mute ? 'Silent: ON' : 'Silent: OFF';
+    if (VoiceBus.mute) cancelSpeak();
+  };
+
+  $('vcMic').onclick=()=>{
+    micOn = !micOn;
+    $('vcMic').innerText = micOn ? 'Mic: ON' : 'Mic: OFF';
+    try{
+      if (!micOn){ vad.stop(); wakeLoop?.stop(); wakeLoop=null; heard(false); }
+      else {
+        vad.attach().then(()=>{
+          vad.onSpeech=()=>heard(true);
+        });
+      }
+    }catch{}
+  };
+
+  $('vcSpeakDisable').onclick=()=>{
+    const off = $('vcSpeakDisable').dataset.off === '1' ? false : true;
+    $('vcSpeakDisable').dataset.off = off ? '1':'0';
+    $('vcSpeakDisable').innerText = off ? 'Speech: OFF' : 'Speech: ON';
+    if (off){ VoiceBus.mute = true; cancelSpeak(); }
+    else { VoiceBus.mute = false; }
+  };
+
+  $('vcTest').onclick=async()=>{
+    const text=$('vcPhrase').value||'Hello, this is Chango.';
+    if (!VoiceBus.power) return out({ok:false,error:'power_off'});
+    if (VoiceBus.mute)   return out({ok:false,error:'muted'});
+    const r = await fetch('/voice/say',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text,accent:$('vcAccent').value,rate:Number($('vcRate').value),pitch:Number($('vcPitch').value),volume:Number($('vcVol').value)})}).then(r=>r.json());
+    if (r.ok) await speakBrowser({text,accent:$('vcAccent').value,rate:Number($('vcRate').value),pitch:Number($('vcPitch').value),volume:Number($('vcVol').value)});
+    out(r);
+  };
+
+  // optional: expose wake loop toggle somewhere else if you already have it
+  window.enableHandsFree = (wakeWord='Chango')=>{
+    if (wakeLoop){ wakeLoop.stop(); wakeLoop=null; return false; }
+    wakeLoop = startWakeLoop({wakeWord});
+    return true;
+  };
+
+  function out(x){ $('vcOut').textContent = JSON.stringify(x,null,2); }
+}
+
+
+⸻
+
+What this fixes
+	•	Power: truly disables speech (hard gate) and cancels any ongoing TTS.
+	•	Silent / Speech OFF: toggles a global mute + cancels instantly.
+	•	Mic OFF: stops VAD, stops wake loop, releases mic tracks.
+	•	Wake loop now respects Power and can be terminated via .stop().
+
+If anything still talks when Power OFF or Speech OFF, tell me which button you pressed and what the HUD showed—I’ll pinpoint it fast.

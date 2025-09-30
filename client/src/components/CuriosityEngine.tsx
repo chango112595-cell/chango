@@ -8,6 +8,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
 import { useSpeechCoordination } from "@/lib/speechCoordination";
+import { VoiceBus } from "@/lib/voiceBus";
 import { Volume2, VolumeX } from "lucide-react";
 import type { CuriosityLog } from "@shared/schema";
 
@@ -142,6 +143,18 @@ export default function CuriosityEngine() {
 
   // Generate more natural, conversational responses
   const generateCuriousResponse = () => {
+    // Check VoiceBus power and mute states first
+    const busState = VoiceBus.getState();
+    if (!busState.power) {
+      console.log("[CuriosityEngine] Skipping response - power is OFF");
+      return;
+    }
+    
+    if (busState.mute) {
+      console.log("[CuriosityEngine] Skipping response - muted");
+      return;
+    }
+    
     // Don't generate response if speech is already active or chat was recently active
     if (voice.isSpeaking()) {
       console.log("[CuriosityEngine] Skipping response - already speaking");
@@ -340,6 +353,12 @@ export default function CuriosityEngine() {
   // Auto-generate responses based on curiosity level
   useEffect(() => {
     const interval = setInterval(() => {
+      // Check VoiceBus state first
+      const busState = VoiceBus.getState();
+      if (!busState.power || busState.mute) {
+        return; // Don't speak if power is off or muted
+      }
+      
       // Check if quiet mode is enabled or if we can speak before rolling the dice
       if (!quietMode && !voice.isSpeaking() && speechCoordination.canCuriositySpeak()) {
         // Check VAD requirements

@@ -5,6 +5,13 @@ This is a full-stack TypeScript application called "Chango AI" that provides adv
 # Recent Changes (September 30, 2025)
 
 ## Fixed Issues
+- ✅ **Complete Voice Response Pipeline**: Chango can now answer questions via STT → NLP → TTS
+  - Added Web Speech API STT implementation for speech recognition
+  - Integrated wake word detection with NLP reply processing
+  - Connected `/api/nlp/reply` endpoint to voice synthesis
+  - Added "Ask" button fallback for manual text input
+  - Tested and working: "what time is it?", "who are you?", etc.
+  
 - ✅ **Curiosity Engine Fix**: Prevented Chango from talking randomly when in WAKE mode
   - Added Voice mode checking to CuriosityEngine component
   - Curiosity responses now only occur in ACTIVE mode, not WAKE/MUTED/KILLED

@@ -5,6 +5,13 @@ This is a full-stack TypeScript application called "Chango AI" that provides adv
 # Recent Changes (September 30, 2025)
 
 ## Fixed Issues
+- ✅ **Curiosity Engine Fix**: Prevented Chango from talking randomly when in WAKE mode
+  - Added Voice mode checking to CuriosityEngine component
+  - Curiosity responses now only occur in ACTIVE mode, not WAKE/MUTED/KILLED
+  - Console logs confirm fix working: "[CuriosityEngine] Skipping auto response - Voice mode is WAKE"
+  - System properly respects wake word requirement - only responds to "Chango" trigger
+  
+## Previous Fixes
 - ✅ **Self-Listening Loop Prevention**: Comprehensive voice system improvements
   - **Hard-gate STT during TTS**: Speech recognition disabled while Chango speaks with 450ms cooldown
   - **Echo cancellation**: Browser-level audio processing (echo cancellation, noise suppression, auto gain control)

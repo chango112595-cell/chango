@@ -66,6 +66,14 @@ class ConversationOrchestratorClass {
       skipSpeech?: boolean; // For typed input that might not need speech
     } = {}
   ): Promise<{ success: boolean; response?: string; error?: string }> {
+    console.log("[ConversationOrchestrator] processConversation called with:", {
+      userInput,
+      hasOptions: !!options,
+      hasAddUserMessage: !!options.addUserMessage,
+      hasAddChangoMessage: !!options.addChangoMessage,
+      hasSpeak: !!options.speak
+    });
+    
     // Prevent re-entrancy
     if (this.state.isBusy) {
       console.log("[ConversationOrchestrator] Busy - rejecting concurrent request");
@@ -77,6 +85,7 @@ class ConversationOrchestratorClass {
 
     // Check power state
     const busState = VoiceBus.getState();
+    console.log("[ConversationOrchestrator] VoiceBus state:", busState);
     if (!busState.power) {
       console.log("[ConversationOrchestrator] Power is off");
       return { 
@@ -115,6 +124,7 @@ class ConversationOrchestratorClass {
       }
 
       const data = await response.json();
+      console.log("[ConversationOrchestrator] NLP response:", data);
       
       if (!data.ok || !data.reply) {
         throw new Error(data.error || 'Invalid NLP response');
@@ -124,8 +134,12 @@ class ConversationOrchestratorClass {
       this.state.lastBotResponse = data.reply;
       
       // Add Chango's response to conversation UI
+      console.log("[ConversationOrchestrator] Adding Chango message to UI");
       if (options.addChangoMessage) {
         options.addChangoMessage(data.reply);
+        console.log("[ConversationOrchestrator] Message added successfully");
+      } else {
+        console.warn("[ConversationOrchestrator] No addChangoMessage function provided!");
       }
 
       // Speak the response (unless explicitly skipped)
@@ -133,6 +147,12 @@ class ConversationOrchestratorClass {
         // Check mute/power guards before speaking
         const currentBusState = VoiceBus.getState();
         const voiceMode = Voice.getMode();
+        
+        console.log("[ConversationOrchestrator] Checking speech guards:", {
+          power: currentBusState.power,
+          muted: currentBusState.mute,
+          voiceMode
+        });
         
         if (currentBusState.power && !currentBusState.mute && voiceMode !== 'KILLED') {
           console.log("[ConversationOrchestrator] Speaking response:", data.reply.slice(0, 50));
@@ -145,6 +165,11 @@ class ConversationOrchestratorClass {
             voiceMode
           });
         }
+      } else {
+        console.log("[ConversationOrchestrator] Skipping speech:", {
+          skipSpeech: options.skipSpeech,
+          hasSpeak: !!options.speak
+        });
       }
 
       // Success!

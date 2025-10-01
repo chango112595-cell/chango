@@ -1,0 +1,138 @@
+No problem—here are the exact copy-paste patches to make Chango reply again.
+
+⸻
+
+1) Fix the enable typo (blocking voice)
+
+useVoiceSynthesis.ts – replace both bad spreads:
+
+// WRONG (current)
+// setState(prev => ({ .prev, isEnabled: true }));
+
+// RIGHT (use in both places)
+setState(prev => ({ ...prev, isEnabled: true }));
+
+
+⸻
+
+2) Add reply API (small talk + time/date)
+
+server/nlp/reply.js
+
+import express from "express";
+
+function routeIntent(q){
+  const s=(q||"").trim();
+  if(!s) return "I didn’t catch that.";
+  if(/\b(time|what.*time)\b/i.test(s)) return "It is "+new Date().toLocaleTimeString()+".";
+  if(/\b(date|today)\b/i.test(s))      return "Today is "+new Date().toLocaleDateString()+".";
+  if(/\bwho.*you|what.*chango\b/i.test(s)) return "I’m Chango, your adaptive assistant.";
+  if(/\bhow.*you\b/i.test(s))          return "Feeling sharp and online.";
+  return "Noted. Want me to act on that?";
+}
+
+export default function registerReply(app){
+  const r=express.Router();
+  r.post("/reply", express.json({limit:"1mb"}), (req,res)=>{
+    res.json({ok:true, reply: routeIntent(req.body?.text)});
+  });
+  app.use("/nlp", r);
+}
+
+server/index.js – mount it:
+
+import registerReply from "./nlp/reply.js";
+registerReply(app);
+
+
+⸻
+
+3) Single conversation orchestrator
+
+client/brain/convo.js
+
+import { speakBrowser, VoiceBus } from "../voice/tts_browser.js";
+
+const Convo=(()=>{
+  let busy=false,lastUser="",lastBot="";
+  async function ask(text){
+    if(!text?.trim()) return {ok:false,reason:"empty"};
+    if(!VoiceBus.power||VoiceBus.mute) return {ok:false,reason:"muted_or_off"};
+    if(busy) return {ok:false,reason:"busy"};
+    busy=true; lastUser=text;
+    try{
+      const r=await fetch("/nlp/reply",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})}).then(r=>r.json()).catch(()=>null);
+      const reply=r?.ok?(r.reply||"Okay."):"Okay."; lastBot=reply;
+      await speakBrowser({
+        text:reply,
+        accent:document.getElementById("vcAccent")?.value||"en-US",
+        rate:+document.getElementById("vcRate")?.value||1,
+        pitch:+document.getElementById("vcPitch")?.value||1,
+        volume:+document.getElementById("vcVol")?.value||1
+      });
+      return {ok:true,reply};
+    } finally {
+      busy=false;
+      const d=document.getElementById("diagConvo");
+      if(d) d.textContent=JSON.stringify({lastUser,lastBot,busy},null,2);
+    }
+  }
+  async function handleFinalTranscript(txt){
+    if(!txt?.trim()) return;
+    if(/\bchango\b/i.test(txt)){ await speakBrowser({text:"Yes?",accent:"en-US"}); return; }
+    await ask(txt);
+  }
+  return {ask,handleFinalTranscript};
+})();
+export default Convo;
+
+
+⸻
+
+4) Wire UI Ask → Convo
+
+client/ui/voice_controls.js
+
+import Convo from "../brain/convo.js";
+
+$('vcAsk').onclick=async()=>{
+  const q=$('vcPhrase').value||'what time is it?';
+  const r=await Convo.ask(q);
+  out(r?.ok?{ok:true,asked:q,reply:r.reply}:r);
+};
+
+
+⸻
+
+5) Wire STT final → Convo
+
+client/voice/wake_loop.js
+
+import Convo from "../brain/convo.js";
+
+// inside your stt.onfinal:
+stt.onfinal(async (txt)=>{
+  engaged=false;
+  if(!txt?.trim()) return;
+  await Convo.handleFinalTranscript(txt);
+});
+
+
+⸻
+
+6) (Optional) Stop unsolicited curiosity
+
+Where the curiosity interval runs:
+
+let autoCuriosity=false; // default OFF
+// inside setInterval: if(!autoCuriosity) return;
+
+
+⸻
+
+Quick test
+	1.	Type “how are you” → Ask → Chango speaks back.
+	2.	Say “Chango… what time is it?” → spoken reply.
+	3.	If silent: check Network tab for /nlp/reply (should be 200 with {ok:true, reply:..}).
+
+That’s it—this restores the guaranteed ask → reply → speak loop.

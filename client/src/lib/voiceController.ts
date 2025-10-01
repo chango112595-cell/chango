@@ -393,23 +393,42 @@ class VoiceController {
    * Check if input should be ignored
    */
   shouldIgnoreInput(): boolean {
-    // Ignore if killed, muted, or speaking
-    if (this.mode === 'KILLED' || this.mode === 'MUTED' || this.speakingNow) {
+    // Log the check for debugging
+    const logReason = (reason: string) => {
+      this.log(`shouldIgnoreInput: ${reason} - returning true`);
       return true;
+    };
+    
+    // Ignore if killed or muted
+    if (this.mode === 'KILLED') {
+      return logReason('mode is KILLED');
+    }
+    if (this.mode === 'MUTED') {
+      return logReason('mode is MUTED');
     }
     
-    // In WAKE mode, check if window is active
-    if (this.mode === 'WAKE' && Date.now() >= this.wakeWindowUntil) {
-      return true;
+    // Ignore if currently speaking (TTS is active)
+    if (this.speakingNow) {
+      return logReason('currently speaking (TTS active)');
+    }
+    
+    // In WAKE mode, we should NOT ignore input - we're waiting for wake word!
+    // The wake word detection logic in useWakeWord.ts will handle checking for wake word
+    if (this.mode === 'WAKE') {
+      // Don't block input in WAKE mode - we need to hear the wake word
+      this.log('shouldIgnoreInput: WAKE mode, allowing input for wake word detection - returning false');
+      return false;
     }
     
     // In ACTIVE mode with expired window, return to WAKE
     if (this.mode === 'ACTIVE' && this.wakeWindowUntil > 0 && Date.now() >= this.wakeWindowUntil) {
       this.log('Active window expired, returning to WAKE mode');
       this.setMode('WAKE');
-      return true;
+      return logReason('active window expired, transitioning to WAKE');
     }
     
+    // Default: don't ignore
+    this.log('shouldIgnoreInput: no blocking conditions - returning false');
     return false;
   }
   

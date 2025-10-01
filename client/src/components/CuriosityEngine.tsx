@@ -89,6 +89,7 @@ export default function CuriosityEngine() {
   const [learningRate, setLearningRate] = useState([75]);
   const [currentResponse, setCurrentResponse] = useState("Hello! I'm Chango, your AI assistant. I'm here to help with voice synthesis and more!");
   const [quietMode, setQuietMode] = useState(false); // Add quiet mode state
+  const [autoCuriosity, setAutoCuriosity] = useState(false); // Auto curiosity disabled by default
   const isGeneratingRef = useRef(false); // Flag to prevent concurrent generation
 
   const { toast } = useToast();
@@ -365,6 +366,11 @@ export default function CuriosityEngine() {
   // Auto-generate responses based on curiosity level
   useEffect(() => {
     const interval = setInterval(() => {
+      // Guard to check if auto curiosity is disabled
+      if (!autoCuriosity) {
+        return; // Don't generate automatic responses if disabled
+      }
+      
       // Guard to check if already generating
       if (isGeneratingRef.current) return;
       
@@ -407,7 +413,7 @@ export default function CuriosityEngine() {
     }, 2000); // Check every 2 seconds
 
     return () => clearInterval(interval);
-  }, [curiosityLevel, voice, speechCoordination, generateCuriousResponse, quietMode]);
+  }, [curiosityLevel, voice, speechCoordination, generateCuriousResponse, quietMode, autoCuriosity]);
 
   const handleAdjustPersonality = () => {
     updateSettingsMutation.mutate({
@@ -429,25 +435,35 @@ export default function CuriosityEngine() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Curiosity Engine</CardTitle>
-        <Button
-          variant={quietMode ? "destructive" : "outline"}
-          size="sm"
-          onClick={() => setQuietMode(!quietMode)}
-          className="ml-auto"
-          data-testid="button-quiet-mode"
-        >
-          {quietMode ? (
-            <>
-              <VolumeX className="w-4 h-4 mr-2" />
-              Quiet Mode
-            </>
-          ) : (
-            <>
-              <Volume2 className="w-4 h-4 mr-2" />
-              Active Mode
-            </>
-          )}
-        </Button>
+        <div className="flex gap-2 ml-auto">
+          <Button
+            variant={autoCuriosity ? "default" : "outline"}
+            size="sm"
+            onClick={() => setAutoCuriosity(!autoCuriosity)}
+            data-testid="button-auto-curiosity"
+            title={autoCuriosity ? "Disable automatic curiosity responses" : "Enable automatic curiosity responses"}
+          >
+            {autoCuriosity ? "Auto On" : "Auto Off"}
+          </Button>
+          <Button
+            variant={quietMode ? "destructive" : "outline"}
+            size="sm"
+            onClick={() => setQuietMode(!quietMode)}
+            data-testid="button-quiet-mode"
+          >
+            {quietMode ? (
+              <>
+                <VolumeX className="w-4 h-4 mr-2" />
+                Quiet Mode
+              </>
+            ) : (
+              <>
+                <Volume2 className="w-4 h-4 mr-2" />
+                Active Mode
+              </>
+            )}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">

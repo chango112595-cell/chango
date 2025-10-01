@@ -85,7 +85,7 @@ export function useWakeWord(config: WakeWordConfig = {}) {
   }, [toast]);
 
   // Handle speech recognition results
-  const handleSpeechResult = useCallback((event: any) => {
+  const handleSpeechResult = useCallback(async (event: any) => {
     // Check Voice controller state first
     const voiceMode = Voice.getMode();
     console.log('[useWakeWord] Handling speech result in mode:', voiceMode);
@@ -122,19 +122,41 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
     // In WAKE mode, check for wake word FIRST before any other filtering
     if (voiceMode === 'WAKE') {
+      // Don't check for wake word while TTS is speaking to prevent self-wake
+      if (Voice.isSpeaking()) {
+        console.log('[useWakeWord] Suppressing wake word check during TTS');
+        return;
+      }
+      
       const wakeWordDetected = transcript.includes(state.wakeWord.toLowerCase());
       console.log('[useWakeWord] Checking for wake word in transcript:', { wakeWordDetected, transcript, wakeWord: state.wakeWord });
       
       if (wakeWordDetected) {
         console.log('[useWakeWord] Wake word detected in WAKE mode! Starting STT...');
         
-        // Stop the continuous recognizer before starting command STT
-        if (recognitionRef.current) {
+        // Stop continuous recognizer and wait for it to fully stop
+        if (recognitionRef.current && !isStoppingRef.current) {
+          isStoppingRef.current = true;
           console.log('[useWakeWord] Stopping continuous recognizer before starting command STT');
+          
+          // Set up promise to wait for onend
+          const stopPromise = new Promise<void>((resolve) => {
+            const originalOnEnd = recognitionRef.current.onend;
+            recognitionRef.current.onend = (event: any) => {
+              console.log('[useWakeWord] Continuous recognizer stopped');
+              if (originalOnEnd) originalOnEnd(event);
+              isStoppingRef.current = false;
+              resolve();
+            };
+          });
+          
           try {
             recognitionRef.current.stop();
+            await stopPromise; // Wait for stop to complete
+            console.log('[useWakeWord] Ready to start command STT');
           } catch (e) {
             console.log('[useWakeWord] Error stopping recognizer:', e);
+            isStoppingRef.current = false;
           }
         }
         
@@ -316,9 +338,11 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     
     commandBufferRef.current = "";
     
-    // Stop STT if running
+    // Stop STT if running and clear reference
     if (sttRef.current) {
+      console.log('[useWakeWord] Stopping and clearing command STT');
       sttRef.current.stop();
+      sttRef.current = null; // Clear reference so continuous recognizer can restart
     }
     
     // Clear timeouts
@@ -336,13 +360,27 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     
     // Start cooldown
     if (cooldownRef.current) clearTimeout(cooldownRef.current);
-    cooldownRef.current = setTimeout(() => {
+    cooldownRef.current = setTimeout(async () => {
       setState(prev => ({ ...prev, inCooldown: false }));
       console.log('[useWakeWord] Cooldown ended');
       
+      // Wait for TTS to finish plus buffer time before restarting
+      const waitForTTS = async () => {
+        // Wait for speaking to finish
+        while (Voice.isSpeaking()) {
+          console.log('[useWakeWord] Waiting for TTS to finish before restart...');
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        // Add buffer time after TTS ends
+        console.log('[useWakeWord] TTS finished, adding buffer time...');
+        await new Promise(resolve => setTimeout(resolve, 800));
+      };
+      
+      await waitForTTS();
+      
       // Restart the continuous recognizer if still enabled
       if (state.isEnabled && recognitionRef.current) {
-        console.log('[useWakeWord] Restarting continuous recognizer after cooldown');
+        console.log('[useWakeWord] Restarting continuous recognizer after TTS + buffer');
         try {
           recognitionRef.current.start();
         } catch (e) {
@@ -382,15 +420,26 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     console.log('[useWakeWord] Recognition ended');
     setState(prev => ({ ...prev, isListening: false }));
     
-    // Restart if still enabled
+    // Don't auto-restart if we're stopping intentionally or command STT is active
+    if (isStoppingRef.current || sttRef.current) {
+      console.log('[useWakeWord] Suppressing auto-restart (stopping or command active)');
+      return;
+    }
+    
+    // Only restart if still enabled and no active STT
     if (state.isEnabled && recognitionRef.current) {
+      console.log('[useWakeWord] Restarting recognition after onend');
       setTimeout(() => {
-        try {
-          recognitionRef.current.start();
-        } catch (e) {
-          // Already started
+        // Double-check conditions before restart
+        if (state.isEnabled && recognitionRef.current && !isStoppingRef.current && !sttRef.current) {
+          try {
+            recognitionRef.current.start();
+            console.log('[useWakeWord] Recognition restarted');
+          } catch (error) {
+            console.error('[useWakeWord] Failed to restart recognition:', error);
+          }
         }
-      }, 100);
+      }, 500);
     }
   }, [state.isEnabled]);
 

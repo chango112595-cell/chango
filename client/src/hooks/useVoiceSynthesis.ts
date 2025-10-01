@@ -179,22 +179,25 @@ export function useVoiceSynthesis() {
     }
     
     // Calculate adaptive timeout based on text length and prosody steps
-    // Estimate: ~200ms per word + 500ms per pause + buffer
+    // Estimate: ~500ms per word + 500ms per pause + buffer (increased from 200ms for safer timeout)
     const wordCount = originalText.split(/\s+/).length;
     const pauseCount = plan.filter(step => step.type === 'pause').length;
-    const estimatedDuration = (wordCount * 200) + (pauseCount * 500) + 5000; // Add 5s buffer
-    const timeoutDuration = Math.max(10000, Math.min(estimatedDuration, 60000)); // Min 10s, max 60s
+    const estimatedDuration = (wordCount * 500) + (pauseCount * 500) + 10000; // Add 10s buffer
+    const timeoutDuration = Math.max(15000, Math.min(estimatedDuration, 60000)); // Min 15s, max 60s
     
+    const timeoutStartTime = Date.now();
     console.log(`[VoiceSynthesis] Setting adaptive safety timeout: ${timeoutDuration}ms for ${wordCount} words`);
     
     // Set safety timeout to prevent infinite loops
     safetyTimeoutRef.current = setTimeout(() => {
-      console.error(`[VoiceSynthesis] Safety timeout triggered after ${timeoutDuration}ms - stopping speech`);
+      const actualElapsed = Date.now() - timeoutStartTime;
+      console.error(`[VoiceSynthesis] Safety timeout triggered after ${actualElapsed}ms (configured: ${timeoutDuration}ms) - stopping speech`);
       speechSynthesis.cancel();
       isExecutingProsodyRef.current = false;
       isSpeakingRef.current = false;
       VoiceBus.setSpeaking(false);
       Voice.speaking(false);
+      setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
       safetyTimeoutRef.current = null; // Clear the ref after triggering
     }, timeoutDuration);
     
@@ -244,14 +247,31 @@ export function useVoiceSynthesis() {
           utterance.pitch = step.pitch !== undefined ? Math.max(0, Math.min(2, step.pitch * basePitch)) : basePitch;
           utterance.volume = step.volume !== undefined ? Math.max(0, Math.min(1, step.volume)) : 1.0;
           
+          utterance.onstart = () => {
+            console.log("[VoiceSynthesis] Started speaking phrase:", step.text?.slice(0, 50));
+          };
+          
           utterance.onend = () => {
+            console.log("[VoiceSynthesis] Finished speaking phrase:", step.text?.slice(0, 50));
             resolve();
           };
           
           utterance.onerror = (event: any) => {
             // Don't log error if it's due to cancellation and we're muted or cancelled
             if (!((event.error === 'canceled' || event.error === 'interrupted') && (isMutedRef.current || isCancelledRef.current))) {
-              console.error("Error speaking phrase:", step.text, event);
+              console.error("[VoiceSynthesis] Error speaking phrase:", step.text, {
+                error: event.error,
+                errorCode: event.error,
+                charIndex: event.charIndex,
+                elapsedTime: event.elapsedTime,
+                name: event.name,
+                utteranceText: utterance.text,
+                voice: utterance.voice?.name || 'no voice set',
+                voicesAvailable: speechSynthesis.getVoices().length,
+                rate: utterance.rate,
+                pitch: utterance.pitch,
+                volume: utterance.volume
+              });
             }
             // Stop execution on error to prevent stack overflow
             isCancelledRef.current = true;
@@ -261,6 +281,17 @@ export function useVoiceSynthesis() {
           // Check if muted or power off before speaking
           const busState = VoiceBus.getState();
           if (!busState.mute && !isMutedRef.current && busState.power) {
+            // Ensure we have voices loaded
+            if (!preferredVoice && voices.length === 0) {
+              console.warn("[VoiceSynthesis] No voices available, attempting to load...");
+              const retryVoices = speechSynthesis.getVoices();
+              if (retryVoices.length > 0) {
+                const retryVoice = retryVoices[0];
+                utterance.voice = retryVoice;
+                console.log("[VoiceSynthesis] Loaded voice on retry:", retryVoice.name);
+              }
+            }
+            
             speechSynthesis.speak(utterance);
           } else {
             resolve();
@@ -283,14 +314,31 @@ export function useVoiceSynthesis() {
           utterance.pitch = step.pitch !== undefined ? Math.max(0, Math.min(2, step.pitch * basePitch)) : basePitch;
           utterance.volume = step.volume !== undefined ? Math.max(0, Math.min(1, step.volume)) : 1.0;
           
+          utterance.onstart = () => {
+            console.log("[VoiceSynthesis] Started speaking word:", step.w);
+          };
+          
           utterance.onend = () => {
+            console.log("[VoiceSynthesis] Finished speaking word:", step.w);
             resolve();
           };
           
           utterance.onerror = (event: any) => {
             // Don't log error if it's due to cancellation and we're muted or cancelled
             if (!((event.error === 'canceled' || event.error === 'interrupted') && (isMutedRef.current || isCancelledRef.current))) {
-              console.error("Error speaking word:", step.w, event);
+              console.error("[VoiceSynthesis] Error speaking word:", step.w, {
+                error: event.error,
+                errorCode: event.error,
+                charIndex: event.charIndex,
+                elapsedTime: event.elapsedTime,
+                name: event.name,
+                utteranceText: utterance.text,
+                voice: utterance.voice?.name || 'no voice set',
+                voicesAvailable: speechSynthesis.getVoices().length,
+                rate: utterance.rate,
+                pitch: utterance.pitch,
+                volume: utterance.volume
+              });
             }
             // Stop execution on error to prevent stack overflow
             isCancelledRef.current = true;
@@ -300,6 +348,17 @@ export function useVoiceSynthesis() {
           // Check if muted or power off before speaking
           const busState = VoiceBus.getState();
           if (!busState.mute && !isMutedRef.current && busState.power) {
+            // Ensure we have voices loaded
+            if (!preferredVoice && voices.length === 0) {
+              console.warn("[VoiceSynthesis] No voices available for word, attempting to load...");
+              const retryVoices = speechSynthesis.getVoices();
+              if (retryVoices.length > 0) {
+                const retryVoice = retryVoices[0];
+                utterance.voice = retryVoice;
+                console.log("[VoiceSynthesis] Loaded voice on retry for word:", retryVoice.name);
+              }
+            }
+            
             speechSynthesis.speak(utterance);
           } else {
             resolve();
@@ -369,8 +428,21 @@ export function useVoiceSynthesis() {
       setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
     };
 
-    utterance.onerror = (event) => {
-      console.error("Speech error:", event.error);
+    utterance.onerror = (event: any) => {
+      console.error("[VoiceSynthesis] Fallback synthesis error:", {
+        error: event.error,
+        errorCode: event.error,
+        charIndex: event.charIndex,
+        elapsedTime: event.elapsedTime,
+        name: event.name,
+        utteranceText: utterance.text,
+        voice: utterance.voice?.name || 'no voice set',
+        voicesAvailable: voices.length,
+        rate: utterance.rate,
+        pitch: utterance.pitch,
+        volume: utterance.volume
+      });
+      
       isSpeakingRef.current = false;
       VoiceBus.setSpeaking(false);
       Voice.speaking(false); // Notify Voice controller on error
@@ -378,7 +450,7 @@ export function useVoiceSynthesis() {
       
       // For testing environments, simulate successful speech
       if (event.error === "synthesis-failed" && voices.length === 0) {
-        console.log("Simulating speech for testing environment");
+        console.log("[VoiceSynthesis] Simulating speech for testing environment");
         VoiceBus.setSpeaking(true);
         Voice.speaking(true); // Start simulated speech
         setState(prev => ({ ...prev, isPlaying: true, currentUtterance: text }));

@@ -1,0 +1,185 @@
+Perfect—here’s a tight, drop-in “Q&A loop” that grafts the old HUD’s reliable ask → answer → speak behavior into your current modular system. It’s isolated, reversible, and won’t disturb your voice/mute guards.
+
+⸻
+
+1) Server: intent router (Jarvis-style small talk + time + echo)
+
+server/nlp/reply.js (replace your current file with this enhanced version)
+
+// server/nlp/reply.js (ESM)
+import express from "express";
+
+function routeIntent(q) {
+  const s = (q || "").trim();
+  if (!s) return "I did not catch that.";
+
+  // time / date
+  if (/\b(what'?s|tell me) (the )?time\b/i.test(s) || /\btime\b/i.test(s)) {
+    return "It is " + new Date().toLocaleTimeString() + ".";
+  }
+  if (/\b(date|today)\b/i.test(s)) {
+    return "Today is " + new Date().toLocaleDateString() + ".";
+  }
+
+  // identity / state
+  if (/\b(who are you|what are you|your name)\b/i.test(s)) {
+    return "I’m Chango—your adaptive assistant.";
+  }
+  if (/\b(how are you|how's it going)\b/i.test(s)) {
+    return "Feeling sharp and online. What do you need?";
+  }
+
+  // simple confirmations
+  if (/\b(thanks|thank you)\b/i.test(s)) return "Anytime.";
+
+  // fallback (echo)
+  return "Noted. Do you want me to act on that?";
+}
+
+export function registerReply(app) {
+  const r = express.Router();
+  r.post("/reply", express.json({ limit: "1mb" }), (req, res) => {
+    const q = (req.body?.text || "").trim();
+    const reply = routeIntent(q);
+    return res.json({ ok: true, reply });
+  });
+  app.use("/nlp", r);
+}
+
+export default registerReply;
+
+And ensure server/index.js mounts it:
+
+import registerReply from "./nlp/reply.js";
+...
+registerReply(app);
+
+
+⸻
+
+2) Client: Conversation Orchestrator (single source of truth)
+
+client/brain/convo.js (new file)
+
+// client/brain/convo.js
+import { speakBrowser, VoiceBus, cancelSpeak } from "../voice/tts_browser.js";
+
+const Convo = (() => {
+  let busy = false;                    // prevents re-entrancy
+  let lastUser = "", lastBot = "";     // diagnostics
+
+  async function ask(text) {
+    if (!text || VoiceBus.mute || !VoiceBus.power) return { ok:false, reason:"muted_or_power_off" };
+    if (busy) return { ok:false, reason:"busy" };
+    busy = true;
+    lastUser = text;
+
+    try {
+      const r = await fetch("/nlp/reply", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+      }).then(r => r.json()).catch(() => null);
+
+      const reply = r?.ok ? (r.reply || "Okay.") : "Okay.";
+      lastBot = reply;
+
+      await speakBrowser({
+        text: reply,
+        accent: document.getElementById("vcAccent")?.value || "en-US",
+        rate:   Number(document.getElementById("vcRate")?.value  || 1),
+        pitch:  Number(document.getElementById("vcPitch")?.value || 1),
+        volume: Number(document.getElementById("vcVol")?.value   || 1)
+      });
+
+      return { ok:true, reply };
+    } finally {
+      busy = false;
+      // diagnostics UI (optional)
+      const d = document.getElementById("diagConvo");
+      if (d) d.textContent = JSON.stringify({ lastUser, lastBot, busy }, null, 2);
+    }
+  }
+
+  // Called by STT finalization
+  async function handleFinalTranscript(text) {
+    if (!text?.trim()) return;
+    // wake-word quick response
+    if (/\bchango\b/i.test(text)) {
+      await speakBrowser({ text: "Yes?", accent: "en-US" });
+      return;
+    }
+    await ask(text);
+  }
+
+  function stopTalking() { cancelSpeak(); }
+
+  return { ask, handleFinalTranscript, stopTalking, getState: () => ({ busy, lastUser, lastBot }) };
+})();
+
+export default Convo;
+
+
+⸻
+
+3) Wire STT → Convo (use your existing wake loop)
+
+Open client/voice/wake_loop.js and route the final text into Convo:
+
+// add at top
+import Convo from "../brain/convo.js";
+
+Find where your STT final result is produced (in the version I gave earlier, it’s inside stt.onfinal(async (txt)=>{ ... })). Replace the body with:
+
+stt.onfinal(async (txt) => {
+  engaged = false;
+  if (!txt?.trim()) return;
+  await Convo.handleFinalTranscript(txt);
+});
+
+This guarantees: voice in → text → server reply → speak.
+
+⸻
+
+4) HUD “Ask” button uses the same path
+
+In client/ui/voice_controls.js, update the Ask handler to funnel through Convo so typed questions behave exactly like voice:
+
+import Convo from "../brain/convo.js";
+
+$('vcAsk').onclick = async ()=>{
+  const q = $('vcPhrase').value || 'what time is it?';
+  const r = await Convo.ask(q);
+  out(r?.ok ? { ok:true, asked:q, reply:r.reply } : r);
+};
+
+(Keep your existing “Speak” test button for raw TTS if you like.)
+
+⸻
+
+5) Tiny Diagnostics (optional but helpful)
+
+Add a small box to your HUD (anywhere in client/index.html):
+
+<section>
+  <h3>Conversation Diagnostics</h3>
+  <pre id="diagConvo" class="mono">—</pre>
+</section>
+
+Now you’ll see lastUser, lastBot, and whether Convo is busy.
+
+⸻
+
+Sanity test (quick)
+	•	Type “how are you” → Ask → Chango replies and speaks.
+	•	Say “Chango… what time is it?” → STT final → Convo → reply → speak.
+	•	Mute/Power/Kill still prevent speech (guards intact).
+	•	No auto-chatter if curiosity toggle is OFF.
+
+⸻
+
+Why this works
+	•	The old HUD’s guaranteed reply loop is back: STT/typed → intent → reply → TTS.
+	•	It’s isolated in convo.js, so the rest of your voice stack (mute, kill, wake, curiosity) stays clean.
+	•	If you later swap STT (WebSpeech → Whisper/local), you don’t touch Convo—just keep calling handleFinalTranscript(text).
+
+Want me to add a “skills” layer next (timers, system stats, app launchers) on top of this router so Chango can do more than small talk?

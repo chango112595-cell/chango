@@ -9,6 +9,7 @@ import { useVAD } from "@/hooks/useVAD";
 import { useWakeWord } from "@/hooks/useWakeWord";
 import { VoiceBus } from "@/lib/voiceBus";
 import { Voice, type VoiceControllerState } from "@/lib/voiceController";
+import { ConversationOrchestrator } from "@/lib/conversationOrchestrator";
 import { Mic, MicOff, Volume2, VolumeX, Power, PowerOff, ShieldOff, Shield, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useConversation } from "@/lib/conversationContext";
@@ -294,33 +295,23 @@ export default function VoiceControls() {
               if (e.key === 'Enter') {
                 const text = askInputValue || 'what time is it?';
                 
-                // Add user message to conversation
-                addUserMessage(text);
-                
-                try {
-                  const response = await fetch('/api/nlp/reply', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text })
-                  });
-                  const data = await response.json();
-                  if (data.ok && data.reply) {
-                    // Add Chango's response to conversation
-                    addChangoMessage(data.reply);
-                    
-                    // Force speak the reply using voice synthesis hook (bypass WAKE mode)
-                    speak(data.reply, true);
-                    
-                    // Clear the input after successful processing
-                    setAskInputValue("");
+                // Use the conversation orchestrator for consistent Q&A flow
+                const result = await ConversationOrchestrator.processConversation(text, {
+                  addUserMessage,
+                  addChangoMessage,
+                  speak,
+                  showToast: (title, description, variant) => {
+                    toast({
+                      title,
+                      description,
+                      variant: variant as any,
+                    });
                   }
-                } catch (error) {
-                  console.error('Failed to get reply:', error);
-                  toast({
-                    title: "Failed to get reply",
-                    description: "Could not process your question",
-                    variant: "destructive",
-                  });
+                });
+                
+                // Clear input on success
+                if (result.success) {
+                  setAskInputValue("");
                 }
               }
             }}
@@ -331,33 +322,23 @@ export default function VoiceControls() {
             onClick={async () => {
               const text = askInputValue || 'what time is it?';
               
-              // Add user message to conversation
-              addUserMessage(text);
-              
-              try {
-                const response = await fetch('/api/nlp/reply', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ text })
-                });
-                const data = await response.json();
-                if (data.ok && data.reply) {
-                  // Add Chango's response to conversation
-                  addChangoMessage(data.reply);
-                  
-                  // Force speak the reply using voice synthesis hook (bypass WAKE mode)
-                  speak(data.reply, true);
-                  
-                  // Clear the input after successful processing
-                  setAskInputValue("");
+              // Use the conversation orchestrator for consistent Q&A flow
+              const result = await ConversationOrchestrator.processConversation(text, {
+                addUserMessage,
+                addChangoMessage,
+                speak,
+                showToast: (title, description, variant) => {
+                  toast({
+                    title,
+                    description,
+                    variant: variant as any,
+                  });
                 }
-              } catch (error) {
-                console.error('Failed to get reply:', error);
-                toast({
-                  title: "Failed to get reply",
-                  description: "Could not process your question",
-                  variant: "destructive",
-                });
+              });
+              
+              // Clear input on success
+              if (result.success) {
+                setAskInputValue("");
               }
             }}
             disabled={!isPowerOn || !isEnabled}

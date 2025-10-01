@@ -328,7 +328,7 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
     try {
       // Send command to NLP endpoint
-      const response = await fetch('/api/nlp/reply', {
+      const response = await fetch('/nlp/reply', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

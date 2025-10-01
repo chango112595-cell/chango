@@ -103,7 +103,7 @@ class ConversationOrchestratorClass {
 
       // Send to NLP endpoint
       console.log("[ConversationOrchestrator] Sending to NLP:", userInput);
-      const response = await fetch('/api/nlp/reply', {
+      const response = await fetch('/nlp/reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: userInput }),

@@ -11,8 +11,10 @@ import { VoiceBus } from "@/lib/voiceBus";
 import { Voice, type VoiceControllerState } from "@/lib/voiceController";
 import { Mic, MicOff, Volume2, VolumeX, Power, PowerOff, ShieldOff, Shield, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useConversation } from "@/lib/conversationContext";
 
 export default function VoiceControls() {
+  const { addUserMessage, addChangoMessage } = useConversation();
   const { 
     isEnabled, 
     isPlaying, 
@@ -291,6 +293,10 @@ export default function VoiceControls() {
             onKeyPress={async (e) => {
               if (e.key === 'Enter') {
                 const text = askInputValue || 'what time is it?';
+                
+                // Add user message to conversation
+                addUserMessage(text);
+                
                 try {
                   const response = await fetch('/api/nlp/reply', {
                     method: 'POST',
@@ -299,8 +305,14 @@ export default function VoiceControls() {
                   });
                   const data = await response.json();
                   if (data.ok && data.reply) {
+                    // Add Chango's response to conversation
+                    addChangoMessage(data.reply);
+                    
                     // Force speak the reply using voice synthesis hook (bypass WAKE mode)
                     speak(data.reply, true);
+                    
+                    // Clear the input after successful processing
+                    setAskInputValue("");
                   }
                 } catch (error) {
                   console.error('Failed to get reply:', error);
@@ -318,6 +330,10 @@ export default function VoiceControls() {
           <Button
             onClick={async () => {
               const text = askInputValue || 'what time is it?';
+              
+              // Add user message to conversation
+              addUserMessage(text);
+              
               try {
                 const response = await fetch('/api/nlp/reply', {
                   method: 'POST',
@@ -326,8 +342,14 @@ export default function VoiceControls() {
                 });
                 const data = await response.json();
                 if (data.ok && data.reply) {
+                  // Add Chango's response to conversation
+                  addChangoMessage(data.reply);
+                  
                   // Force speak the reply using voice synthesis hook (bypass WAKE mode)
                   speak(data.reply, true);
+                  
+                  // Clear the input after successful processing
+                  setAskInputValue("");
                 }
               } catch (error) {
                 console.error('Failed to get reply:', error);

@@ -9,23 +9,10 @@ import { generateChatResponse } from "./CuriosityEngine";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useSpeechCoordination } from "@/lib/speechCoordination";
-
-interface Message {
-  id: string;
-  text: string;
-  sender: "user" | "chango";
-  timestamp: Date;
-}
+import { useConversation } from "@/lib/conversationContext";
 
 export default function Chat() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      text: "Hey there! I'm Chango, your AI companion. What would you like to explore today?",
-      sender: "chango",
-      timestamp: new Date(),
-    },
-  ]);
+  const { messages, addUserMessage, addChangoMessage } = useConversation();
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -77,15 +64,9 @@ export default function Chat() {
     if (!inputValue.trim()) return;
     
     const userMessage = inputValue.trim();
-    const userMessageObj: Message = {
-      id: `user-${Date.now()}`,
-      text: userMessage,
-      sender: "user",
-      timestamp: new Date(),
-    };
     
-    // Add user message
-    setMessages((prev) => [...prev, userMessageObj]);
+    // Add user message using context
+    addUserMessage(userMessage);
     setInputValue("");
     setIsTyping(true);
     
@@ -96,14 +77,9 @@ export default function Chat() {
     // Generate and add Chango's response after a brief delay
     setTimeout(() => {
       const response = generateChatResponse(userMessage, voice);
-      const changoMessage: Message = {
-        id: `chango-${Date.now()}`,
-        text: response,
-        sender: "chango",
-        timestamp: new Date(),
-      };
       
-      setMessages((prev) => [...prev, changoMessage]);
+      // Add Chango's message using context
+      addChangoMessage(response);
       setIsTyping(false);
       
       // Log the conversation

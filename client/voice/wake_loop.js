@@ -1,6 +1,8 @@
 // Chango AI Wake Word Detection Loop
 // Hands-free voice interaction with wake word detection
 
+import Convo from "../brain/convo.js";
+
 class WakeWordLoop {
   constructor(config = {}) {
     // Configuration with defaults
@@ -219,40 +221,20 @@ class WakeWordLoop {
     this.updateState({ isProcessing: true });
 
     try {
-      // Send command to NLP endpoint
-      const response = await fetch('/api/nlp/reply', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          text: command,
-          context: {
-            wakeWord: this.config.wakeWord,
-            sessionId: Date.now().toString()
-          }
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`NLP API error: ${response.status}`);
-      }
-
-      const data = await response.json();
+      // Use Convo to handle the command and speak the response
+      const result = await Convo.ask(command);
       
-      // Handle the response
-      if (data.reply) {
-        console.log('[WakeWordLoop] Got reply:', data.reply);
-        this.onResponse(data.reply, command);
+      if (result.ok && result.reply) {
+        console.log('[WakeWordLoop] Got reply:', result.reply);
+        this.onResponse(result.reply, command);
         
-        // Use voice synthesis to speak the response if available
-        if (window.voiceSynthesis) {
-          this.speakResponse(data.reply);
-        }
+        // Callback with command and response
+        this.onCommand(command, { ok: true, reply: result.reply });
+      } else {
+        // Handle case where Convo couldn't process the request
+        console.log('[WakeWordLoop] Convo response:', result);
+        this.onCommand(command, result);
       }
-
-      // Callback with command and response
-      this.onCommand(command, data);
       
     } catch (error) {
       console.error('[WakeWordLoop] Error processing command:', error);

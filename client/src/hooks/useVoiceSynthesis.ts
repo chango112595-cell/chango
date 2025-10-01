@@ -66,63 +66,108 @@ export function useVoiceSynthesis() {
     
     return new Promise<boolean>((resolve) => {
       if ("speechSynthesis" in window) {
-        let attempts = 0;
-        const maxAttempts = 10;
         let resolved = false;
+        let attempts = 0;
+        const maxAttempts = 20; // Increase max attempts for slower browsers
+        let voicesLoadedHandler: (() => void) | null = null;
         
-        const loadVoices = () => {
-          if (resolved) return; // Prevent multiple resolutions
+        const checkVoices = () => {
+          if (resolved) return;
           
           const voices = speechSynthesis.getVoices();
-          console.log("[VoiceSynthesis] Available voices:", voices.length, "Attempt:", attempts + 1);
+          console.log(`[VoiceSynthesis] Checking voices - Attempt ${attempts + 1}/${maxAttempts}, Found: ${voices.length} voices`);
           
           if (voices.length > 0) {
-            // Test utterance to enable speech synthesis
-            const testUtterance = new SpeechSynthesisUtterance("");
-            speechSynthesis.speak(testUtterance);
-            
-            console.log("[VoiceSynthesis] Voices loaded successfully, enabling synthesis");
-            isEnabledRef.current = true; // Set ref immediately
+            // Success! Voices are available
+            console.log("[VoiceSynthesis] Voices loaded successfully:", voices.map(v => v.name));
+            isEnabledRef.current = true;
             setState(prev => ({ ...prev, isEnabled: true }));
             
             toast({
               title: "Voice Enabled",
-              description: "Speech synthesis is now ready to use.",
+              description: `Speech synthesis ready with ${voices.length} voice${voices.length > 1 ? 's' : ''} available.`,
             });
             
             resolved = true;
-            resolve(true);
-          } else {
-            attempts++;
-            if (attempts < maxAttempts) {
-              // Keep trying to load voices
-              console.log("[VoiceSynthesis] No voices yet, retrying...");
-              setTimeout(loadVoices, 200);
-            } else {
-              // Enable anyway for environments without voices (like testing)
-              console.log("[VoiceSynthesis] Max attempts reached, enabling basic synthesis");
-              isEnabledRef.current = true; // Set ref immediately
-              setState(prev => ({ ...prev, isEnabled: true }));
-              
-              toast({
-                title: "Voice Enabled",
-                description: "Speech synthesis enabled (basic mode - no voices detected).",
-              });
-              
-              resolved = true;
-              resolve(true);
+            
+            // Clean up the event listener if we added one
+            if (voicesLoadedHandler) {
+              speechSynthesis.removeEventListener('voiceschanged', voicesLoadedHandler);
             }
+            
+            resolve(true);
+            return true;
           }
-        };
-
-        // Setup voice change listener
-        speechSynthesis.onvoiceschanged = () => {
-          console.log("[VoiceSynthesis] Voices changed event fired");
-          loadVoices();
+          
+          return false;
         };
         
-        // Start loading voices
-        loadVoices();
+        // First, try to get voices immediately (they might be cached)
+        if (checkVoices()) {
+          return;
+        }
+        
+        // Trigger voice loading with a dummy utterance (required by some browsers)
+        console.log("[VoiceSynthesis] Triggering voice loading with dummy utterance...");
+        try {
+          const dummy = new SpeechSynthesisUtterance('');
+          dummy.volume = 0; // Silent
+          speechSynthesis.speak(dummy);
+          speechSynthesis.cancel();
+        } catch (error) {
+          console.warn("[VoiceSynthesis] Failed to trigger voice loading with dummy utterance:", error);
+        }
+        
+        // Set up voiceschanged event listener
+        voicesLoadedHandler = () => {
+          console.log("[VoiceSynthesis] voiceschanged event fired");
+          checkVoices();
+        };
+        speechSynthesis.addEventListener('voiceschanged', voicesLoadedHandler);
+        
+        // Also poll for voices with exponential backoff
+        const pollForVoices = () => {
+          if (resolved) return;
+          
+          attempts++;
+          
+          // Check if voices are now available
+          if (checkVoices()) {
+            return;
+          }
+          
+          if (attempts < maxAttempts) {
+            // Calculate delay with exponential backoff (100ms, 200ms, 400ms, etc., max 2000ms)
+            const delay = Math.min(100 * Math.pow(1.5, attempts), 2000);
+            console.log(`[VoiceSynthesis] No voices yet, retrying in ${delay}ms...`);
+            setTimeout(pollForVoices, delay);
+          } else {
+            // Max attempts reached - voices not loading
+            console.error("[VoiceSynthesis] Failed to load voices after maximum attempts");
+            
+            // Clean up event listener
+            if (voicesLoadedHandler) {
+              speechSynthesis.removeEventListener('voiceschanged', voicesLoadedHandler);
+            }
+            
+            // DO NOT enable synthesis without voices
+            isEnabledRef.current = false;
+            setState(prev => ({ ...prev, isEnabled: false }));
+            
+            toast({
+              title: "Voice Loading Failed",
+              description: "Unable to load speech synthesis voices. Please refresh the page or try a different browser.",
+              variant: "destructive",
+            });
+            
+            resolved = true;
+            resolve(false);
+          }
+        };
+        
+        // Start polling after a short delay to give voiceschanged event a chance
+        setTimeout(pollForVoices, 100);
+        
       } else {
         console.error("[VoiceSynthesis] Speech synthesis not supported");
         toast({

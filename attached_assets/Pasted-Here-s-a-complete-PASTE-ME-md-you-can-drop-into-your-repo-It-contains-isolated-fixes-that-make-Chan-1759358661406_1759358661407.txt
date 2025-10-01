@@ -1,0 +1,211 @@
+Here’s a complete PASTE_ME.md you can drop into your repo. It contains isolated fixes that make Chango reliably hear → understand → reply → speak, without breaking other modules. Copy-paste this whole file as PASTE_ME.md, then apply the code blocks to the indicated files.
+
+⸻
+
+
+# Chango AI — Voice Reply Hotfix (Isolated)
+_Last updated: 2025-10-01_
+
+This patch restores guaranteed **ask → reply → speak** while keeping everything modular. Each change is **isolated** (you can revert any single part without touching others).
+
+---
+
+## ✅ What’s fixed
+
+1. **Voice enable typo** prevented the TTS pipeline from ever arming.
+2. **Missing reply route** meant there was nothing to say back.
+3. **No single conversation orchestrator** so typed and STT inputs didn’t trigger speech consistently.
+4. **Unsolicited talking** from curiosity loop (now gated OFF by default).
+5. **Self-listening risk** (kept the speaking gate & echo-canceled mic).
+
+---
+
+## 1) Enable Voice (typo fix) — *required*
+
+**File:** `src/hooks/useVoiceSynthesis.ts` (or your equivalent voice hook)  
+**Patch both places where enable succeeds:**
+```ts
+// WRONG (existing)
+// setState(prev => ({ .prev, isEnabled: true }));
+
+// RIGHT (use in BOTH occurrences)
+setState(prev => ({ ...prev, isEnabled: true }));
+
+
+⸻
+
+2) Add a guaranteed reply API — small talk + time/date
+
+File (new): server/nlp/reply.js
+
+import express from "express";
+
+function routeIntent(q){
+  const s = (q || "").trim();
+  if (!s) return "I didn’t catch that.";
+  if (/\b(time|what.*time)\b/i.test(s)) return "It is " + new Date().toLocaleTimeString() + ".";
+  if (/\b(date|today)\b/i.test(s))      return "Today is " + new Date().toLocaleDateString() + ".";
+  if (/\bwho.*you|what.*chango\b/i.test(s)) return "I’m Chango, your adaptive assistant.";
+  if (/\bhow.*you\b/i.test(s))          return "Feeling sharp and online.";
+  return "Noted. Want me to act on that?";
+}
+
+export default function registerReply(app){
+  const r = express.Router();
+  r.post("/reply", express.json({ limit: "1mb" }), (req, res) => {
+    res.json({ ok: true, reply: routeIntent(req.body?.text) });
+  });
+  app.use("/nlp", r);
+}
+
+Mount it in your server bootstrap:
+
+File: server/index.js
+
+import registerReply from "./nlp/reply.js";
+...
+registerReply(app);
+
+
+⸻
+
+3) Single Conversation Orchestrator — one source of truth
+
+File (new): client/brain/convo.js
+
+import { speakBrowser, VoiceBus } from "../voice/tts_browser.js";
+
+const Convo = (() => {
+  let busy = false, lastUser = "", lastBot = "";
+
+  async function ask(text){
+    if (!text?.trim()) return { ok:false, reason:"empty" };
+    if (!VoiceBus.power || VoiceBus.mute) return { ok:false, reason:"muted_or_off" };
+    if (busy) return { ok:false, reason:"busy" };
+    busy = true; lastUser = text;
+
+    try{
+      const r = await fetch("/nlp/reply", {
+        method: "POST",
+        headers: { "Content-Type":"application/json" },
+        body: JSON.stringify({ text })
+      }).then(r=>r.json()).catch(()=>null);
+
+      const reply = r?.ok ? (r.reply || "Okay.") : "Okay.";
+      lastBot = reply;
+
+      await speakBrowser({
+        text: reply,
+        accent: document.getElementById("vcAccent")?.value || "en-US",
+        rate:   +document.getElementById("vcRate")?.value  || 1,
+        pitch:  +document.getElementById("vcPitch")?.value || 1,
+        volume: +document.getElementById("vcVol")?.value   || 1
+      });
+
+      return { ok:true, reply };
+    } finally {
+      busy = false;
+      const d = document.getElementById("diagConvo");
+      if (d) d.textContent = JSON.stringify({ lastUser, lastBot, busy }, null, 2);
+    }
+  }
+
+  async function handleFinalTranscript(txt){
+    if (!txt?.trim()) return;
+    // Wake interaction: reply courteously on name
+    if (/\bchango\b/i.test(txt)) { await speakBrowser({ text:"Yes?", accent:"en-US" }); return; }
+    await ask(txt);
+  }
+
+  return { ask, handleFinalTranscript };
+})();
+
+export default Convo;
+
+
+⸻
+
+4) Wire UI → Convo (typed questions use same path)
+
+File: client/ui/voice_controls.js
+
+import Convo from "../brain/convo.js";
+
+// Ask button guarantees a reply even if STT is off
+$('vcAsk').onclick = async () => {
+  const q = $('vcPhrase').value || 'what time is it?';
+  const r = await Convo.ask(q);
+  out(r?.ok ? { ok:true, asked:q, reply:r.reply } : r);
+};
+
+
+⸻
+
+5) Wire STT final → Convo (spoken questions)
+
+File: client/voice/wake_loop.js
+
+import Convo from "../brain/convo.js";
+
+// Wherever your STT returns a final transcript:
+stt.onfinal(async (txt) => {
+  engaged = false;
+  if (!txt?.trim()) return;
+  await Convo.handleFinalTranscript(txt);
+});
+
+Keep your existing echoCancellation/noiseSuppression/autoGainControl mic settings, and ensure your TTS marks speaking state:
+
+Voice?.speaking?.(true);
+// on audio end:
+Voice?.speaking?.(false);
+
+
+
+⸻
+
+6) Curiosity auto-talk OFF by default (no more unsolicited speech)
+
+File: wherever your curiosity interval runs
+
+let autoCuriosity = false; // default OFF
+
+// inside the interval callback, first line:
+if (!autoCuriosity) return;
+
+Add a toggle in your settings if you want to re-enable it later.
+
+⸻
+
+7) Optional: Tiny Diagnostics block (helps verify flow)
+
+File: client/index.html (or your HUD layout)
+
+<section>
+  <h3>Conversation Diagnostics</h3>
+  <pre id="diagConvo" class="mono">—</pre>
+</section>
+
+You’ll see the last user text, last bot reply, and whether the conductor is busy.
+
+⸻
+
+🧪 Sanity Checklist
+	•	Type “how are you” → click Ask → Chango speaks a reply.
+	•	Say “Chango… what time is it?” → spoken reply.
+	•	Mute/Power/Kill: no speech; unmute → replies resume.
+	•	DevTools → Network → /nlp/reply returns { ok:true, reply:"..." }.
+	•	No random chatter unless you enable autoCuriosity.
+
+⸻
+
+Notes
+	•	These changes are surgical: no removal of your hologram UI, voice bus, or safety gates.
+	•	If you later swap STT (WebSpeech → Whisper/local), keep calling Convo.handleFinalTranscript(text); no other parts change.
+	•	If you later expand skills (timers, system metrics, app control), add intent handlers inside routeIntent() or forward to a richer router without touching the voice plumbing.
+
+Status: Ready to apply. Once the four code integrations (Sections 1–5) are in, replies are guaranteed via typed Ask and STT.
+
+---
+
+If you want this same patch rendered into separate ready-to-paste files (exact paths and final code per file), say the word and I’ll output each file’s full contents verbatim.

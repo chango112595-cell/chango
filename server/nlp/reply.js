@@ -7,6 +7,7 @@ function routeIntent(q) {
   if (/\b(date|today)\b/i.test(s))      return "Today is " + new Date().toLocaleDateString() + ".";
   if (/\bwho.*you|what.*chango\b/i.test(s)) return "I'm Chango, your adaptive assistant.";
   if (/\bhow.*you\b/i.test(s))          return "Feeling sharp and online.";
+  if (/\b(thanks|thank you)\b/i.test(s)) return "Anytime.";
   return "Noted. Want me to act on that?";
 }
 

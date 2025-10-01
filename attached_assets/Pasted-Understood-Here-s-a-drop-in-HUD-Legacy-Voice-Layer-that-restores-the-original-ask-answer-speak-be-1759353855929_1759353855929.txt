@@ -1,0 +1,208 @@
+Understood. Here’s a drop-in “HUD Legacy Voice Layer” that restores the original ask→answer→speak behavior, then cleanly plugs it into your current build. It’s isolated (can be removed without touching other modules) and fixes the “no reply” issue.
+
+⸻
+
+0) Remove blockers (two quick fixes)
+	1.	In useVoiceSynthesis.ts fix both spreads:
+
+setState(prev => ({ ...prev, isEnabled: true }));
+
+	2.	If you still have any auto-curiosity interval, gate it:
+
+let autoCuriosity = false;  // default OFF
+// inside loop: if (!autoCuriosity) return;
+
+
+⸻
+
+1) Server (legacy reply route)
+
+server/nlp/legacy_reply.js
+
+import express from "express";
+
+function routeIntent(q){
+  const s=(q||"").trim();
+  if(!s) return "I didn’t catch that.";
+  if (/\b(time|what.*time)\b/i.test(s)) return "It is " + new Date().toLocaleTimeString() + ".";
+  if (/\b(date|today)\b/i.test(s))      return "Today is " + new Date().toLocaleDateString() + ".";
+  if (/\bwho.*you|what.*chango\b/i.test(s)) return "I’m Chango, your adaptive assistant.";
+  if (/\bhow.*you\b/i.test(s))          return "Feeling sharp and online.";
+  return "Noted. Want me to act on that?";
+}
+
+export default function registerLegacyReply(app){
+  const r=express.Router();
+  r.post("/reply", express.json({limit:"1mb"}), (req,res)=>{
+    res.json({ok:true, reply: routeIntent(req.body?.text)});
+  });
+  app.use("/nlp", r);
+}
+
+Mount in server/index.js:
+
+import registerLegacyReply from "./nlp/legacy_reply.js";
+registerLegacyReply(app);
+
+
+⸻
+
+2) Client STT (HUD-style: Web Speech API with safe defaults)
+
+client/voice/legacy_stt.js
+
+export class LegacySTT {
+  constructor(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    this.supported = !!SR; if (!this.supported) return;
+    this.rec = new SR();
+    this.rec.continuous = false;
+    this.rec.interimResults = false;
+    this.rec.maxAlternatives = 1;
+    this._onfinal = null; this._onerror = null;
+    this.rec.onresult = (e)=>{
+      const t = e?.results?.[0]?.[0]?.transcript || "";
+      this._onfinal && this._onfinal(t);
+    };
+    this.rec.onerror = (e)=> this._onerror && this._onerror(e);
+  }
+  setLang(lang="en-US"){ if(this.supported) this.rec.lang = lang; }
+  onfinal(f){ this._onfinal = f; }
+  onerror(f){ this._onerror = f; }
+  start(){ try{ this.supported && this.rec.start(); }catch{} }
+  stop(){ try{ this.supported && this.rec.stop(); }catch{} }
+}
+
+
+⸻
+
+3) Legacy conversation orchestrator (one source of truth)
+
+client/brain/legacy_convo.js
+
+import { speakBrowser, VoiceBus, cancelSpeak } from "../voice/tts_browser.js";
+
+const LegacyConvo = (() => {
+  let busy=false, lastUser="", lastBot="";
+  async function ask(text){
+    if (!text?.trim()) return {ok:false, reason:"empty"};
+    if (!VoiceBus.power || VoiceBus.mute) return {ok:false, reason:"muted_or_off"};
+    if (busy) return {ok:false, reason:"busy"};
+    busy=true; lastUser=text;
+    try{
+      const r = await fetch("/nlp/reply", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({text})
+      }).then(r=>r.json()).catch(()=>null);
+
+      const reply = r?.ok ? (r.reply||"Okay.") : "Okay.";
+      lastBot = reply;
+
+      await speakBrowser({
+        text: reply,
+        accent: document.getElementById("vcAccent")?.value || "en-US",
+        rate:   +document.getElementById("vcRate")?.value  || 1,
+        pitch:  +document.getElementById("vcPitch")?.value || 1,
+        volume: +document.getElementById("vcVol")?.value   || 1
+      });
+
+      return {ok:true, reply};
+    } finally {
+      busy=false;
+      const d=document.getElementById("diagConvo");
+      if (d) d.textContent = JSON.stringify({lastUser,lastBot,busy},null,2);
+    }
+  }
+
+  async function handleFinalTranscript(txt){
+    if (!txt?.trim()) return;
+    // Wake handling (HUD style)
+    if (/\bchango\b/i.test(txt)) {
+      await speakBrowser({ text:"Yes?", accent:"en-US" });
+      return;
+    }
+    await ask(txt);
+  }
+
+  function stop(){ cancelSpeak(); }
+
+  return { ask, handleFinalTranscript, stop };
+})();
+export default LegacyConvo;
+
+
+⸻
+
+4) Wire the wake loop to the legacy orchestrator
+
+client/voice/wake_loop.js (minimal changes)
+
+import LegacyConvo from "../brain/legacy_convo.js";
+import { LegacySTT } from "./legacy_stt.js";
+
+// ... your existing VAD & setup ...
+const stt = new LegacySTT();
+
+// keep your VAD trigger; on speech:
+stt.onfinal(async (txt)=>{
+  engaged=false;
+  if (!txt?.trim()) return;
+  await LegacyConvo.handleFinalTranscript(txt);
+});
+
+
+⸻
+
+5) HUD “Ask” button routes through the same path
+
+client/ui/voice_controls.js
+
+import LegacyConvo from "../brain/legacy_convo.js";
+
+$('vcAsk').onclick = async ()=>{
+  const q = $('vcPhrase').value || 'what time is it?';
+  const r = await LegacyConvo.ask(q);
+  out(r?.ok ? { ok:true, asked:q, reply:r.reply } : r);
+};
+
+
+⸻
+
+6) TTS/STT coordination (no self-listening)
+
+Where your TTS starts/ends, ensure:
+
+import { Voice } from "@/lib/voiceController"; // if you use the controller
+Voice?.speaking?.(true);
+// audio.onended:
+Voice?.speaking?.(false);
+
+And your mic constraints once (echo cancel, noise suppression):
+
+navigator.mediaDevices.getUserMedia({
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: 1,
+    sampleRate: 48000
+  }
+});
+
+
+⸻
+
+7) Quick sanity test
+	•	Type “how are you” → Ask → Chango speaks.
+	•	Say “Chango… what time is it?” → Chango answers.
+	•	Mute/Power/Kill: no speech; unmute → works.
+	•	Network tab: /nlp/reply returns {ok:true, reply: "..."}.
+
+⸻
+
+Why this works
+	•	Reintroduces the original HUD conversation loop (STT/typed → intent → reply → TTS) without changing your modern modules.
+	•	Keeps your mute/power guards and hologram UI intact.
+	•	Cuts curiosity auto-talk unless you explicitly enable it.
+
+If you want, I can also add a tiny status badge (listening / speaking / muted / killed) next to the hologram to visually confirm state while you test.

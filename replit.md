@@ -2,12 +2,14 @@
 
 This is a full-stack TypeScript application called "Chango AI" that provides advanced voice synthesis and accent emulation capabilities using its proprietary Chango Voice Engine (CVE). The application features a React frontend with a Node.js/Express backend, utilizing PostgreSQL for data persistence. The system allows users to synthesize speech with various accents, record and analyze voice samples to create custom voice profiles, and includes an interactive holographic interface with curiosity-driven AI responses. Chango speaks with natural, conversational responses using dynamic templates, emotional variations, and personality-driven interactions.
 
-# Recent Changes (September 30, 2025)
+# Recent Changes (October 1, 2025)
 
 ## Fixed Issues
 - ✅ **Complete Voice Response Pipeline**: Chango can now answer questions via STT → NLP → TTS
-  - Added Web Speech API STT implementation for speech recognition
-  - Integrated wake word detection with NLP reply processing
+  - Fixed critical wake word detection bug: Now checks for "Chango" BEFORE shouldIgnoreInput filter
+  - Fixed recognizer race condition: Properly serializes stop/start operations with promise-based waiting
+  - Fixed self-wake issue: TTS output won't trigger wake word detection during speech
+  - Added comprehensive debug logging for troubleshooting voice flow
   - Connected `/api/nlp/reply` endpoint to voice synthesis
   - Added "Ask" button fallback for manual text input
   - Tested and working: "what time is it?", "who are you?", etc.
@@ -18,13 +20,13 @@ This is a full-stack TypeScript application called "Chango AI" that provides adv
   - Console logs confirm fix working: "[CuriosityEngine] Skipping auto response - Voice mode is WAKE"
   - System properly respects wake word requirement - only responds to "Chango" trigger
   
-## Previous Fixes
+## Previous Fixes (September 2025)
 - ✅ **Self-Listening Loop Prevention**: Comprehensive voice system improvements
-  - **Hard-gate STT during TTS**: Speech recognition disabled while Chango speaks with 450ms cooldown
+  - **Hard-gate STT during TTS**: Speech recognition disabled while Chango speaks with 800ms buffer
   - **Echo cancellation**: Browser-level audio processing (echo cancellation, noise suppression, auto gain control)
   - **WAKE mode default**: System requires "Chango" wake word to activate 10-second listening window
   - **No random replies**: Voice input ignored unless explicitly activated
-  - **Single recognizer instance**: Prevents duplicate listeners and HMR issues
+  - **Single recognizer instance**: Properly serialized stop/start prevents duplicate listeners
   
 - ✅ **Stack Overflow Fix**: Resolved Maximum call stack size exceeded error in voice control system
   - Implemented singleton VoiceController with ACTIVE/MUTED/KILLED/WAKE state management

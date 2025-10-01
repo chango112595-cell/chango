@@ -293,7 +293,15 @@ export default function VoiceControls() {
             onChange={(e) => setAskInputValue(e.target.value)}
             onKeyPress={async (e) => {
               if (e.key === 'Enter') {
+                console.log("[VoiceControls] Enter key pressed");
+                console.log("[VoiceControls] Current state (Enter):", {
+                  isPowerOn,
+                  isEnabled,
+                  askInputValue
+                });
+                
                 const text = askInputValue || 'what time is it?';
+                console.log("[VoiceControls] Processing text (Enter):", text);
                 
                 // Use the conversation orchestrator for consistent Q&A flow
                 const result = await ConversationOrchestrator.processConversation(text, {
@@ -301,6 +309,7 @@ export default function VoiceControls() {
                   addChangoMessage,
                   speak,
                   showToast: (title, description, variant) => {
+                    console.log("[VoiceControls] Toast (Enter):", title, description);
                     toast({
                       title,
                       description,
@@ -308,6 +317,8 @@ export default function VoiceControls() {
                     });
                   }
                 });
+                
+                console.log("[VoiceControls] Result (Enter):", result);
                 
                 // Clear input on success
                 if (result.success) {
@@ -320,7 +331,15 @@ export default function VoiceControls() {
           />
           <Button
             onClick={async () => {
+              console.log("[VoiceControls] Ask button clicked");
+              console.log("[VoiceControls] Current state:", {
+                isPowerOn,
+                isEnabled,
+                askInputValue
+              });
+              
               const text = askInputValue || 'what time is it?';
+              console.log("[VoiceControls] Processing text:", text);
               
               // Use the conversation orchestrator for consistent Q&A flow
               const result = await ConversationOrchestrator.processConversation(text, {
@@ -328,6 +347,7 @@ export default function VoiceControls() {
                 addChangoMessage,
                 speak,
                 showToast: (title, description, variant) => {
+                  console.log("[VoiceControls] Toast:", title, description);
                   toast({
                     title,
                     description,
@@ -335,6 +355,8 @@ export default function VoiceControls() {
                   });
                 }
               });
+              
+              console.log("[VoiceControls] Result:", result);
               
               // Clear input on success
               if (result.success) {

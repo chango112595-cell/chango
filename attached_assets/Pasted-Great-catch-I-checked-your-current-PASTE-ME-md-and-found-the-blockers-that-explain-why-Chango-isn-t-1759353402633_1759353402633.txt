@@ -1,0 +1,153 @@
+Great catch. I checked your current PASTE_ME.md and found the blockers that explain why Chango isn’t replying. Here’s exactly what to patch, with copy-paste fixes.
+
+⸻
+
+1) Critical typo breaks Voice Enable (prevents any replies)
+
+In useVoiceSynthesis.ts the state spread is malformed:
+	•	You currently have:
+
+setState(prev => ({ .prev, isEnabled: true }));
+
+This appears twice (enable success and basic-mode paths) and should be ...prev. This typo prevents the voice system from enabling at all. Fix both lines.
+
+Patch
+
+// ✅ correct
+setState(prev => ({ ...prev, isEnabled: true }));
+
+Fix at both spots shown around these lines:  ￼ and  ￼
+
+⸻
+
+2) Missing reply API (nothing to speak back)
+
+There’s a /chatgpt endpoint, but no guaranteed small-talk/time reply route. Add /nlp/reply and mount it in the server. (You already mount MCP and /chatgpt here.  ￼)
+
+Add: server/nlp/reply.js
+
+import express from "express";
+
+function routeIntent(q){
+  const s = (q||"").trim();
+  if (!s) return "I didn’t catch that.";
+  if (/\b(time|what.*time)\b/i.test(s)) return "It is " + new Date().toLocaleTimeString() + ".";
+  if (/\b(date|today)\b/i.test(s))      return "Today is " + new Date().toLocaleDateString() + ".";
+  if (/\bwho.*you|what.*chango\b/i.test(s)) return "I’m Chango, your adaptive assistant.";
+  if (/\bhow.*you\b/i.test(s))          return "Feeling sharp and online.";
+  return "Noted. Want me to act on that?";
+}
+
+export default function registerReply(app){
+  const r = express.Router();
+  r.post("/reply", express.json({limit:"1mb"}), (req,res)=>{
+    res.json({ ok:true, reply: routeIntent(req.body?.text) });
+  });
+  app.use("/nlp", r);
+}
+
+Mount in server/index.js
+
+import registerReply from "./nlp/reply.js";
+registerReply(app);
+
+
+⸻
+
+3) Conversation orchestrator (single source of truth)
+
+Add a tiny client orchestrator so typed questions and STT finals both funnel into the same ask→reply→speak path.
+
+Add: client/brain/convo.js
+
+import { speakBrowser, VoiceBus } from "../voice/tts_browser.js";
+
+const Convo = (() => {
+  let busy=false, lastUser="", lastBot="";
+  async function ask(text){
+    if (!text?.trim()) return {ok:false, reason:"empty"};
+    if (!VoiceBus.power || VoiceBus.mute) return {ok:false, reason:"muted_or_off"};
+    if (busy) return {ok:false, reason:"busy"};
+    busy = true; lastUser = text;
+    try{
+      const r = await fetch("/nlp/reply", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({text})
+      }).then(r=>r.json()).catch(()=>null);
+      const reply = r?.ok ? (r.reply||"Okay.") : "Okay.";
+      lastBot = reply;
+      await speakBrowser({
+        text: reply,
+        accent: document.getElementById("vcAccent")?.value || "en-US",
+        rate: +document.getElementById("vcRate")?.value || 1,
+        pitch:+document.getElementById("vcPitch")?.value|| 1,
+        volume:+document.getElementById("vcVol")?.value  || 1
+      });
+      return {ok:true, reply};
+    } finally {
+      busy=false;
+      const d=document.getElementById("diagConvo");
+      if (d) d.textContent = JSON.stringify({lastUser,lastBot,busy},null,2);
+    }
+  }
+  async function handleFinalTranscript(txt){
+    if (!txt?.trim()) return;
+    if (/\bchango\b/i.test(txt)) { await speakBrowser({text:"Yes?", accent:"en-US"}); return; }
+    await ask(txt);
+  }
+  return { ask, handleFinalTranscript };
+})();
+export default Convo;
+
+
+⸻
+
+4) Wire UI and STT to Convo
+	•	HUD “Ask”: route typed questions through Convo:
+
+// client/ui/voice_controls.js
+import Convo from "../brain/convo.js";
+
+$('vcAsk').onclick = async ()=>{
+  const q = $('vcPhrase').value || 'what time is it?';
+  const r = await Convo.ask(q);
+  out(r?.ok ? {ok:true, asked:q, reply:r.reply} : r);
+};
+
+	•	STT final: send recognized text to Convo:
+
+// client/voice/wake_loop.js
+import Convo from "../brain/convo.js";
+
+// inside your stt.onfinal(...)
+stt.onfinal(async (txt) => {
+  engaged = false;
+  if (!txt?.trim()) return;
+  await Convo.handleFinalTranscript(txt);
+});
+
+
+⸻
+
+5) Optional: prevent unsolicited talking
+
+If your auto-curiosity interval is still present, gate it behind a switch so it never steals turns (this is where we saw self-talk earlier):
+
+let autoCuriosity = false; // default OFF
+// inside setInterval: if (!autoCuriosity) return;
+
+(Previously seen in your interval loop.)  ￼
+
+⸻
+
+6) Quick test (works without STT too)
+	1.	Type “how are you” → Ask → Chango speaks.
+	2.	Say “Chango… what time is it?” → reply spoken.
+	3.	Toggle Mute/Power → no speech; unmute → replies OK.
+
+⸻
+
+Why this fixes it
+	•	The spread typo in useVoiceSynthesis was blocking voice enable, so there was nothing to play. (Fixing ...prev is mandatory.)  ￼  ￼
+	•	The reply route was missing; now both typed and spoken inputs get a guaranteed response.
+	•	The Convo orchestrator ensures one clean place drives ask→reply→speak, so behavior is consistent and easy to extend.

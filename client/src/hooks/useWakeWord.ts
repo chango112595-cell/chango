@@ -86,14 +86,9 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
   // Handle speech recognition results
   const handleSpeechResult = useCallback((event: any) => {
-    // Check if input should be ignored first
-    if (Voice.shouldIgnoreInput()) {
-      console.log('[useWakeWord] Voice shouldIgnoreInput, ignoring result');
-      return;
-    }
-    
-    // Check Voice controller state
+    // Check Voice controller state first
     const voiceMode = Voice.getMode();
+    console.log('[useWakeWord] Handling speech result in mode:', voiceMode);
     
     // Check if power is on
     const busState = VoiceBus.getState();
@@ -125,12 +120,23 @@ export function useWakeWord(config: WakeWordConfig = {}) {
       return;
     }
 
-    // In WAKE mode, only respond to wake word
+    // In WAKE mode, check for wake word FIRST before any other filtering
     if (voiceMode === 'WAKE') {
       const wakeWordDetected = transcript.includes(state.wakeWord.toLowerCase());
+      console.log('[useWakeWord] Checking for wake word in transcript:', { wakeWordDetected, transcript, wakeWord: state.wakeWord });
       
       if (wakeWordDetected) {
         console.log('[useWakeWord] Wake word detected in WAKE mode! Starting STT...');
+        
+        // Stop the continuous recognizer before starting command STT
+        if (recognitionRef.current) {
+          console.log('[useWakeWord] Stopping continuous recognizer before starting command STT');
+          try {
+            recognitionRef.current.stop();
+          } catch (e) {
+            console.log('[useWakeWord] Error stopping recognizer:', e);
+          }
+        }
         
         // Notify Voice controller
         Voice.wakeWordHeard();
@@ -174,8 +180,22 @@ export function useWakeWord(config: WakeWordConfig = {}) {
             endSession();
           }, config.maxUtteranceMs || 8000);
         }
+        // Wake word was detected and processed, exit early
+        return;
       }
-      // Ignore non-wake-word input in WAKE mode
+      
+      // Only ignore non-wake-word input in WAKE mode
+      if (Voice.shouldIgnoreInput()) {
+        console.log('[useWakeWord] Voice shouldIgnoreInput for non-wake-word input in WAKE mode');
+        return;
+      }
+      // Not wake word in WAKE mode, ignore
+      return;
+    }
+    
+    // For non-WAKE modes, check shouldIgnoreInput normally
+    if (Voice.shouldIgnoreInput()) {
+      console.log('[useWakeWord] Voice shouldIgnoreInput, ignoring result in mode:', voiceMode);
       return;
     }
 
@@ -319,8 +339,18 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     cooldownRef.current = setTimeout(() => {
       setState(prev => ({ ...prev, inCooldown: false }));
       console.log('[useWakeWord] Cooldown ended');
+      
+      // Restart the continuous recognizer if still enabled
+      if (state.isEnabled && recognitionRef.current) {
+        console.log('[useWakeWord] Restarting continuous recognizer after cooldown');
+        try {
+          recognitionRef.current.start();
+        } catch (e) {
+          console.log('[useWakeWord] Error restarting recognizer:', e);
+        }
+      }
     }, config.cooldownMs || 2500);
-  }, [config.cooldownMs]);
+  }, [config.cooldownMs, state.isEnabled]);
 
   // Handle speech recognition errors
   const handleSpeechError = useCallback((event: any) => {

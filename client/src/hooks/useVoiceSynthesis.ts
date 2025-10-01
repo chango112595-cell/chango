@@ -172,18 +172,31 @@ export function useVoiceSynthesis() {
     VoiceBus.setSpeaking(true);
     Voice.speaking(true); // Notify Voice controller we're speaking
     
-    // Set safety timeout to prevent infinite loops
+    // Clear any existing safety timeout before setting a new one
     if (safetyTimeoutRef.current) {
       clearTimeout(safetyTimeoutRef.current);
+      safetyTimeoutRef.current = null;
     }
+    
+    // Calculate adaptive timeout based on text length and prosody steps
+    // Estimate: ~200ms per word + 500ms per pause + buffer
+    const wordCount = originalText.split(/\s+/).length;
+    const pauseCount = plan.filter(step => step.type === 'pause').length;
+    const estimatedDuration = (wordCount * 200) + (pauseCount * 500) + 5000; // Add 5s buffer
+    const timeoutDuration = Math.max(10000, Math.min(estimatedDuration, 60000)); // Min 10s, max 60s
+    
+    console.log(`[VoiceSynthesis] Setting adaptive safety timeout: ${timeoutDuration}ms for ${wordCount} words`);
+    
+    // Set safety timeout to prevent infinite loops
     safetyTimeoutRef.current = setTimeout(() => {
-      console.error("[VoiceSynthesis] Safety timeout triggered - stopping speech");
+      console.error(`[VoiceSynthesis] Safety timeout triggered after ${timeoutDuration}ms - stopping speech`);
       speechSynthesis.cancel();
       isExecutingProsodyRef.current = false;
       isSpeakingRef.current = false;
       VoiceBus.setSpeaking(false);
       Voice.speaking(false);
-    }, 30000); // 30 second safety timeout
+      safetyTimeoutRef.current = null; // Clear the ref after triggering
+    }, timeoutDuration);
     
     const voices = speechSynthesis.getVoices();
     
@@ -199,12 +212,18 @@ export function useVoiceSynthesis() {
       // Early return check before each step to prevent recursion
       const busState = VoiceBus.getState();
       if (!busState.power || busState.mute || isCancelledRef.current || isMutedRef.current || !isSpeakingRef.current) {
-        console.log("[VoiceSynthesis] Prosody plan execution stopped:", { 
+        console.log("[VoiceSynthesis] Prosody plan execution stopped early:", { 
           power: busState.power,
           muted: busState.mute || isMutedRef.current,
           cancelled: isCancelledRef.current,
           speaking: isSpeakingRef.current
         });
+        
+        // Clear safety timeout on early exit
+        if (safetyTimeoutRef.current) {
+          clearTimeout(safetyTimeoutRef.current);
+          safetyTimeoutRef.current = null;
+        }
         break;
       }
 
@@ -516,6 +535,13 @@ export function useVoiceSynthesis() {
       stateEnabled: state.isEnabled
     });
 
+    // Clear any existing safety timeout from a previous speech attempt
+    if (safetyTimeoutRef.current) {
+      console.log("[VoiceSynthesis] Clearing existing safety timeout before new speech");
+      clearTimeout(safetyTimeoutRef.current);
+      safetyTimeoutRef.current = null;
+    }
+
     // Stop any ongoing speech only if necessary
     if (speechSynthesis.speaking || speechSynthesis.pending) {
       speechSynthesis.cancel();
@@ -569,6 +595,13 @@ export function useVoiceSynthesis() {
       
     } catch (error) {
       console.error("CVE API failed, falling back to local synthesis:", error);
+      
+      // Clear safety timeout on error
+      if (safetyTimeoutRef.current) {
+        clearTimeout(safetyTimeoutRef.current);
+        safetyTimeoutRef.current = null;
+      }
+      
       isSpeakingRef.current = false; // Reset on error
       
       // Fallback to local synthesis if CVE API fails

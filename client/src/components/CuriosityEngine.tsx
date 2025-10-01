@@ -363,12 +363,20 @@ export default function CuriosityEngine() {
     }, 100);
   }, [voice, speechCoordination, curiosityLevel, personalityVariance, addLogMutation, quietMode]);
 
-  // Auto-generate responses based on curiosity level
+  // Auto-generate responses based on curiosity level - ONLY when explicitly enabled
   useEffect(() => {
+    // GATE: Only create interval when autoCuriosity is explicitly enabled
+    if (!autoCuriosity) {
+      console.log('[CuriosityEngine] Auto-curiosity disabled - no interval created');
+      return; // Don't even create the interval if auto-curiosity is disabled
+    }
+
+    console.log('[CuriosityEngine] Auto-curiosity enabled - creating interval');
     const interval = setInterval(() => {
-      // Guard to check if auto curiosity is disabled
+      // Double-check autoCuriosity is still enabled
       if (!autoCuriosity) {
-        return; // Don't generate automatic responses if disabled
+        console.log('[CuriosityEngine] Auto-curiosity was disabled - stopping interval');
+        return;
       }
       
       // Guard to check if already generating
@@ -384,6 +392,7 @@ export default function CuriosityEngine() {
       // Check VoiceBus state
       const busState = VoiceBus.getState();
       if (!busState.power || busState.mute) {
+        console.log('[CuriosityEngine] Skipping auto response - power OFF or muted');
         return; // Don't speak if power is off or muted
       }
       
@@ -407,12 +416,16 @@ export default function CuriosityEngine() {
         
         const chance = curiosityLevel[0] / 100;
         if (Math.random() < chance * 0.6) { // 60% of curiosity level as base chance
+          console.log('[CuriosityEngine] Triggering auto response (chance passed)');
           generateCuriousResponse();
         }
       }
     }, 2000); // Check every 2 seconds
 
-    return () => clearInterval(interval);
+    return () => {
+      console.log('[CuriosityEngine] Cleaning up interval');
+      clearInterval(interval);
+    };
   }, [curiosityLevel, voice, speechCoordination, generateCuriousResponse, quietMode, autoCuriosity]);
 
   const handleAdjustPersonality = () => {

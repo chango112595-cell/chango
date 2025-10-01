@@ -1,0 +1,142 @@
+Got it. I “ran” your current PASTE_ME.md in my head and here’s what’s breaking replies + how to patch fast.
+
+What’s wrong (root causes)
+	1.	Voice never truly enables (typo).
+setState(prev => ({ .prev, isEnabled: true })) appears twice; the dot breaks the spread, so the synth never flips to enabled.  ￼  ￼
+	2.	Chango talks by itself (curiosity loop).
+A 2-second interval fires responses whenever “can speak,” so it steals turns and looks like non-answers. Gate this.  ￼
+	3.	No guaranteed reply API in the server you’re running.
+Your bootstrap mounts health/feedback/checkpoints/voiceProfiles but no /nlp/reply route—so typed/STT questions have nowhere to fetch answers from.  ￼
+	4.	No single conversation orchestrator.
+Typed “Ask” and STT finals aren’t funneled into one ask→reply→speak lane, so even when TTS works, nothing triggers it reliably.
+	5.	OpenAI call in analysis path can fail silently.
+Voice analysis uses openai.chat.completions with gpt-5; without a key or if blocked, you fall to a neutral profile (okay), but that’s unrelated to making a reply—just noting it won’t stop TTS, but don’t rely on it for responses.  ￼
+	6.	Hologram wrapper alters window.speak.
+You wrap speak to flip modes. That’s fine, but if any code calls the original symbol directly, states can desync. Keep it, just be aware.  ￼
+
+Patches (copy-paste, minimal & isolated)
+
+A) Fix the enable typo (mandatory)
+
+In useVoiceSynthesis.ts, change both occurrences:
+
+setState(prev => ({ ...prev, isEnabled: true }));
+
+(Replace the .prev versions.)  ￼  ￼
+
+B) Stop unsolicited speech
+
+Where the curiosity loop runs, gate it:
+
+let autoCuriosity = false; // default OFF
+// inside the interval callback, first line:
+if (!autoCuriosity) return;
+
+￼
+
+C) Add a reply endpoint (so there’s something to say back)
+
+Create server/nlp/reply.js:
+
+import express from "express";
+
+function routeIntent(q){
+  const s=(q||"").trim();
+  if(!s) return "I didn’t catch that.";
+  if(/\b(time|what.*time)\b/i.test(s)) return "It is "+new Date().toLocaleTimeString()+".";
+  if(/\b(date|today)\b/i.test(s))      return "Today is "+new Date().toLocaleDateString()+".";
+  if(/\bwho.*you|what.*chango\b/i.test(s)) return "I’m Chango, your adaptive assistant.";
+  if(/\bhow.*you\b/i.test(s))          return "Feeling sharp and online.";
+  return "Noted. Want me to act on that?";
+}
+
+export default function registerReply(app){
+  const r=express.Router();
+  r.post("/nlp/reply", express.json({limit:"1mb"}), (req,res)=>{
+    res.json({ ok:true, reply: routeIntent(req.body?.text) });
+  });
+  app.use("/", r);
+}
+
+Mount it in server/index.js (your bootstrap currently lacks it):
+
+import registerReply from "./nlp/reply.js";
+registerReply(app);
+
+(You currently only mount health/feedback/checkpoints/voiceProfiles.  ￼)
+
+D) Add one conversation orchestrator (typed + STT share it)
+
+Create client/brain/convo.js:
+
+import { speakBrowser, VoiceBus } from "../voice/tts_browser.js";
+
+const Convo=(()=>{
+  let busy=false, lastUser="", lastBot="";
+  async function ask(text){
+    if(!text?.trim()) return {ok:false, reason:"empty"};
+    if(!VoiceBus.power || VoiceBus.mute) return {ok:false, reason:"muted_or_off"};
+    if(busy) return {ok:false, reason:"busy"};
+    busy=true; lastUser=text;
+    try{
+      const r = await fetch("/nlp/reply", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ text })
+      }).then(r=>r.json()).catch(()=>null);
+      const reply = r?.ok ? (r.reply||"Okay.") : "Okay.";
+      lastBot = reply;
+      await speakBrowser({
+        text: reply,
+        accent: document.getElementById("vcAccent")?.value || "en-US",
+        rate:  +document.getElementById("vcRate")?.value  || 1,
+        pitch: +document.getElementById("vcPitch")?.value || 1,
+        volume:+document.getElementById("vcVol")?.value   || 1
+      });
+      return {ok:true, reply};
+    } finally {
+      busy=false;
+      const d=document.getElementById("diagConvo");
+      if(d) d.textContent=JSON.stringify({lastUser,lastBot,busy},null,2);
+    }
+  }
+  async function handleFinalTranscript(txt){
+    if(!txt?.trim()) return;
+    if(/\bchango\b/i.test(txt)){ await speakBrowser({text:"Yes?", accent:"en-US"}); return; }
+    await ask(txt);
+  }
+  return { ask, handleFinalTranscript };
+})();
+export default Convo;
+
+Wire it:
+	•	Typed Ask → Convo
+client/ui/voice_controls.js:
+
+import Convo from "../brain/convo.js";
+$('vcAsk').onclick = async ()=>{
+  const q = $('vcPhrase').value || 'what time is it?';
+  const r = await Convo.ask(q);
+  out(r?.ok ? { ok:true, asked:q, reply:r.reply } : r);
+};
+
+	•	STT final → Convo
+client/voice/wake_loop.js:
+
+import Convo from "../brain/convo.js";
+stt.onfinal(async (txt)=>{
+  engaged=false;
+  if(!txt?.trim()) return;
+  await Convo.handleFinalTranscript(txt);
+});
+
+Quick validation
+	•	After A+B+C+D:
+	•	Type “how are you” → Ask → Chango speaks back.
+	•	Say “Chango… what time is it?” → spoken reply.
+	•	No random chatter unless you toggle autoCuriosity on.
+
+Notes (non-blocking)
+	•	The OpenAI-based voice analysis gracefully falls back if the API fails; it won’t stop replies (just voice profiling).  ￼
+	•	Your hologram wrapper is fine; it just flips modes around speak(); keep using it.  ￼
+
+If you apply those four edits exactly, Chango will resume consistent ask → answer → speak behavior while keeping your current UI and controls.

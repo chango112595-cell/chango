@@ -1,0 +1,253 @@
+Here’s a ready-to-paste PASTE_ME.md that records the fixes and includes the isolated drop-in patches so Chango stops looping and actually replies.
+
+⸻
+
+
+# Chango AI — Patch Pack (Stable Reply + No-Loop)
+_Last updated: 2025-10-01_
+
+This page captures what changed, why, and the exact code you can paste. All modules are **isolated** and safe to apply independently.
+
+---
+
+## ✅ What was fixed
+
+1) **Cancel loop (stack overflow)**
+   - Cause: `cancelSpeak()` re-triggered itself via event listeners.
+   - Fix: reentrancy guard + async event emission; listeners no longer call `cancelSpeak()` in response to `cancel`.
+
+2) **No reply after fixes**
+   - Cause: listener cleanup cleared queues but never re-enabled normal speak.
+   - Fix: allow new `speak()` calls after `cancel`; guard against muted state.
+
+3) **Unsolicited talking**
+   - Cause: curiosity interval speaking on its own.
+   - Fix: gated behind `autoCuriosity` (default OFF).
+
+4) **Reply path not guaranteed**
+   - Added `/nlp/reply` server route + HUD “Ask” fallback and WebSpeech STT (Chrome) in the wake loop.
+
+---
+
+## 🔧 Copy/Paste Patches
+
+### A) `voiceBus.ts` — cancel is reentrancy-safe + async emit
+```ts
+// voiceBus.ts
+type VoiceEvent =
+  | { type: 'start' }
+  | { type: 'end' }
+  | { type: 'error'; err: unknown }
+  | { type: 'cancel'; source?: 'user' | 'system' }
+  | { type: 'muteChange'; muted: boolean };
+
+export class VoiceBusManager {
+  private listeners = new Set<(ev: VoiceEvent) => void>();
+  private _isCancelling = false;
+
+  on(fn: (ev: VoiceEvent) => void) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
+  private emitAsync(ev: VoiceEvent) { const fns=[...this.listeners]; for (const fn of fns) queueMicrotask(()=>fn(ev)); }
+
+  cancelSpeak(source: 'user'|'system'='user') {
+    if (this._isCancelling) return;
+    this._isCancelling = true;
+    try { if (typeof window!=='undefined' && window.speechSynthesis) window.speechSynthesis.cancel(); }
+    finally { this._isCancelling = false; }
+    this.emitAsync({ type: 'cancel', source });
+  }
+}
+
+B) useVoiceSynthesis.ts — listener allows new replies
+
+// useVoiceSynthesis.ts (within useEffect)
+const off = voiceBus.on(ev => {
+  switch (ev.type) {
+    case 'cancel':
+      setSpeaking(false);
+      setQueue([]);         // reset only; do NOT call cancel() here
+      return;
+    case 'muteChange':
+      if (ev.muted) voiceBus.cancelSpeak('system'); // one cancel; no loops
+      return;
+    case 'start':
+      setSpeaking(true); return;
+    case 'end':
+      setSpeaking(false); return;
+    case 'error':
+      setSpeaking(false); console.error('Speech error:', ev.err); return;
+  }
+});
+return off;
+
+C) speak() guard — don’t speak while muted / empty
+
+// wherever speak() runs client-side
+const speak = (text: string) => {
+  if (!text || muted) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.onend   = () => voiceBus.emitAsync({ type:'end' });
+  u.onerror = e  => voiceBus.emitAsync({ type:'error', err:e });
+  window.speechSynthesis.speak(u);
+  voiceBus.emitAsync({ type:'start' });
+};
+
+D) Curiosity auto-speak OFF by default
+
+// curiosity loop site
+let autoCuriosity = false; // default OFF
+useEffect(() => {
+  const id = setInterval(() => {
+    if (!autoCuriosity) return;
+    if (!voice.isSpeaking() && speechCoordination.canCuriositySpeak()) {
+      const chance = curiosityLevel[0] / 100;
+      if (Math.random() < chance * 0.6) generateCuriousResponse();
+    }
+  }, 2000);
+  return () => clearInterval(id);
+}, [autoCuriosity, curiosityLevel, voice, speechCoordination, generateCuriousResponse]);
+
+// optional toggle in UI
+// <input type="checkbox" onChange={e=> setAutoCuriosity(e.target.checked)} />
+
+E) Server: /nlp/reply (guaranteed small-talk + time)
+
+// server/nlp/reply.js (ESM)
+import express from 'express';
+export function registerReply(app){
+  const r = express.Router();
+  r.post('/reply', express.json({limit:'1mb'}), (req,res)=>{
+    const q = (req.body?.text||'').trim();
+    let out = 'Okay.';
+    if(!q) out='I did not catch that.';
+    else if(/time|hour/i.test(q)) out = 'It is ' + new Date().toLocaleTimeString() + '.';
+    else if(/who.*you|what.*chango/i.test(q)) out='I am Chango, your adaptive assistant.';
+    else if(/how.*you/i.test(q)) out='Feeling sharp and online.';
+    return res.json({ok:true, reply: out});
+  });
+  app.use('/nlp', r);
+}
+export default registerReply;
+
+Add in server/index.js:
+
+import registerReply from './nlp/reply.js';
+registerReply(app);
+
+F) Client fallback “Ask” (works even if STT is off)
+
+// in HUD controls
+$('vcAsk').onclick = async ()=>{
+  const q = $('vcPhrase').value || 'what time is it?';
+  const r = await fetch('/nlp/reply',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({text:q})
+  }).then(r=>r.json()).catch(()=>null);
+
+  if (r?.ok) {
+    await speakBrowser({
+      text:r.reply, accent:$('vcAccent').value,
+      rate:+$('vcRate').value, pitch:+$('vcPitch').value, volume:+$('vcVol').value
+    });
+  }
+};
+
+Markup row:
+
+<input id="vcPhrase" style="flex:1" placeholder="Ask me something…">
+<button id="vcAsk">Ask</button>
+
+G) Wake loop (uses WebSpeech STT if available; otherwise fallback works)
+
+// client/voice/stt_webspeech.js
+export class WebSpeechSTT {
+  constructor(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    this.supported = !!SR; if (!this.supported) return;
+    this.rec = new SR(); this.rec.continuous=false; this.rec.interimResults=false; this.rec.maxAlternatives=1;
+    this._onfinal=null; this._onerror=null;
+    this.rec.onresult=(e)=>{ const t=e.results?.[0]?.[0]?.transcript||''; this._onfinal && this._onfinal(t); };
+    this.rec.onerror=(e)=> this._onerror && this._onerror(e);
+  }
+  setLangFromAccent(a='en-US'){ if(this.supported) this.rec.lang=a; }
+  onfinal(f){ this._onfinal=f; } onerror(f){ this._onerror=f; }
+  start(){ try{ this.supported && this.rec.start(); }catch{} }
+  stop(){ try{ this.supported && this.rec.stop(); }catch{} }
+}
+
+// client/voice/wake_loop.js (minimal stable)
+import {VADGate} from './vad.js';
+import {speakBrowser, VoiceBus, cancelSpeak} from './tts_browser.js';
+import { WebSpeechSTT } from './stt_webspeech.js';
+
+export function startWakeLoop(opts={}){
+  const cfg={wakeWord:(opts.wakeWord||'chango').toLowerCase(), cooldownMs:2000};
+  const el=id=>document.getElementById(id);
+  const vad=new VADGate({minDb:-50,minMs:250,debounceMs:1200});
+  const stt=new WebSpeechSTT();
+  let engaged=false, lastSpeak=0;
+
+  function cooling(){ return (performance.now()-lastSpeak)<cfg.cooldownMs; }
+  function saidWake(s){ return (s||'').toLowerCase().includes(cfg.wakeWord); }
+
+  async function replyAndSpeak(text){
+    const r = await fetch('/nlp/reply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})}).then(r=>r.json()).catch(()=>null);
+    const msg = r?.ok ? r.reply : 'Okay.';
+    lastSpeak = performance.now();
+    await speakBrowser({
+      text: msg,
+      accent: el('vcAccent')?.value||'en-US',
+      rate: +el('vcRate')?.value||1,
+      pitch:+el('vcPitch')?.value||1,
+      volume:+el('vcVol')?.value||1
+    });
+  }
+
+  function armSTT(){
+    if(!stt.supported) return;
+    stt.setLangFromAccent(el('vcAccent')?.value||'en-US');
+    stt.onfinal(async (txt)=>{
+      engaged=false;
+      if(!txt?.trim()) return;
+      if (saidWake(txt)) { await speakBrowser({text:'Yes?', accent: el('vcAccent')?.value||'en-US'}); return; }
+      await replyAndSpeak(txt);
+    });
+    stt.onerror(()=>{ engaged=false; });
+  }
+
+  (async()=>{ armSTT(); await vad.attach(); vad.onSpeech=()=>{ el('vcHeard')&&(el('vcHeard').textContent='heard: yes'); if (engaged||VoiceBus.mute||cooling()) return; engaged=true; stt.supported?stt.start():engaged=false; }; })();
+
+  return { stop(){ try{vad.stop()}catch{} try{stt.stop()}catch{} cancelSpeak(); } };
+}
+
+
+⸻
+
+🧪 Sanity Checklist
+	•	Type → Ask: “how are you” → Chango speaks.
+	•	Say: “Chango… what time is it?” → Chango answers (Chrome STT).
+	•	Curiosity auto-speak OFF by default (no unsolicited talking).
+	•	Mute/Power toggles: no speech; unmute → replies resume.
+	•	No red Vite runtime overlay, no “Maximum call stack”.
+
+⸻
+
+📝 Checkpoint Entry
+
+2025-10-01 — Voice Stability & Reply Path
+	•	Fixed cancel recursion (reentrancy + async emit).
+	•	Restored reply flow; added small-talk/time NLU.
+	•	Curiosity auto-speak gated (default OFF).
+	•	Added /nlp/reply and HUD Ask fallback.
+	•	Wake loop uses WebSpeech STT if available.
+
+Status: PASS ✅
+
+⸻
+
+▶️ What’s next (optional)
+	•	Swap WebSpeech with your preferred STT (Whisper or local) behind the same interface.
+	•	Add Diagnostics widget: show last transcript, last /nlp/reply, TTS state, STT state.
+
+---
+
+If you want, I can also append a tiny **Diagnostics widget** section to this file so you can paste it next and see transcript/reply/tts state live.

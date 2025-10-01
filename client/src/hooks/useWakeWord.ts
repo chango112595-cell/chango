@@ -4,6 +4,8 @@ import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
 import { VoiceBus, cancelSpeak } from "@/lib/voiceBus";
 import { Voice } from "@/lib/voiceController";
 import { WebSpeechSTT } from "@/lib/webSpeechSTT";
+import { ConversationOrchestrator } from "@/lib/conversationOrchestrator";
+import { useConversation } from "@/lib/conversationContext";
 
 interface WakeWordConfig {
   wakeWord?: string;
@@ -38,6 +40,7 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
   const { toast } = useToast();
   const { speak } = useVoiceSynthesis();
+  const { addUserMessage, addChangoMessage } = useConversation();
   const recognitionRef = useRef<any>(null);
   const sttRef = useRef<WebSpeechSTT | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -327,41 +330,34 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     }
 
     try {
-      // Send command to NLP endpoint
-      const response = await fetch('/nlp/reply', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          text: command,
-          context: {
-            wakeWord: state.wakeWord,
-            sessionId: Date.now().toString()
-          }
-        })
+      // Use the ConversationOrchestrator for unified Q&A flow
+      console.log('[useWakeWord] Using ConversationOrchestrator for command:', command);
+      
+      const result = await ConversationOrchestrator.processConversation(command, {
+        addUserMessage,
+        addChangoMessage,
+        speak,
+        showToast: (title, description, variant) => {
+          toast({
+            title,
+            description,
+            variant: variant as any,
+          });
+        }
       });
 
-      if (!response.ok) {
-        throw new Error(`NLP API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      
-      if (data.ok) {
-        // Handle both reply and text fields
-        const reply = data.reply ?? data.text;
-        if (reply) {
-          console.log('[useWakeWord] NLP response:', reply);
-          setState(prev => ({ ...prev, lastResponse: reply }));
-          
-          // Force speak the reply using voice synthesis hook (bypass WAKE mode)
-          speak(reply, true);
-        } else {
-          console.error('[useWakeWord] NLP response missing reply/text:', data);
-        }
+      if (result.success && result.response) {
+        console.log('[useWakeWord] ConversationOrchestrator response:', result.response);
+        setState(prev => ({ ...prev, lastResponse: result.response || '' }));
       } else {
-        console.error('[useWakeWord] NLP request failed:', data);
+        console.error('[useWakeWord] ConversationOrchestrator failed:', result.error);
+        if (result.error && !result.error.includes('powered off')) {
+          toast({
+            title: "Command Processing Failed",
+            description: result.error || "Failed to process your command. Please try again.",
+            variant: "destructive",
+          });
+        }
       }
       
     } catch (error) {
@@ -374,7 +370,7 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     } finally {
       endSession();
     }
-  }, [state.isProcessing, state.wakeWord, toast, speak]);
+  }, [state.isProcessing, toast, speak, addUserMessage, addChangoMessage]);
 
   // End the current session
   const endSession = useCallback(() => {

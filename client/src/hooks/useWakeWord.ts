@@ -44,6 +44,8 @@ export function useWakeWord(config: WakeWordConfig = {}) {
   const cooldownRef = useRef<NodeJS.Timeout | null>(null);
   const commandBufferRef = useRef<string>("");
   const isStoppingRef = useRef<boolean>(false); // Guard to prevent multiple stop calls
+  const commandCaptureRef = useRef<boolean>(false); // Track when command STT is running
+  const mountedRef = useRef<boolean>(true); // Track component mounted state
 
   // Initialize speech recognition
   const initializeRecognition = useCallback(() => {
@@ -134,6 +136,9 @@ export function useWakeWord(config: WakeWordConfig = {}) {
       if (wakeWordDetected) {
         console.log('[useWakeWord] Wake word detected in WAKE mode! Starting STT...');
         
+        // Set flag to prevent continuous recognizer from restarting
+        commandCaptureRef.current = true;
+        
         // Stop continuous recognizer and wait for it to fully stop
         if (recognitionRef.current && !isStoppingRef.current) {
           isStoppingRef.current = true;
@@ -141,12 +146,12 @@ export function useWakeWord(config: WakeWordConfig = {}) {
           
           // Set up promise to wait for onend
           const stopPromise = new Promise<void>((resolve) => {
-            const originalOnEnd = recognitionRef.current.onend;
+            // When stopping continuous recognizer, DO NOT call original onend
             recognitionRef.current.onend = (event: any) => {
-              console.log('[useWakeWord] Continuous recognizer stopped');
-              if (originalOnEnd) originalOnEnd(event);
+              console.log('[useWakeWord] Continuous recognizer stopped for command capture');
               isStoppingRef.current = false;
               resolve();
+              // DO NOT call original onend here - it would restart the recognizer
             };
           });
           
@@ -179,10 +184,41 @@ export function useWakeWord(config: WakeWordConfig = {}) {
             if (finalTranscript) {
               processCommand(finalTranscript);
             }
+            
+            // Clear command capture flag
+            commandCaptureRef.current = false;
+            
+            // Restart continuous recognizer after delay
+            setTimeout(() => {
+              if (mountedRef.current && recognitionRef.current && state.isEnabled) {
+                try {
+                  recognitionRef.current.start();
+                  console.log('[useWakeWord] Continuous recognizer restarted after command');
+                } catch (error) {
+                  console.error('[useWakeWord] Failed to restart continuous recognizer:', error);
+                }
+              }
+            }, 300);
           });
           
           sttRef.current.onerror((error: any) => {
             console.error('[useWakeWord] STT error:', error);
+            
+            // Clear command capture flag on error too
+            commandCaptureRef.current = false;
+            
+            // Restart continuous recognizer after delay
+            setTimeout(() => {
+              if (mountedRef.current && recognitionRef.current && state.isEnabled) {
+                try {
+                  recognitionRef.current.start();
+                  console.log('[useWakeWord] Continuous recognizer restarted after error');
+                } catch (error) {
+                  console.error('[useWakeWord] Failed to restart continuous recognizer:', error);
+                }
+              }
+            }, 300);
+            
             endSession();
           });
         }
@@ -312,12 +348,20 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
       const data = await response.json();
       
-      if (data.reply) {
-        console.log('[useWakeWord] Got reply:', data.reply);
-        setState(prev => ({ ...prev, lastResponse: data.reply }));
-        
-        // Force speak the reply using voice synthesis hook (bypass WAKE mode)
-        speak(data.reply, true);
+      if (data.ok) {
+        // Handle both reply and text fields
+        const reply = data.reply ?? data.text;
+        if (reply) {
+          console.log('[useWakeWord] NLP response:', reply);
+          setState(prev => ({ ...prev, lastResponse: reply }));
+          
+          // Force speak the reply using voice synthesis hook (bypass WAKE mode)
+          speak(reply, true);
+        } else {
+          console.error('[useWakeWord] NLP response missing reply/text:', data);
+        }
+      } else {
+        console.error('[useWakeWord] NLP request failed:', data);
       }
       
     } catch (error) {
@@ -337,6 +381,9 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     console.log('[useWakeWord] Ending session, starting cooldown');
     
     commandBufferRef.current = "";
+    
+    // Clear command capture flag
+    commandCaptureRef.current = false;
     
     // Stop STT if running and clear reference
     if (sttRef.current) {
@@ -378,13 +425,13 @@ export function useWakeWord(config: WakeWordConfig = {}) {
       
       await waitForTTS();
       
-      // Restart the continuous recognizer if still enabled
-      if (state.isEnabled && recognitionRef.current) {
-        console.log('[useWakeWord] Restarting continuous recognizer after TTS + buffer');
+      // Restart continuous recognizer
+      if (mountedRef.current && state.isEnabled && recognitionRef.current) {
+        console.log('[useWakeWord] Restarting continuous recognizer after session end');
         try {
           recognitionRef.current.start();
-        } catch (e) {
-          console.log('[useWakeWord] Error restarting recognizer:', e);
+        } catch (error) {
+          console.error('[useWakeWord] Failed to restart continuous recognizer:', error);
         }
       }
     }, config.cooldownMs || 2500);
@@ -420,6 +467,12 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     console.log('[useWakeWord] Recognition ended');
     setState(prev => ({ ...prev, isListening: false }));
     
+    // Don't auto-restart if command capture is active
+    if (commandCaptureRef.current) {
+      console.log('[useWakeWord] Suppressing auto-restart during command capture');
+      return;
+    }
+    
     // Don't auto-restart if we're stopping intentionally or command STT is active
     if (isStoppingRef.current || sttRef.current) {
       console.log('[useWakeWord] Suppressing auto-restart (stopping or command active)');
@@ -431,7 +484,7 @@ export function useWakeWord(config: WakeWordConfig = {}) {
       console.log('[useWakeWord] Restarting recognition after onend');
       setTimeout(() => {
         // Double-check conditions before restart
-        if (state.isEnabled && recognitionRef.current && !isStoppingRef.current && !sttRef.current) {
+        if (state.isEnabled && recognitionRef.current && !isStoppingRef.current && !sttRef.current && !commandCaptureRef.current) {
           try {
             recognitionRef.current.start();
             console.log('[useWakeWord] Recognition restarted');
@@ -555,7 +608,10 @@ export function useWakeWord(config: WakeWordConfig = {}) {
 
   // Cleanup on unmount
   useEffect(() => {
+    mountedRef.current = true;
+    
     return () => {
+      mountedRef.current = false;
       if (state.isEnabled) {
         disable();
       }

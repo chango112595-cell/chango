@@ -5,6 +5,9 @@
  */
 
 import { voiceBus } from './voiceBus';
+import { debugBus } from '../dev/debugBus';
+import { FEATURES } from '../config/featureFlags';
+import { beat } from '../dev/health/monitor';
 
 // TypeScript declarations for Web Speech API
 interface SpeechRecognitionResult {
@@ -116,6 +119,11 @@ class AlwaysListenManager {
     console.log('[STT] init');
     console.log('[AlwaysListen] Initializing continuous listening...');
     
+    // Log to debug bus
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('STT', 'init', { module: 'AlwaysListen' });
+    }
+    
     // Check for browser support
     const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -204,6 +212,12 @@ class AlwaysListenManager {
     this.recognition.onend = () => {
       console.log('[STT] end → restart');
       console.log('[AlwaysListen] 🔴 Recognition ended');
+      
+      // Log to debug bus
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('STT', 'end', { willRestart: this.isEnabled && this.config.autoRestart });
+      }
+      
       this.isListening = false;
       
       // Auto-restart if enabled and not manually stopped
@@ -221,6 +235,13 @@ class AlwaysListenManager {
     this.recognition.onresult = (event: SpeechRecognitionEvent) => {
       console.log('[AlwaysListen] 📝 Processing recognition results...');
       console.log(`[AlwaysListen] Result index: ${event.resultIndex}, Total results: ${event.results.length}`);
+      
+      // Send STT heartbeat
+      try {
+        beat('stt', { hasResults: true });
+      } catch (error) {
+        console.error('[AlwaysListen] Error sending heartbeat:', error);
+      }
       
       let interimTranscript = '';
       let finalTranscript = '';
@@ -241,6 +262,11 @@ class AlwaysListenManager {
           if (finalTranscript && finalTranscript.length > 0) {
             console.log('[STT] heard:', finalTranscript);
             console.log('[AlwaysListen] 🚀 Emitting final transcript to voiceBus:', finalTranscript);
+            
+            // Log to debug bus
+            if (FEATURES.DEBUG_BUS) {
+              debugBus.info('STT', 'heard', { text: finalTranscript });
+            }
             
             // CRITICAL: Emit the final speech to voiceBus for processing
             try {
@@ -292,6 +318,14 @@ class AlwaysListenManager {
     this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.warn('[STT] error', event.error);
       console.error('[AlwaysListen] Recognition error:', event.error);
+      
+      // Log to debug bus
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.error('STT', 'error', { 
+          error: event.error, 
+          message: event.message 
+        });
+      }
       
       if (event.error === 'not-allowed') {
         this.hasPermission = false;

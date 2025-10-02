@@ -199,11 +199,73 @@ export function route(text: string): string | null {
   return null;
 }
 
+// Unified response function that sends response through both channels
+async function respond(text: string): Promise<void> {
+  // Generate response using the routing logic
+  const response = route(text);
+  
+  if (response) {
+    console.log('[ConversationEngine] ✅ Generated response:', response);
+    
+    // Emit response event for UI components to listen to
+    voiceBus.emit({
+      type: 'changoResponse',
+      text: response,
+      source: 'conversation'
+    });
+    
+    // Use voiceOrchestrator to speak the response
+    voiceOrchestrator.speak(response);
+    console.log('[ConversationEngine] Response sent to voice orchestrator');
+  } else {
+    console.log('[ConversationEngine] ⚠️ No specific route matched, using default response');
+    const defaultResponse = "I'm not sure how to respond to that. Could you please rephrase or ask something else?";
+    
+    // Emit response event for UI components
+    voiceBus.emit({
+      type: 'changoResponse',
+      text: defaultResponse,
+      source: 'conversation'
+    });
+    
+    voiceOrchestrator.speak(defaultResponse);
+    console.log('[ConversationEngine] Default response sent to voice orchestrator');
+  }
+}
+
+// Unified handle function that processes both typed and speech input
+async function handle(raw: string, typed: boolean = false): Promise<void> {
+  const inputType = typed ? 'typed' : 'speech';
+  console.log(`[ConversationEngine] 📢 Processing ${inputType} input:`, raw);
+  
+  // Apply gate filtering
+  const gateResult = passGate(raw, typed);
+  console.log(`[ConversationEngine] Gate result for ${inputType} input:`, {
+    allowed: gateResult.allowed,
+    reason: gateResult.reason,
+    originalText: raw,
+    processedText: gateResult.text
+  });
+  
+  // If not allowed through gate, don't process further
+  if (!gateResult.allowed) {
+    console.log(`[ConversationEngine] 🚫 ${inputType} blocked by gate:`, gateResult.reason);
+    return;
+  }
+  
+  // Use the processed text from the gate (with wake word stripped for speech)
+  const processedText = gateResult.text;
+  console.log('[ConversationEngine] Gate allowed, processing:', processedText);
+  
+  // Generate and send response
+  await respond(processedText);
+}
+
 // Initialize conversation engine with event listeners
 export function initConversationEngine(): void {
   console.log('[ConversationEngine] Initializing...');
   
-  // Expose route function to window for testing in dev mode
+  // Expose functions to window for testing in dev mode
   if (import.meta.env.DEV) {
     (window as any).conversationEngine = {
       route,
@@ -211,7 +273,9 @@ export function initConversationEngine(): void {
       getCurrentDate,
       getIdentity,
       getMoodResponse,
-      getSmallTalkResponse
+      getSmallTalkResponse,
+      handle,
+      respond
     };
     console.log('[ConversationEngine] Exposed to window.conversationEngine for testing');
   }
@@ -221,50 +285,8 @@ export function initConversationEngine(): void {
     console.log('[ConversationEngine] 🎯 RECEIVED userSpeechRecognized event!', event);
     
     if (event.text) {
-      console.log('[ConversationEngine] 📢 Received speech input:', event.text);
-      console.log('[ConversationEngine] Processing speech-to-text result...');
-      
-      // Apply gate filtering for speech input (typed=false)
-      const gateResult = passGate(event.text, false);
-      console.log('[ConversationEngine] Gate result:', gateResult);
-      
-      if (!gateResult.allowed) {
-        console.log('[ConversationEngine] 🚫 Speech blocked by gate:', gateResult.reason);
-        return; // Don't process further
-      }
-      
-      // Use the processed text from the gate (with wake word stripped)
-      const processedText = gateResult.text;
-      console.log('[ConversationEngine] Gate allowed, processing:', processedText);
-      
-      const response = route(processedText);
-      if (response) {
-        console.log('[ConversationEngine] ✅ Generated response:', response);
-        
-        // Emit response event for UI components to listen to
-        voiceBus.emit({
-          type: 'changoResponse',
-          text: response,
-          source: 'conversation'
-        });
-        
-        // Use voiceOrchestrator to speak the response
-        voiceOrchestrator.speak(response);
-        console.log('[ConversationEngine] Response sent to voice orchestrator');
-      } else {
-        console.log('[ConversationEngine] ⚠️ No specific route matched, using default response');
-        const defaultResponse = "I'm not sure how to respond to that. Could you please rephrase or ask something else?";
-        
-        // Emit response event for UI components
-        voiceBus.emit({
-          type: 'changoResponse',
-          text: defaultResponse,
-          source: 'conversation'
-        });
-        
-        voiceOrchestrator.speak(defaultResponse);
-        console.log('[ConversationEngine] Default response sent to voice orchestrator');
-      }
+      // Use unified handle function for speech input (typed=false)
+      handle(event.text, false);
     } else {
       console.log('[ConversationEngine] ❌ Received event without text!', event);
     }
@@ -273,51 +295,12 @@ export function initConversationEngine(): void {
   // Listen for user text submitted events
   voiceBus.on('userTextSubmitted', (event) => {
     console.log('[ConversationEngine] 🎯 RECEIVED userTextSubmitted event!', event);
+    
     if (event.text) {
-      console.log('[ConversationEngine] 📢 Received text input:', event.text);
-      console.log('[ConversationEngine] Processing text submission...');
-      
-      // Apply gate filtering for typed input (typed=true)
-      const gateResult = passGate(event.text, true);
-      console.log('[ConversationEngine] Gate result for typed input:', gateResult);
-      
-      if (!gateResult.allowed) {
-        console.log('[ConversationEngine] 🚫 Text blocked by gate (unexpected):', gateResult.reason);
-        return; // Don't process further (shouldn't happen for typed input)
-      }
-      
-      // Use the processed text from the gate
-      const processedText = gateResult.text;
-      console.log('[ConversationEngine] Gate allowed typed input, processing:', processedText);
-      
-      const response = route(processedText);
-      if (response) {
-        console.log('[ConversationEngine] Generated response:', response);
-        
-        // Emit response event for UI components to listen to
-        voiceBus.emit({
-          type: 'changoResponse',
-          text: response,
-          source: 'conversation'
-        });
-        
-        // Use voiceOrchestrator to speak the response
-        voiceOrchestrator.speak(response);
-        console.log('[ConversationEngine] Response sent to voice orchestrator');
-      } else {
-        console.log('[ConversationEngine] No specific route matched, using default response');
-        const defaultResponse = "I'm not sure how to respond to that. Could you please rephrase or ask something else?";
-        
-        // Emit response event for UI components
-        voiceBus.emit({
-          type: 'changoResponse',
-          text: defaultResponse,
-          source: 'conversation'
-        });
-        
-        voiceOrchestrator.speak(defaultResponse);
-        console.log('[ConversationEngine] Default response sent to voice orchestrator');
-      }
+      // Use unified handle function for typed input (typed=true)
+      handle(event.text, true);
+    } else {
+      console.log('[ConversationEngine] ❌ Received event without text!', event);
     }
   });
   

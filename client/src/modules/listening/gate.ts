@@ -12,16 +12,16 @@ interface GateResult {
 }
 
 // More flexible wake word pattern
-// Matches: "hey chango", "ok chango", "yo chango", or just "chango"
+// Matches: "hey lolo", "ok lolo", "yo lolo", or just "lolo"
 // Followed by various punctuation marks
-const WAKE_WORD_PATTERN = /^(?:\s*(hey|ok|yo)\s+)?chango[\s,.:;-]*/i;
+const WAKE_WORD_PATTERN = /^(?:\s*(hey|ok|yo)\s+)?lolo[\s,.:;-]*/i;
 
 /**
- * Check if the text is directly addressed to Chango
+ * Check if the text is directly addressed to Lolo
  * @param text - The text to check
- * @returns true if the text is addressed to Chango
+ * @returns true if the text is addressed to Lolo
  */
-function isAddressedToChango(text: string): boolean {
+function isAddressedToLolo(text: string): boolean {
   const trimmedText = text.trim();
   return WAKE_WORD_PATTERN.test(trimmedText);
 }
@@ -45,7 +45,7 @@ function stripWakeWord(text: string): string {
 }
 
 /**
- * Main gate function that filters input based on whether it's addressed to Chango
+ * Main gate function that filters input based on whether it's addressed to Lolo
  * @param text - The input text to check
  * @param typed - Whether the input was typed (true) or spoken (false)
  * @returns GateResult with allowed status, processed text, and reason
@@ -70,8 +70,8 @@ export function passGate(text: string, typed: boolean = false): GateResult {
     };
   }
   
-  // Check if the speech is addressed to Chango
-  if (isAddressedToChango(text)) {
+  // Check if the speech is addressed to Lolo
+  if (isAddressedToLolo(text)) {
     // Strip the wake word before passing through
     const processedText = stripWakeWord(text);
     console.log('[Gate] Wake word detected - allowing through:', text, '->', processedText);
@@ -83,7 +83,7 @@ export function passGate(text: string, typed: boolean = false): GateResult {
   }
   
   // Block unaddressed speech
-  console.log('[Gate] Speech not addressed to Chango - blocking:', text);
+  console.log('[Gate] Speech not addressed to Lolo - blocking:', text);
   return {
     allowed: false,
     text: text,

@@ -1,6 +1,6 @@
 /**
  * Wake Word Detection Module
- * Listens for "chango" or "hey chango" to activate the assistant
+ * Listens for "lolo" or "hey lolo" to activate the assistant
  */
 
 import { voiceBus } from './voiceBus';
@@ -14,7 +14,7 @@ export interface WakeWordConfig {
 }
 
 class WakeWordDetector {
-  private wakeWords: string[] = ['chango', 'hey chango', 'okay chango', 'hi chango'];
+  private wakeWords: string[] = ['lolo', 'hey lolo', 'okay lolo', 'hi lolo'];
   private isEnabled: boolean = false;
   private lastWakeTime: number = 0;
   private cooldownDuration: number = 2000; // 2 seconds cooldown

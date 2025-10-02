@@ -48,7 +48,7 @@ export class LocalNeuralProvider implements TTSProvider {
       loadVoiceList();
 
       // Also listen for the voiceschanged event
-      if ('onvoiceschanged' in this.synthesis) {
+      if (this.synthesis && 'onvoiceschanged' in this.synthesis) {
         this.synthesis.onvoiceschanged = () => {
           loadVoiceList();
         };

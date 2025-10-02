@@ -92,17 +92,17 @@ export function passGate(text: string, typed: boolean = false): GateResult {
 }
 
 // Export for testing
-export { isAddressedToChango, stripWakeWord };
+export { isAddressedToLolo, stripWakeWord };
 
 // Expose to window in dev mode for testing
 if (import.meta.env.DEV) {
   (window as any).listeningGate = {
     passGate,
-    isAddressedToChango,
+    isAddressedToLolo,
     stripWakeWord,
     testPatterns: (text: string) => {
       console.log('Testing:', text);
-      console.log('Is addressed:', isAddressedToChango(text));
+      console.log('Is addressed:', isAddressedToLolo(text));
       console.log('Stripped text:', stripWakeWord(text));
       console.log('Gate result:', passGate(text, false));
     }

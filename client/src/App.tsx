@@ -6,7 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SpeechCoordinationProvider } from "@/lib/speechCoordination";
 import { ConversationProvider } from "@/lib/conversationContext";
-import { bootstrapChango, shutdownChango } from "@/app/bootstrap";
+import { bootstrapLolo, shutdownLolo } from "@/app/bootstrap";
 import { AskBar } from "@/ui/AskBar";
 import StatusDock from "@/components/StatusDock";
 import { HeaderBar } from "@/components/HeaderBar";
@@ -37,12 +37,12 @@ function StatusDockWrapper() {
 function VoiceInitializer() {
   // Initialize voice system on mount using bootstrap
   useEffect(() => {
-    console.log("[App] Initializing Chango with bootstrap...");
+    console.log("[App] Initializing Lolo with bootstrap...");
     
-    const initializeChango = async () => {
+    const initializeLolo = async () => {
       try {
-        // Bootstrap Chango with always listening mode based on feature flag
-        await bootstrapChango({
+        // Bootstrap Lolo with always listening mode based on feature flag
+        await bootstrapLolo({
           autoStartListening: FEATURES.ALWAYS_LISTEN_DEFAULT,  // Use feature flag
           enableTTS: true,           // Enable text-to-speech
           pauseOnHidden: true        // Pause when tab is hidden
@@ -53,18 +53,18 @@ function VoiceInitializer() {
           voiceBus.setMute(false);
         }
         
-        console.log("[App] Chango bootstrapped successfully - always listening mode:", FEATURES.ALWAYS_LISTEN_DEFAULT);
+        console.log("[App] Lolo bootstrapped successfully - always listening mode:", FEATURES.ALWAYS_LISTEN_DEFAULT);
       } catch (error) {
-        console.error("[App] Failed to bootstrap Chango:", error);
+        console.error("[App] Failed to bootstrap Lolo:", error);
       }
     };
     
     // Run initialization
-    initializeChango();
+    initializeLolo();
     
     return () => {
       // Cleanup on unmount
-      shutdownChango();
+      shutdownLolo();
     };
   }, []);
 
@@ -102,7 +102,7 @@ function AppContent() {
       {/* Global AskBar for text input */}
       <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4 z-50">
         <AskBar 
-          placeholder="Ask Chango anything..."
+          placeholder="Ask Lolo anything..."
           showIcon={true}
           submitOnEnter={true}
           showSubmitButton={true}

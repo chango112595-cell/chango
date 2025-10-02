@@ -191,9 +191,9 @@ class STTService {
    */
   private containsWakeWord(text: string): boolean {
     const lowercaseText = text.toLowerCase();
-    return lowercaseText.includes('chango') || 
-           lowercaseText.includes('hey chango') ||
-           lowercaseText.includes('okay chango');
+    return lowercaseText.includes('lolo') || 
+           lowercaseText.includes('hey lolo') ||
+           lowercaseText.includes('okay lolo');
   }
 
   /**

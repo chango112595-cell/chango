@@ -11,7 +11,7 @@ export function testChatIntegration() {
   
   // Set up response listener
   const responses: string[] = [];
-  const unsubscribe = voiceBus.on('changoResponse', (event) => {
+  const unsubscribe = voiceBus.on('loloResponse', (event) => {
     console.log('✅ Received response:', event.text);
     responses.push(event.text || '');
   });
@@ -25,7 +25,7 @@ export function testChatIntegration() {
     },
     { 
       input: "who are you", 
-      expectedPattern: /chango/i,
+      expectedPattern: /lolo/i,
       description: "Identity intent"
     },
     { 
@@ -68,7 +68,7 @@ export function testChatIntegration() {
     console.log(`Input: "${test.input}"`);
     
     // Listen for the response
-    const responseListener = voiceBus.on('changoResponse', (event) => {
+    const responseListener = voiceBus.on('loloResponse', (event) => {
       if (event.text) {
         const passed = test.expectedPattern.test(event.text);
         console.log(`Response: "${event.text}"`);
@@ -103,7 +103,7 @@ export function sendTestMessage(message: string) {
   console.log(`Sending test message: "${message}"`);
   
   // Listen for response once
-  const unsubscribe = voiceBus.on('changoResponse', (event) => {
+  const unsubscribe = voiceBus.on('loloResponse', (event) => {
     if (event.text) {
       console.log(`Received response: "${event.text}"`);
       unsubscribe();

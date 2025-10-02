@@ -92,7 +92,7 @@ export default function HolographicInterface() {
             {/* Floating Status Chip */}
             <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-muted/80 rounded-full text-xs backdrop-blur-sm">
               <span className={`inline-block w-2 h-2 rounded-full mr-2 ${isRunning ? 'bg-green-400' : 'bg-red-400'}`}></span>
-              {mode === "awakened" ? "CHANGO • ONLINE" : "SENTINEL • OFFLINE"}
+              {mode === "awakened" ? "LOLO • ONLINE" : "SENTINEL • OFFLINE"}
             </div>
           </div>
         </div>
@@ -140,7 +140,7 @@ export default function HolographicInterface() {
         {wander && (
           <div className="relative flex justify-center mb-6 items-center" style={{ height: `${size[0]}px` }}>
             <div className="text-center text-muted-foreground">
-              <div className="mb-2">✨ Chango is wandering</div>
+              <div className="mb-2">✨ Lolo is wandering</div>
               <div className="text-xs">Disable "Wander" to dock the hologram</div>
             </div>
           </div>
@@ -205,7 +205,7 @@ export default function HolographicInterface() {
             <div className="inline-flex items-center space-x-2 px-3 py-1 bg-muted/30 rounded-full text-sm">
               <span className={`status-indicator ${isRunning ? 'status-online' : 'status-offline'}`}></span>
               <span data-testid="text-hologram-status">
-                {mode === "awakened" ? "CHANGO • ONLINE" : "SENTINEL • OFFLINE"}
+                {mode === "awakened" ? "LOLO • ONLINE" : "SENTINEL • OFFLINE"}
               </span>
             </div>
           </div>

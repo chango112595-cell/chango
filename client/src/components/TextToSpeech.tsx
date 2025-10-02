@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { trackTtsUtterance } from "@/lib/sessionTracking";
 
 export default function TextToSpeech() {
-  const [text, setText] = useState("Hello, I'm Chango AI. I can synthesize speech with multiple accents and voices using our custom voice engine!");
+  const [text, setText] = useState("Hello, I'm Lolo AI. I can synthesize speech with multiple accents and voices using our custom voice engine!");
   const { speak, isPlaying, isRecording, exportAudio, downloadAudio } = useVoiceSynthesisWithExport();
   const { toast } = useToast();
 
@@ -31,14 +31,14 @@ export default function TextToSpeech() {
     mutationFn: async () => {
       const audioBlob = await exportAudio(text.trim(), "client");
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
-      const filename = `chango-cve-speech-${timestamp}.webm`;
+      const filename = `lolo-lve-speech-${timestamp}.webm`;
       downloadAudio(audioBlob, filename);
       return { success: true };
     },
     onSuccess: () => {
       toast({
         title: "Audio Exported",
-        description: "Speech has been saved as an audio file using Chango Voice Engine.",
+        description: "Speech has been saved as an audio file using Lolo Voice Engine.",
       });
     },
     onError: (error) => {

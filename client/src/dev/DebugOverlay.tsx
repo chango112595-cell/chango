@@ -18,8 +18,8 @@ interface HealthStatus {
 }
 
 export function DebugOverlay() {
-  // Don't render if feature flag is disabled or in production
-  if (!FEATURES.DEBUG_OVERLAY || import.meta.env.PROD) {
+  // Don't render if feature flag is disabled
+  if (!FEATURES.DEBUG_OVERLAY) {
     return null;
   }
   

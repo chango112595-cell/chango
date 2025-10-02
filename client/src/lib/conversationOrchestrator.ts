@@ -60,7 +60,7 @@ class ConversationOrchestratorClass {
     userInput: string,
     options: {
       addUserMessage?: (text: string) => void;
-      addChangoMessage?: (text: string) => void;
+      addLoloMessage?: (text: string) => void;
       speak?: (text: string, force?: boolean) => void;
       showToast?: (title: string, description: string, variant?: string) => void;
       skipSpeech?: boolean; // For typed input that might not need speech
@@ -70,7 +70,7 @@ class ConversationOrchestratorClass {
       userInput,
       hasOptions: !!options,
       hasAddUserMessage: !!options.addUserMessage,
-      hasAddChangoMessage: !!options.addChangoMessage,
+      hasAddLoloMessage: !!options.addLoloMessage,
       hasSpeak: !!options.speak
     });
     
@@ -133,13 +133,13 @@ class ConversationOrchestratorClass {
       // Store bot response
       this.state.lastBotResponse = data.reply;
       
-      // Add Chango's response to conversation UI
-      console.log("[ConversationOrchestrator] Adding Chango message to UI");
-      if (options.addChangoMessage) {
-        options.addChangoMessage(data.reply);
+      // Add Lolo's response to conversation UI
+      console.log("[ConversationOrchestrator] Adding Lolo message to UI");
+      if (options.addLoloMessage) {
+        options.addLoloMessage(data.reply);
         console.log("[ConversationOrchestrator] Message added successfully");
       } else {
-        console.warn("[ConversationOrchestrator] No addChangoMessage function provided!");
+        console.warn("[ConversationOrchestrator] No addLoloMessage function provided!");
       }
 
       // Speak the response (unless explicitly skipped)

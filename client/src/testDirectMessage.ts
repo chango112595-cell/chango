@@ -12,9 +12,9 @@ export function testDirectMessage() {
     console.log('✅ userTextSubmitted event caught:', event);
   });
   
-  // Step 2: Set up a listener to catch changoResponse events
-  const unsubscribe2 = voiceBus.on('changoResponse', (event) => {
-    console.log('✅ changoResponse event caught:', event);
+  // Step 2: Set up a listener to catch loloResponse events
+  const unsubscribe2 = voiceBus.on('loloResponse', (event) => {
+    console.log('✅ loloResponse event caught:', event);
   });
   
   // Step 3: Send a test message
@@ -29,7 +29,7 @@ export function testDirectMessage() {
     unsubscribe();
     unsubscribe2();
     console.log('===== DIRECT MESSAGE TEST END =====');
-    console.log('Check above for events - if you see userTextSubmitted but no changoResponse, the conversation engine is not processing the message.');
+    console.log('Check above for events - if you see userTextSubmitted but no loloResponse, the conversation engine is not processing the message.');
   }, 2000);
 }
 

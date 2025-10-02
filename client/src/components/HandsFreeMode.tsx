@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Mic, MicOff, Bot, Loader2, Settings, Volume2 } from "lucide-react";
 
 export default function HandsFreeMode() {
-  const [customWakeWord, setCustomWakeWord] = useState("chango");
+  const [customWakeWord, setCustomWakeWord] = useState("lolo");
   const [showSettings, setShowSettings] = useState(false);
   
   const {
@@ -113,7 +113,7 @@ export default function HandsFreeMode() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Say this word to activate voice commands (default: "chango")
+                Say this word to activate voice commands (default: "lolo")
               </p>
             </div>
           </div>

@@ -571,7 +571,7 @@ export function SystemDiagnostics() {
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="space-y-1">
-              <div className="text-sm">CVE (Chango Voice Engine)</div>
+              <div className="text-sm">LVE (Lolo Voice Engine)</div>
               {getStatusBadge(true, true)}
               <div className="text-xs text-muted-foreground">Phrase-level synthesis active</div>
             </div>

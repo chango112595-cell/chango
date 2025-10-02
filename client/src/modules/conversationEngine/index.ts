@@ -37,10 +37,10 @@ function getCurrentDate(): string {
 
 function getIdentity(): string {
   const responses = [
-    "I'm Chango, your AI assistant. I'm here to help you with various tasks and answer your questions.",
-    "I'm Chango, an AI voice assistant designed to make your interactions more natural and helpful.",
-    "My name is Chango. I'm an artificial intelligence assistant ready to help you.",
-    "I'm Chango, your personal AI companion. How can I assist you today?"
+    "I'm Lolo, your AI assistant. I'm here to help you with various tasks and answer your questions.",
+    "I'm Lolo, an AI voice assistant designed to make your interactions more natural and helpful.",
+    "My name is Lolo. I'm an artificial intelligence assistant ready to help you.",
+    "I'm Lolo, your personal AI companion. How can I assist you today?"
   ];
   
   return responses[Math.floor(Math.random() * responses.length)];
@@ -211,7 +211,7 @@ async function respond(text: string): Promise<void> {
     
     // Emit response event for UI components to listen to
     voiceBus.emit({
-      type: 'changoResponse',
+      type: 'loloResponse',
       text: response,
       source: 'conversation'
     });
@@ -237,7 +237,7 @@ async function respond(text: string): Promise<void> {
     
     // Emit response event for UI components
     voiceBus.emit({
-      type: 'changoResponse',
+      type: 'loloResponse',
       text: defaultResponse,
       source: 'conversation'
     });

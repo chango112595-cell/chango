@@ -35,12 +35,12 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     sessionActive: false,
     lastCommand: "",
     lastResponse: "",
-    wakeWord: config.wakeWord || "chango"
+    wakeWord: config.wakeWord || "lolo"
   });
 
   const { toast } = useToast();
   const { speak } = useVoiceSynthesis();
-  const { addUserMessage, addChangoMessage } = useConversation();
+  const { addUserMessage, addLoloMessage } = useConversation();
   const recognitionRef = useRef<any>(null);
   const sttRef = useRef<WebSpeechSTT | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -335,7 +335,7 @@ export function useWakeWord(config: WakeWordConfig = {}) {
       
       const result = await ConversationOrchestrator.processConversation(command, {
         addUserMessage,
-        addChangoMessage,
+        addLoloMessage,
         speak,
         showToast: (title, description, variant) => {
           toast({
@@ -370,7 +370,7 @@ export function useWakeWord(config: WakeWordConfig = {}) {
     } finally {
       endSession();
     }
-  }, [state.isProcessing, toast, speak, addUserMessage, addChangoMessage]);
+  }, [state.isProcessing, toast, speak, addUserMessage, addLoloMessage]);
 
   // End the current session
   const endSession = useCallback(() => {

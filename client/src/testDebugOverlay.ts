@@ -22,11 +22,11 @@ export function testDebugOverlay() {
       voiceBus.emitUserText('What time is it?');
     }, 500);
     
-    // Test 3: Chango response
+    // Test 3: Lolo response
     setTimeout(() => {
       voiceBus.emit({
-        type: 'changoResponse',
-        text: 'The current time is 5:03 AM. This is a test response from Chango to verify the DebugOverlay displays responses correctly.',
+        type: 'loloResponse',
+        text: 'The current time is 5:03 AM. This is a test response from Lolo to verify the DebugOverlay displays responses correctly.',
         source: 'system'
       });
     }, 1000);

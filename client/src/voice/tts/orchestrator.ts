@@ -94,6 +94,11 @@ class VoiceOrchestrator {
    * Speak the given text using the local provider
    */
   async speak(text: string, options?: TTSSpeakOptions): Promise<void> {
+    // Enhanced logging for debugging
+    console.log('[VoiceOrchestrator] 🎙️ speak() called with text:', text);
+    console.log('[VoiceOrchestrator] 🎙️ speak() options:', options);
+    console.log('[VoiceOrchestrator] 🎙️ Current state - isReady:', this.isReady(), 'isSpeaking:', this.isSpeakingFlag);
+    
     if (!text || text.trim().length === 0) {
       console.warn('[VoiceOrchestrator] Empty text provided to speak');
       return;
@@ -101,6 +106,11 @@ class VoiceOrchestrator {
 
     if (!this.isReady()) {
       console.error('[VoiceOrchestrator] Not ready to speak. Provider not initialized.');
+      console.error('[VoiceOrchestrator] Provider status:', {
+        hasProvider: this.localProvider !== null,
+        isInitialized: this.isInitialized,
+        providerAvailable: this.localProvider?.isAvailable()
+      });
       return;
     }
 
@@ -116,27 +126,34 @@ class VoiceOrchestrator {
       interrupt: options?.interrupt ?? true
     };
 
+    console.log('[VoiceOrchestrator] 🎙️ Final speak options:', speakOptions);
+
     // Handle interruption
     if (speakOptions.interrupt && this.isSpeakingFlag) {
+      console.log('[VoiceOrchestrator] 🎙️ Interrupting current speech');
       this.stop();
       this.speakingQueue = [];
     }
 
     // Add to queue if already speaking and not interrupting
     if (this.isSpeakingFlag && !speakOptions.interrupt) {
-      console.log('[VoiceOrchestrator] Queuing speech:', text.substring(0, 50) + '...');
+      console.log('[VoiceOrchestrator] 🎙️ Queuing speech (already speaking):', text.substring(0, 50) + '...');
       this.speakingQueue.push({ text, options: speakOptions });
       return;
     }
 
     try {
       this.isSpeakingFlag = true;
-      console.log('[VoiceOrchestrator] Speaking:', text.substring(0, 50) + '...');
+      console.log('[VoiceOrchestrator] 🔊 Starting to speak:', text.substring(0, 50) + '...');
+      console.log('[VoiceOrchestrator] 🔊 Full text:', text);
       
       await this.localProvider!.speak(text, speakOptions);
       
+      console.log('[VoiceOrchestrator] ✅ Finished speaking');
+      
       // Execute callback if provided
       if (speakOptions.callback) {
+        console.log('[VoiceOrchestrator] 🎙️ Executing callback');
         speakOptions.callback();
       }
 
@@ -144,9 +161,10 @@ class VoiceOrchestrator {
       await this.processQueue();
       
     } catch (error) {
-      console.error('[VoiceOrchestrator] Speech error:', error);
+      console.error('[VoiceOrchestrator] ❌ Speech error:', error);
     } finally {
       this.isSpeakingFlag = false;
+      console.log('[VoiceOrchestrator] 🎙️ Speech flag cleared');
     }
   }
 

@@ -95,7 +95,7 @@ export function HeaderBar({ className = '' }: HeaderBarProps) {
 
   return (
     <header
-      className={`fixed top-0 left-0 right-0 z-40 backdrop-blur-lg bg-black/60 border-b border-cyan-500/20 ${className}`}
+      className={`fixed top-0 left-0 right-0 z-40 backdrop-blur-lg bg-gradient-to-r from-blue-600/20 to-cyan-500/20 border-b border-cyan-500/20 ${className}`}
     >
       <div className="container mx-auto px-4 py-2">
         <div className="flex items-center justify-between">
@@ -125,8 +125,17 @@ export function HeaderBar({ className = '' }: HeaderBarProps) {
                   systemStatus.powered ? 'text-emerald-400' : 'text-red-400'
                 }`}
               >
-                <Power className="w-3 h-3" />
-                <span>{systemStatus.powered ? 'ONLINE' : 'OFFLINE'}</span>
+                <div className="relative inline-flex items-center gap-1">
+                  {systemStatus.powered && (
+                    <div className="absolute -left-1">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                    </div>
+                  )}
+                  <span className="ml-3">{systemStatus.powered ? 'ONLINE' : 'OFFLINE'}</span>
+                </div>
               </div>
 
               <div
@@ -208,6 +217,7 @@ export function HeaderBar({ className = '' }: HeaderBarProps) {
 // Minimal version for embedding
 export function HeaderBarMinimal({ className = '' }: { className?: string }) {
   const [muted, setMuted] = useState(false);
+  const [powered] = useState(true);
 
   useEffect(() => {
     const unsub = voiceBus.on('muteChange', (event) => {
@@ -219,18 +229,33 @@ export function HeaderBarMinimal({ className = '' }: { className?: string }) {
   if (!FEATURES.SHOW_HEADER_BAR) return null;
 
   return (
-    <div className={`flex items-center justify-between p-2 bg-black/80 backdrop-blur-sm ${className}`}>
+    <div className={`flex items-center justify-between p-2 bg-gradient-to-r from-blue-600/20 to-cyan-500/20 backdrop-blur-sm border-b border-cyan-500/20 ${className}`}>
       <div className="flex items-center gap-2">
         <Zap className="w-4 h-4 text-cyan-400" />
         <span className="text-xs font-bold text-cyan-400">CHANGO AI</span>
       </div>
-      <div className="flex items-center gap-1 text-xs">
-        {muted ? (
-          <MicOff className="w-3 h-3 text-gray-500" />
-        ) : (
-          <Mic className="w-3 h-3 text-blue-400" />
-        )}
-        <span className="text-gray-400">{muted ? 'MUTED' : 'LISTENING'}</span>
+      <div className="flex items-center gap-3 text-xs">
+        {/* Status indicator */}
+        <div className="flex items-center gap-1">
+          {powered && (
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+          )}
+          <span className="text-emerald-400">ONLINE</span>
+        </div>
+        {/* Mic status */}
+        <div className="flex items-center gap-1">
+          {muted ? (
+            <MicOff className="w-3 h-3 text-gray-500" />
+          ) : (
+            <Mic className="w-3 h-3 text-blue-400" />
+          )}
+          <span className={muted ? "text-gray-500" : "text-blue-400"}>
+            {muted ? 'MUTED' : 'LISTENING'}
+          </span>
+        </div>
       </div>
     </div>
   );

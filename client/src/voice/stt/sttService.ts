@@ -7,12 +7,12 @@ import { voiceBus } from '../voiceBus';
 import { Voice } from '../../lib/voiceController';
 
 // TypeScript declarations for Web Speech API
-interface IWindow extends Window {
-  SpeechRecognition?: any;
-  webkitSpeechRecognition?: any;
-}
+type SpeechRecognitionConstructor = any;
 
-declare const window: IWindow;
+interface WindowWithSpeechRecognition {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+}
 
 export interface STTConfig {
   language?: string;
@@ -36,7 +36,8 @@ class STTService {
 
   constructor() {
     // Check for browser support
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const windowWithSpeech = window as any as WindowWithSpeechRecognition;
+    const SpeechRecognition = windowWithSpeech.SpeechRecognition || windowWithSpeech.webkitSpeechRecognition;
     
     if (!SpeechRecognition) {
       console.error('[STTService] Web Speech API not supported in this browser');

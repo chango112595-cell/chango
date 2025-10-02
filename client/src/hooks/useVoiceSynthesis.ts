@@ -24,13 +24,11 @@ export function useVoiceSynthesis() {
   // Initialize speech synthesis
   const initializeSpeechSynthesis = useCallback(() => {
     if (!("speechSynthesis" in window)) {
-      console.error("[VoiceSynthesis] Speech synthesis not supported");
-      toast({
-        title: "Speech Synthesis Unavailable",
-        description: "Your browser doesn't support speech synthesis.",
-        variant: "destructive",
-      });
-      return false;
+      console.warn("[VoiceSynthesis] Speech synthesis not supported in this environment - operating in text-only mode");
+      // Don't show error toast - allow system to work in text-only mode
+      // Enable the system anyway to allow text processing
+      setState(prev => ({ ...prev, isEnabled: true }));
+      return true; // Return true to indicate system can continue
     }
 
     // Load voices
@@ -40,6 +38,8 @@ export function useVoiceSynthesis() {
       
       if (voices.length > 0) {
         setState(prev => ({ ...prev, isEnabled: true }));
+        console.log(`[VoiceSynthesis] TTS enabled with ${voices.length} voice${voices.length > 1 ? 's' : ''} available`);
+        // Only show success toast if voices are actually available
         toast({
           title: "Voice Enabled",
           description: `Speech synthesis ready with ${voices.length} voice${voices.length > 1 ? 's' : ''} available.`,
@@ -74,23 +74,36 @@ export function useVoiceSynthesis() {
         speechSynthesis.removeEventListener('voiceschanged', voicesChangedHandler);
         
         if (attempts >= maxAttempts) {
-          console.error("[VoiceSynthesis] Failed to load voices");
-          toast({
-            title: "Voice Loading Failed",
-            description: "Unable to load speech synthesis voices.",
-            variant: "destructive",
-          });
+          // Just log that voices aren't available, don't show error
+          console.warn("[VoiceSynthesis] No voices available - operating in text-only mode");
+          // Enable the system anyway to allow text processing without TTS
+          setState(prev => ({ ...prev, isEnabled: true }));
         }
       }
     }, 200);
 
-    return true;
+    return true; // Always return true to allow system to continue
   }, [toast]);
 
   // Basic speak function without prosody
   const speakText = useCallback((text: string) => {
-    if (!state.isEnabled || !text.trim()) {
-      console.log("[VoiceSynthesis] Cannot speak:", { enabled: state.isEnabled, hasText: !!text.trim() });
+    if (!text.trim()) {
+      console.log("[VoiceSynthesis] No text to speak");
+      return;
+    }
+
+    // Log the text we're attempting to speak (for debugging in text-only mode)
+    console.log("[VoiceSynthesis] Response generated:", text);
+
+    // Check if we have speech synthesis available
+    if (!("speechSynthesis" in window)) {
+      console.log("[VoiceSynthesis] Text-only mode: Would have spoken:", text);
+      return;
+    }
+
+    // Check if TTS is enabled
+    if (!state.isEnabled) {
+      console.log("[VoiceSynthesis] TTS not enabled (text-only mode). Response:", text);
       return;
     }
 
@@ -112,6 +125,8 @@ export function useVoiceSynthesis() {
 
     // Get available voices and select a good one
     const voices = speechSynthesis.getVoices();
+    console.log(`[VoiceSynthesis] Available voices: ${voices.length}`);
+    
     if (voices.length > 0) {
       const preferredVoice = voices.find(voice => 
         voice.name.includes("Google") || 
@@ -122,7 +137,12 @@ export function useVoiceSynthesis() {
       
       if (preferredVoice) {
         utterance.voice = preferredVoice;
+        console.log(`[VoiceSynthesis] Using voice: ${preferredVoice.name}`);
       }
+    } else {
+      console.log("[VoiceSynthesis] No voices available - text-only mode");
+      console.log("[VoiceSynthesis] Response (text-only):", text);
+      return;
     }
 
     // Set default speech parameters
@@ -145,6 +165,7 @@ export function useVoiceSynthesis() {
 
     utterance.onerror = (event: any) => {
       console.error("[VoiceSynthesis] Speech error:", event.error);
+      console.log("[VoiceSynthesis] Falling back to text-only for:", text);
       voiceBus.setSpeaking(false);
       setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
     };
@@ -155,6 +176,7 @@ export function useVoiceSynthesis() {
       console.log("[VoiceSynthesis] Speaking:", text.slice(0, 50));
     } catch (error) {
       console.error("[VoiceSynthesis] Failed to speak:", error);
+      console.log("[VoiceSynthesis] Text-only fallback:", text);
       voiceBus.setSpeaking(false);
       setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
     }

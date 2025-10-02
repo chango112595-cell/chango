@@ -5,6 +5,7 @@
 
 import { voiceBus } from './voiceBus';
 import { Voice } from '../lib/voiceController';
+import { WAKE_WORD_VARIATIONS, containsWakeWord as checkWakeWord } from '../config/wakeword';
 
 export interface WakeWordConfig {
   wakeWords?: string[];
@@ -14,7 +15,7 @@ export interface WakeWordConfig {
 }
 
 class WakeWordDetector {
-  private wakeWords: string[] = ['lolo', 'hey lolo', 'okay lolo', 'hi lolo'];
+  private wakeWords: string[] = WAKE_WORD_VARIATIONS;
   private isEnabled: boolean = false;
   private lastWakeTime: number = 0;
   private cooldownDuration: number = 2000; // 2 seconds cooldown
@@ -103,25 +104,10 @@ class WakeWordDetector {
 
   /**
    * Check if text contains wake word
+   * Uses centralized wake word checking
    */
   private containsWakeWord(text: string): boolean {
-    const lowercaseText = text.toLowerCase().trim();
-    
-    // Check each wake word
-    for (const wakeWord of this.wakeWords) {
-      if (lowercaseText.includes(wakeWord)) {
-        return true;
-      }
-    }
-    
-    // Also check for partial matches at the start of sentence
-    if (lowercaseText.startsWith('chang') || 
-        lowercaseText.startsWith('hey chang') ||
-        lowercaseText.startsWith('hi chang')) {
-      return true;
-    }
-    
-    return false;
+    return checkWakeWord(text);
   }
 
   /**

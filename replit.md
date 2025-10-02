@@ -2,6 +2,18 @@
 
 This is a full-stack TypeScript application called "Chango AI" that provides advanced voice synthesis and accent emulation capabilities using its proprietary Chango Voice Engine (CVE). The application features a React frontend with a Node.js/Express backend, utilizing PostgreSQL for data persistence. The system allows users to synthesize speech with various accents, record and analyze voice samples to create custom voice profiles, and includes an interactive holographic interface with curiosity-driven AI responses. Chango speaks with natural, conversational responses using dynamic templates, emotional variations, and personality-driven interactions.
 
+# Recent Changes (October 2, 2025)
+
+## Wake Word Centralization
+- ✅ **Centralized Wake Word Configuration**: Wake word system now centralized in one location
+  - Created `client/src/config/wakeword.ts` with "lolo" as the main wake word
+  - Accepts variations: "lolo", "hey lolo", "ok lolo", "hi lolo", "yo lolo"
+  - Gate module now uses centralized configuration for speech filtering
+  - Wake word detector uses centralized variations list
+  - Typed input (chat bar) always works without wake word requirement
+  - Speech input requires wake word prefix to be processed
+  - Easy to modify - just change WAKE_WORD constant in config file
+
 # Recent Changes (October 1, 2025)
 
 ## Fixed Issues

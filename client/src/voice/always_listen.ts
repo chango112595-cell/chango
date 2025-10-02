@@ -215,36 +215,56 @@ class AlwaysListenManager {
 
     // Handle recognition results
     this.recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let interimTranscript = '';
+      console.log('[AlwaysListen] 📝 Processing recognition results...');
+      console.log(`[AlwaysListen] Result index: ${event.resultIndex}, Total results: ${event.results.length}`);
       
+      let interimTranscript = '';
+      let finalTranscript = '';
+      
+      // Process all results from the current event
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
-        const transcript = result[0].transcript;
+        const transcript = result[0].transcript.trim();
+        
+        console.log(`[AlwaysListen] Result[${i}] - isFinal: ${result.isFinal}, transcript: "${transcript}"`);
         
         if (result.isFinal) {
-          this.finalTranscript = transcript.trim();
+          // This is a final result
+          finalTranscript = transcript;
+          console.log('[AlwaysListen] ✅ Final result detected:', finalTranscript);
           
-          if (this.finalTranscript) {
-            console.log('[AlwaysListen] ✅ Final transcript:', this.finalTranscript);
+          if (finalTranscript && finalTranscript.length > 0) {
+            console.log('[AlwaysListen] 🚀 Emitting final transcript to voiceBus:', finalTranscript);
             
-            // Emit to voice bus
-            voiceBus.emitUserSpeech(this.finalTranscript);
-            
-            // Reset final transcript
-            this.finalTranscript = '';
-            
-            // Restart recognition after processing
-            if (this.config.autoRestart) {
-              this.restartRecognition();
+            // CRITICAL: Emit the final speech to voiceBus for processing
+            try {
+              voiceBus.emitUserSpeech(finalTranscript);
+              console.log('[AlwaysListen] ✓ Successfully emitted to voiceBus');
+            } catch (error) {
+              console.error('[AlwaysListen] ❌ Failed to emit to voiceBus:', error);
             }
+            
+            // Give a small delay before restarting to avoid interrupting processing
+            if (this.config.autoRestart) {
+              console.log('[AlwaysListen] Will restart recognition in 1 second...');
+              setTimeout(() => {
+                if (this.isEnabled) {
+                  this.restartRecognition();
+                }
+              }, 1000);
+            }
+          } else {
+            console.log('[AlwaysListen] ⚠️ Final result was empty, ignoring');
           }
         } else {
-          interimTranscript += transcript;
+          // This is an interim result
+          interimTranscript += transcript + ' ';
         }
       }
       
-      if (interimTranscript) {
-        console.log('[AlwaysListen] 💬 Interim:', interimTranscript);
+      // Log interim results if any
+      if (interimTranscript.trim()) {
+        console.log('[AlwaysListen] 💬 Interim transcript:', interimTranscript.trim());
       }
     };
 

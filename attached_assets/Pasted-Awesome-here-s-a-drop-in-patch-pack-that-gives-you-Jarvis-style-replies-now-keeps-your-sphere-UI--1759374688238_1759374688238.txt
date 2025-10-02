@@ -1,0 +1,375 @@
+Awesome — here’s a drop-in patch pack that gives you Jarvis-style replies now, keeps your sphere UI, and adds HUD/Advanced voice toggles. Paste these into your current project. You do not need to paste anything from the prior message; everything you need is here.
+
+⸻
+
+PASTE_ME.md — Chango AI Patch Pack (V5 → Current)
+
+1) Add: Conversation engine (isolated)
+
+File: src/modules/conversationEngine/index.ts
+
+// Lightweight Jarvis-style engine (modular, safe)
+import { voiceBus } from "../../voice/voiceBus";
+
+type Reply = string | Promise<string>;
+
+function intentTime(): Reply {
+  return `It is ${new Date().toLocaleTimeString()}.`;
+}
+function intentDate(): Reply {
+  return `Today is ${new Date().toLocaleDateString()}.`;
+}
+function intentIdentify(): Reply {
+  return `I’m Chango — your adaptive assistant.`;
+}
+function intentMood(): Reply {
+  return `Feeling sharp and online. What can I do for you?`;
+}
+
+async function route(text: string): Promise<string> {
+  const t = (text || "").toLowerCase().trim();
+
+  // simple intents first
+  if (/\b(time|what.*time)\b/.test(t)) return intentTime();
+  if (/\b(date|today)\b/.test(t)) return intentDate();
+  if (/\bwho.*you|what.*chango\b/.test(t)) return intentIdentify();
+  if (/\bhow.*you\b/.test(t)) return intentMood();
+
+  // tiny small-talk
+  if (/\b(thank(s)?|appreciate)\b/.test(t)) return `You’re welcome.`;
+
+  // fallback
+  return `I heard: “${text}”. Would you like me to act on that?`;
+}
+
+export function initConversationEngine() {
+  // 1) Voice: user speech recognized
+  voiceBus.on(async (ev) => {
+    if (ev.type === "userSpeechRecognized" && ev.text) {
+      const reply = await route(ev.text);
+      voiceBus.emitSpeak(reply);
+    }
+  });
+
+  // 2) Text: user typed message (if you emit this anywhere)
+  voiceBus.on(async (ev) => {
+    if (ev.type === "userTextSubmitted" && ev.text) {
+      const reply = await route(ev.text);
+      voiceBus.emitSpeak(reply);
+    }
+  });
+}
+
+
+⸻
+
+2) Patch: VoiceBus helpers
+
+File: src/voice/voiceBus.ts
+
+// Ensure these exist; add if missing.
+export type VoiceEvent =
+  | { type: "start" }
+  | { type: "end" }
+  | { type: "error"; err: unknown }
+  | { type: "cancel"; source?: "user" | "system" }
+  | { type: "muteChange"; muted: boolean }
+  | { type: "userSpeechRecognized"; text: string }
+  | { type: "userTextSubmitted"; text: string }
+  | { type: "speak"; text: string };
+
+class VoiceBusManager {
+  private listeners = new Set<(ev: VoiceEvent) => void>();
+  private _isCancelling = false;
+  private _cancelScheduled = false;
+  public power = true;
+  public mute = false;
+
+  on(fn: (ev: VoiceEvent) => void) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  private emitAsync(ev: VoiceEvent) {
+    const fns = Array.from(this.listeners);
+    for (const fn of fns) queueMicrotask(() => fn(ev));
+  }
+
+  // ---- public helpers ----
+  emitSpeak(text: string) {
+    this.emitAsync({ type: "speak", text });
+  }
+  emitUserSpeech(text: string) {
+    this.emitAsync({ type: "userSpeechRecognized", text });
+  }
+  emitUserText(text: string) {
+    this.emitAsync({ type: "userTextSubmitted", text });
+  }
+
+  setMute(m: boolean) {
+    this.mute = m;
+    this.emitAsync({ type: "muteChange", muted: m });
+    if (m) this.cancelSpeak("system");
+  }
+
+  cancelSpeak(source: "user" | "system" = "user"): void {
+    if (this._cancelScheduled) return;
+    this._cancelScheduled = true;
+    queueMicrotask(() => {
+      this._cancelScheduled = false;
+      if (this._isCancelling) return;
+      this._isCancelling = true;
+      try {
+        if (typeof window !== "undefined" && window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+        }
+      } finally {
+        this._isCancelling = false;
+      }
+      this.emitAsync({ type: "cancel", source });
+    });
+  }
+}
+
+export const voiceBus = new VoiceBusManager();
+
+
+⸻
+
+3) Patch: TTS hook to speak on ev.type === 'speak'
+
+File: src/voice/useVoiceSynthesis.ts
+
+import { useEffect } from "react";
+import { voiceBus } from "./voiceBus";
+
+export function useVoiceSynthesis() {
+  useEffect(() => {
+    const off = voiceBus.on(async (ev) => {
+      if (ev.type === "speak" && ev.text) {
+        if (!voiceBus.power || voiceBus.mute) return;
+        const u = new SpeechSynthesisUtterance(ev.text);
+        // Optional defaults; wire these to settings if you have them:
+        u.rate = 1;
+        u.pitch = 1;
+        u.volume = 1;
+        try {
+          window.speechSynthesis.speak(u);
+        } catch (e) {
+          console.warn("TTS error", e);
+        }
+      }
+      // keep your other handlers (start/end/cancel/muteChange) unchanged
+    });
+    return off;
+  }, []);
+}
+
+Call this hook once (root/app shell) so the listener is active:
+
+// e.g., in App.tsx or RootShell.tsx
+import { useVoiceSynthesis } from "../voice/useVoiceSynthesis";
+export default function AppShell() {
+  useVoiceSynthesis();
+  // ...render UI
+}
+
+
+⸻
+
+4) Add: STT bridge → emit userSpeechRecognized
+
+File: src/voice/legacy_stt.ts
+
+import { voiceBus } from "./voiceBus";
+export class LegacySTT {
+  supported = false as boolean;
+  private rec: any;
+  constructor() {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    this.supported = !!SR; if (!this.supported) return;
+    this.rec = new SR();
+    this.rec.continuous = false;
+    this.rec.interimResults = false;
+    this.rec.maxAlternatives = 1;
+    this.rec.onresult = (e:any) => {
+      const t = e?.results?.[0]?.[0]?.transcript || "";
+      if (t) voiceBus.emitUserSpeech(t);
+    };
+  }
+  setLang(lang='en-US'){ if(this.supported) this.rec.lang = lang; }
+  start(){ try{ this.supported && this.rec.start(); }catch{} }
+  stop(){ try{ this.supported && this.rec.stop(); }catch{} }
+}
+
+Initialize it (one time) where you start listening:
+
+// e.g., src/app/initListening.ts
+import { LegacySTT } from "../voice/legacy_stt";
+export function initListening(){
+  const stt = new LegacySTT();
+  stt.setLang("en-US");
+  stt.start();
+  return stt;
+}
+
+Call initListening() in your app bootstrap if you want auto-listen; otherwise tie to a UI toggle.
+
+⸻
+
+5) Add: Text input → emit userTextSubmitted
+
+File: src/ui/AskBar.tsx
+
+import React from "react";
+import { voiceBus } from "../voice/voiceBus";
+
+export default function AskBar(){
+  const [q, setQ] = React.useState("");
+  return (
+    <div className="flex gap-2">
+      <input
+        value={q}
+        onChange={(e)=> setQ(e.target.value)}
+        onKeyDown={(e)=> { if (e.key==='Enter' && q.trim()) { voiceBus.emitUserText(q); setQ(''); } }}
+        placeholder="Ask me anything…"
+        className="border rounded px-2 py-1 flex-1"
+      />
+      <button
+        onClick={()=> { if (q.trim()) { voiceBus.emitUserText(q); setQ(''); }}}
+        className="border rounded px-3 py-1"
+      >Ask</button>
+    </div>
+  );
+}
+
+Render AskBar in your HUD panel (and/or sphere overlay menu).
+
+⸻
+
+6) Add: Voice Engine toggle (Advanced ↔ HUD)
+
+File: src/config/voice_prefs.ts
+
+export type VoiceEngine = "advanced" | "hud";
+const KEY = "chango.voice.engine";
+
+export function getVoiceEngine(): VoiceEngine {
+  const v = (localStorage.getItem(KEY) || "advanced") as VoiceEngine;
+  return (v === "advanced" || v === "hud") ? v : "advanced";
+}
+export function setVoiceEngine(v: VoiceEngine) {
+  localStorage.setItem(KEY, v);
+  const ev = new CustomEvent("chango:voice-engine", { detail: v });
+  window.dispatchEvent(ev);
+}
+
+File: src/ui/SettingsVoice.tsx
+
+import React from "react";
+import { getVoiceEngine, setVoiceEngine } from "../config/voice_prefs";
+
+export default function SettingsVoice(){
+  const [eng, setEng] = React.useState(getVoiceEngine());
+  React.useEffect(()=>{
+    const h = (e:any)=> setEng(e.detail);
+    window.addEventListener("chango:voice-engine", h);
+    return ()=> window.removeEventListener("chango:voice-engine", h);
+  }, []);
+  return (
+    <div className="flex items-center gap-2">
+      <span>Voice Engine</span>
+      <select
+        value={eng}
+        onChange={(e)=> setVoiceEngine(e.target.value as any)}
+        className="border rounded px-2 py-1"
+      >
+        <option value="advanced">Advanced (current)</option>
+        <option value="hud">HUD Legacy (simple Q&A)</option>
+      </select>
+    </div>
+  );
+}
+
+Wire the toggle into the engine init
+File: src/app/initEngines.ts
+
+import { initConversationEngine } from "../modules/conversationEngine";
+import { getVoiceEngine } from "../config/voice_prefs";
+
+let uninit: null | (()=>void) = null;
+
+export function initEngines(){
+  // Currently both engines share the same simple route().
+  // If later you add a separate legacy engine, you can switch here.
+  initConversationEngine();
+  // return cleanup if you add alternate engines in the future
+  uninit = () => {};
+  return () => { uninit && uninit(); };
+}
+
+Call initEngines() once during app start.
+
+⸻
+
+7) (Optional) Add minimal /nlp/reply for typed fallbacks
+
+Server: server/nlp/reply.js
+
+import express from "express";
+
+function routeIntent(q){
+  const s=(q||"").trim().toLowerCase();
+  if(!s) return "I didn’t catch that.";
+  if (s.includes("time")) return "It is "+new Date().toLocaleTimeString()+".";
+  if (s.includes("date") || s.includes("today")) return "Today is "+new Date().toLocaleDateString()+".";
+  if (s.includes("who are you") || s.includes("what is chango")) return "I’m Chango, your adaptive assistant.";
+  if (s.includes("how are you")) return "Feeling sharp and online.";
+  return "Noted. Want me to act on that?";
+}
+
+export default function registerReply(app){
+  const r = express.Router();
+  r.post("/reply", express.json({limit:"1mb"}), (req,res)=>{
+    res.json({ ok:true, reply: routeIntent(req.body?.text) });
+  });
+  app.use("/nlp", r);
+}
+
+Mount it in server/index.js:
+
+import registerReply from "./nlp/reply.js";
+registerReply(app);
+
+(You can later replace the in-app intent router with an LLM.)
+
+⸻
+
+8) Safety defaults
+	•	Ensure curiosity “auto-talk” is off by default:
+
+// wherever curiosity timer lives
+const autoCuriosity = false; // set true only via settings
+
+	•	Keep your mute/power buttons wired to voiceBus.setMute(true/false) and a power flag you already track.
+
+⸻
+
+9) Smoke test (60 seconds)
+	1.	Load app → ensure useVoiceSynthesis() is mounted.
+	2.	Type: “how are you” in AskBar → spoken reply.
+	3.	Speak: “Chango, what time is it?” → spoken time.
+	4.	Toggle mute → no speech; unmute → speech resumes.
+	5.	Switch Voice Engine dropdown (kept for future divergence).
+
+⸻
+
+Why this fixes “not replying”
+	•	Your mic → STT → voiceBus.emitUserSpeech(text)
+	•	Conversation engine routes intent → voiceBus.emitSpeak(text)
+	•	TTS hook says it out loud.
+	•	Same path for typed input (emitUserText).
+
+Everything stays isolated. If you later add the sophisticated NLU or external TTS, you won’t break the UI or logs.
+
+If you want, I can also provide an accent/gender settings panel that adjusts SpeechSynthesisUtterance params live (no restart).

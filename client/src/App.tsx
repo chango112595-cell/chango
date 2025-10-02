@@ -6,8 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SpeechCoordinationProvider } from "@/lib/speechCoordination";
 import { ConversationProvider } from "@/lib/conversationContext";
-// import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis"; // Old VoiceBus-based system - replaced by TTS orchestrator
-import { useLegacySTT } from "@/voice/legacy_stt";
+import { voiceController } from "@/voice/voiceController";
 import { initConversationEngine } from "@/modules/conversationEngine";
 import { initTTS } from "@/app/initTTS";
 import { AskBar } from "@/ui/AskBar";
@@ -15,40 +14,37 @@ import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
 
 function VoiceInitializer() {
-  // Initialize the new local TTS system
-  // const voiceSynth = useVoiceSynthesis(); // Old VoiceBus-based system - replaced
-  
-  // Initialize STT (optional - can be toggled)
-  const stt = useLegacySTT({
-    continuous: true,
-    interimResults: true,
-    language: 'en-US'
-  });
-
-  // Initialize conversation engine and TTS on mount
+  // Initialize voice system on mount
   useEffect(() => {
-    console.log("[App] Initializing TTS and conversation engine...");
+    console.log("[App] Initializing voice system...");
     
-    // Initialize the new local TTS system
-    initTTS();
+    const initializeVoice = async () => {
+      try {
+        // Initialize the TTS system first
+        initTTS();
+        
+        // Initialize conversation engine
+        initConversationEngine();
+        
+        // Initialize voice controller with STT and wake word
+        await voiceController.initialize({
+          autoStart: true,      // Auto-start STT
+          wakeWordEnabled: true, // Enable wake word detection
+          mode: 'WAKE'          // Start in wake mode
+        });
+        
+        console.log("[App] Voice system initialized successfully");
+      } catch (error) {
+        console.error("[App] Failed to initialize voice system:", error);
+      }
+    };
     
-    // Initialize conversation engine
-    initConversationEngine();
-    
-    // Old voice synthesis code - replaced by initTTS()
-    // if (!voiceSynth.isEnabled) {
-    //   voiceSynth.enable();
-    // }
-    
-    // Optionally start STT (user can toggle this later)
-    // Uncomment to auto-start: stt.start();
+    // Run initialization
+    initializeVoice();
     
     return () => {
       // Cleanup on unmount
-      if (stt.stt) {
-        stt.stop();
-      }
-      // voiceSynth.cancel(); // Old cleanup - no longer needed
+      voiceController.destroy();
     };
   }, []);
 

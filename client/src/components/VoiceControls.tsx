@@ -1,587 +1,273 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
-import { useVAD } from "@/hooks/useVAD";
-import { useWakeWord } from "@/hooks/useWakeWord";
-import { VoiceBus } from "@/lib/voiceBus";
-import { Voice, type VoiceControllerState } from "@/lib/voiceController";
-import { ConversationOrchestrator } from "@/lib/conversationOrchestrator";
-import { Mic, MicOff, Volume2, VolumeX, Power, PowerOff, ShieldOff, Shield, Send } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { useConversation } from "@/lib/conversationContext";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { voiceController } from "@/voice/voiceController";
+import { voiceBus } from "@/voice/voiceBus";
+import { sttService } from "@/voice/stt/sttService";
+import { wakeWordDetector } from "@/voice/wakeWord";
+import { Voice } from "@/lib/voiceController";
+import { Mic, MicOff, Volume2, VolumeX, Power, Zap, Shield } from "lucide-react";
 
 export default function VoiceControls() {
-  const { addUserMessage, addChangoMessage } = useConversation();
-  const { 
-    isEnabled, 
-    isPlaying, 
-    isMuted,
-    requiresHumanSpeech,
-    enable, 
-    disable, 
-    test, 
-    stop,
-    speak,
-    setMuted,
-    setPower,
-    setRequiresHumanSpeech,
-    updateLastHumanSpeech
-  } = useVoiceSynthesis();
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [mode, setMode] = useState<'WAKE' | 'ACTIVE' | 'MUTED'>('WAKE');
+  const [wakeWordEnabled, setWakeWordEnabled] = useState(true);
+  const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [lastTranscript, setLastTranscript] = useState('');
+  const [listeningPulse, setListeningPulse] = useState(false);
 
-  const [autoListen, setAutoListen] = useState(false);
-  const [speechIndicatorLevel, setSpeechIndicatorLevel] = useState(0);
-  const [isPowerOn, setIsPowerOn] = useState(true);
-  const [isMicOn, setIsMicOn] = useState(true);
-  const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
-  const [voiceMode, setVoiceMode] = useState<'ACTIVE' | 'MUTED' | 'KILLED' | 'WAKE'>('WAKE');
-  const [isVoiceListening, setIsVoiceListening] = useState(false);
-  const [askInputValue, setAskInputValue] = useState("");
-  const { toast } = useToast();
-  
-  // Add refs for debouncing and transition states
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const isTransitioningRef = useRef(false);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  
-  const wakeWord = useWakeWord();
-
-  const vad = useVAD({
-    onSpeech: () => {
-      console.log("[VoiceControls] Human speech detected");
-      updateLastHumanSpeech();
-    },
-    onSilence: () => {
-      console.log("[VoiceControls] Silence detected");
-    },
-    onLevelUpdate: (level) => {
-      setSpeechIndicatorLevel(level);
+  // Initialize voice system
+  const initializeVoice = async () => {
+    setIsInitializing(true);
+    try {
+      // Initialize voice controller
+      await voiceController.initialize({
+        autoStart: true,
+        wakeWordEnabled: wakeWordEnabled,
+        mode: mode
+      });
+      
+      setVoiceEnabled(true);
+      setMicPermission('granted');
+      console.log('[VoiceControls] Voice system initialized');
+    } catch (error) {
+      console.error('[VoiceControls] Failed to initialize voice:', error);
+      setMicPermission('denied');
+    } finally {
+      setIsInitializing(false);
     }
-  });
+  };
 
-  // Handle Auto Listen toggle
+  // Setup event listeners
   useEffect(() => {
-    if (autoListen && isEnabled && isPowerOn) {
-      vad.startListening();
-      setRequiresHumanSpeech(true);
-    } else {
-      vad.stopListening();
-      setRequiresHumanSpeech(false);
-    }
-  }, [autoListen, isEnabled, isPowerOn]);
-  
-  // Handle wake word toggle
-  useEffect(() => {
-    if (wakeWordEnabled && isPowerOn) {
-      wakeWord.enable();
-    } else {
-      wakeWord.disable();
-    }
-  }, [wakeWordEnabled, isPowerOn]);
-  
-  // Subscribe to VoiceBus state
-  useEffect(() => {
-    const unsubscribe = VoiceBus.subscribe((state) => {
-      setIsPowerOn(state.power);
-      if (!state.power) {
-        // Power turned off, disable everything
-        setAutoListen(false);
-        setWakeWordEnabled(false);
-        setIsMicOn(false);
-      }
-    });
-    return unsubscribe;
-  }, []);
-  
-  // Subscribe to Voice controller state
-  useEffect(() => {
-    const unsubscribe = Voice.subscribe((state: VoiceControllerState) => {
-      setVoiceMode(state.mode);
-      setIsVoiceListening(state.isListening);
-    });
-    return unsubscribe;
-  }, []);
+    const unsubscribers: Array<() => void> = [];
 
-  // Clean up on unmount
-  useEffect(() => {
+    // Listen for speech recognition events
+    unsubscribers.push(
+      voiceBus.on('userSpeechRecognized', (event) => {
+        if (event.text) {
+          setLastTranscript(event.text);
+          setListeningPulse(true);
+          setTimeout(() => setListeningPulse(false), 500);
+        }
+      })
+    );
+
+    // Listen for speaking state changes
+    unsubscribers.push(
+      voiceBus.on('speakingChange', (event) => {
+        setIsSpeaking(event.speaking || false);
+      })
+    );
+
+    // Listen for Voice controller state
+    unsubscribers.push(
+      Voice.subscribe((state) => {
+        setIsListening(state.isListening);
+        setIsSpeaking(state.isSpeaking);
+        if (state.mode === 'WAKE' || state.mode === 'ACTIVE' || state.mode === 'MUTED') {
+          setMode(state.mode as 'WAKE' | 'ACTIVE' | 'MUTED');
+        }
+      })
+    );
+
+    // Check STT status periodically
+    const statusInterval = setInterval(() => {
+      const status = sttService.getStatus();
+      setIsListening(status.isListening);
+    }, 1000);
+
     return () => {
-      if (vad.isListening) {
-        vad.stopListening();
-      }
-      if (wakeWord.isEnabled) {
-        wakeWord.disable();
-      }
+      unsubscribers.forEach(unsub => unsub());
+      clearInterval(statusInterval);
     };
   }, []);
-  
-  // Debounce function for control changes
-  const debounce = useCallback((fn: () => void, delay: number = 100) => {
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
+
+  // Toggle voice on/off
+  const toggleVoice = async () => {
+    if (voiceEnabled) {
+      // Disable voice
+      voiceController.stopSTT();
+      wakeWordDetector.disable();
+      setVoiceEnabled(false);
+      console.log('[VoiceControls] Voice disabled');
+    } else {
+      // Enable voice
+      await initializeVoice();
     }
-    debounceTimerRef.current = setTimeout(fn, delay);
-  }, []);
-  
-  // Handle power toggle
-  const handlePowerToggle = useCallback(() => {
-    if (isTransitioningRef.current) return;
-    
-    debounce(() => {
-      isTransitioningRef.current = true;
-      setIsTransitioning(true);
-      
-      try {
-        const newPowerState = !isPowerOn;
-        setIsPowerOn(newPowerState);
-        setPower(newPowerState);
-        
-        if (!newPowerState) {
-          // Turning power off - disable everything
-          setAutoListen(false);
-          setWakeWordEnabled(false);
-          setIsMicOn(false);
-          stop();
-        }
-      } finally {
-        isTransitioningRef.current = false;
-        setIsTransitioning(false);
-      }
-    });
-  }, [isPowerOn, setPower, stop, debounce]);
-  
-  // Handle mic toggle
-  const handleMicToggle = useCallback(() => {
-    if (isTransitioningRef.current) return;
-    
-    debounce(() => {
-      isTransitioningRef.current = true;
-      setIsTransitioning(true);
-      
-      try {
-        const newMicState = !isMicOn;
-        setIsMicOn(newMicState);
-        
-        if (!newMicState) {
-          // Turning mic off
-          if (vad.isListening) vad.stopListening();
-          if (wakeWord.isEnabled) wakeWord.disable();
-          setAutoListen(false);
-          setWakeWordEnabled(false);
-        }
-      } finally {
-        isTransitioningRef.current = false;
-        setIsTransitioning(false);
-      }
-    });
-  }, [isMicOn, vad, wakeWord, debounce]);
-  
-  // Handle Voice Controller mute toggle
-  const handleVoiceMuteToggle = useCallback(() => {
-    Voice.toggleMute();
-    toast({
-      title: "Voice Mode Changed",
-      description: Voice.getMode() === 'MUTED' ? "Voice muted" : "Voice activated",
-    });
-  }, [toast]);
-  
-  // Handle Voice Controller kill
-  const handleVoiceKill = useCallback(() => {
-    const passphrase = Voice.kill();
-    toast({
-      title: "Voice System Killed",
-      description: `Passphrase to revive: ${passphrase}`,
-      variant: "destructive",
-    });
-  }, [toast]);
-  
-  // Handle Voice Controller revive
-  const handleVoiceRevive = useCallback(() => {
-    const pass = prompt('Enter passphrase to revive voice system:');
-    if (pass) {
-      try {
-        Voice.revive(pass);
-        toast({
-          title: "Voice System Revived",
-          description: "Voice system is now active",
-        });
-      } catch (e) {
-        toast({
-          title: "Invalid Passphrase",
-          description: "Could not revive voice system",
-          variant: "destructive",
-        });
-      }
+  };
+
+  // Toggle mode
+  const toggleMode = () => {
+    const nextMode = mode === 'WAKE' ? 'ACTIVE' : mode === 'ACTIVE' ? 'MUTED' : 'WAKE';
+    setMode(nextMode);
+    voiceController.setMode(nextMode);
+    console.log(`[VoiceControls] Mode changed to ${nextMode}`);
+  };
+
+  // Toggle wake word
+  const toggleWakeWord = () => {
+    if (wakeWordEnabled) {
+      voiceController.disableWakeWord();
+      setWakeWordEnabled(false);
+    } else {
+      voiceController.enableWakeWord();
+      setWakeWordEnabled(true);
     }
-  }, [toast]);
+    console.log(`[VoiceControls] Wake word ${wakeWordEnabled ? 'disabled' : 'enabled'}`);
+  };
+
+  // Test TTS
+  const testTTS = () => {
+    voiceBus.emitSpeak("Hello! I am Chango, your voice assistant. I'm listening for your commands.");
+  };
 
   return (
-    <Card>
+    <Card className="w-full">
       <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span>Voice Controls</span>
+          <Button
+            variant={voiceEnabled ? "default" : "outline"}
+            size="sm"
+            onClick={toggleVoice}
+            disabled={isInitializing}
+            data-testid="button-voice-toggle"
+          >
+            {isInitializing ? (
+              <>Initializing...</>
+            ) : voiceEnabled ? (
+              <><Power className="h-4 w-4 mr-1" /> ON</>
+            ) : (
+              <><Power className="h-4 w-4 mr-1" /> OFF</>
+            )}
+          </Button>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Microphone Permission Status */}
+        <Alert>
+          <AlertDescription className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Mic className="h-4 w-4" />
+              Microphone Permission
+            </span>
+            <span className={`font-semibold ${
+              micPermission === 'granted' ? 'text-green-600' : 
+              micPermission === 'denied' ? 'text-red-600' : 
+              'text-yellow-600'
+            }`}>
+              {micPermission === 'granted' ? 'Granted' : 
+               micPermission === 'denied' ? 'Denied' : 
+               'Not Requested'}
+            </span>
+          </AlertDescription>
+        </Alert>
+
+        {/* Voice Mode */}
         <div className="flex items-center justify-between">
-          <CardTitle>Voice Controls</CardTitle>
-          <div className="flex items-center space-x-4">
+          <Label>Voice Mode</Label>
+          <div className="flex items-center gap-2">
             <Button
-              variant={isPowerOn ? "default" : "destructive"}
+              variant={mode === 'WAKE' ? "secondary" : mode === 'ACTIVE' ? "default" : "outline"}
               size="sm"
-              onClick={handlePowerToggle}
-              data-testid="button-power"
-              disabled={isTransitioning}
+              onClick={toggleMode}
+              disabled={!voiceEnabled}
+              data-testid="button-mode-toggle"
             >
-              {isPowerOn ? (
-                <><Power className="h-4 w-4 mr-1" /> ON</>
+              {mode === 'WAKE' ? (
+                <><Shield className="h-4 w-4 mr-1" /> Wake Word</>
+              ) : mode === 'ACTIVE' ? (
+                <><Zap className="h-4 w-4 mr-1" /> Active</>
               ) : (
-                <><PowerOff className="h-4 w-4 mr-1" /> OFF</>
+                <><VolumeX className="h-4 w-4 mr-1" /> Muted</>
               )}
             </Button>
-            <div className="flex items-center space-x-2">
-              <span className={`status-indicator ${isPowerOn && isEnabled ? 'status-online' : 'status-offline'}`}></span>
-              <span className="text-sm text-muted-foreground">
-                {!isPowerOn ? 'Power OFF' : isEnabled ? 'Ready' : 'Disabled'}
-              </span>
-            </div>
           </div>
         </div>
-      </CardHeader>
-      <CardContent>
-        {!isPowerOn && (
-          <div className="bg-destructive/10 rounded-md p-3 mb-4">
-            <div className="flex items-center space-x-2">
-              <PowerOff className="w-4 h-4 text-destructive" />
-              <span className="text-sm font-medium text-destructive">Power is OFF</span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Turn on power to enable voice features
+
+        {/* Wake Word Control */}
+        <div className="flex items-center justify-between">
+          <Label htmlFor="wake-word" className="flex items-center gap-2">
+            Wake Word Detection
+            {mode === 'WAKE' && wakeWordEnabled && (
+              <span className="text-xs text-muted-foreground">Say "Hey Chango"</span>
+            )}
+          </Label>
+          <Switch
+            id="wake-word"
+            checked={wakeWordEnabled}
+            onCheckedChange={toggleWakeWord}
+            disabled={!voiceEnabled || mode !== 'WAKE'}
+            data-testid="switch-wake-word"
+          />
+        </div>
+
+        {/* Listening Indicator */}
+        <div className="flex items-center justify-between">
+          <Label>Status</Label>
+          <div className="flex items-center gap-3">
+            {isListening ? (
+              <div className="flex items-center gap-2">
+                <div className={`relative ${listeningPulse ? 'animate-pulse' : ''}`}>
+                  <Mic className="h-5 w-5 text-green-600" />
+                  {listeningPulse && (
+                    <div className="absolute inset-0 rounded-full bg-green-600 opacity-50 animate-ping" />
+                  )}
+                </div>
+                <span className="text-sm text-green-600 font-medium">Listening</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <MicOff className="h-5 w-5 text-gray-400" />
+                <span className="text-sm text-gray-400">Not Listening</span>
+              </div>
+            )}
+            {isSpeaking && (
+              <div className="flex items-center gap-2">
+                <Volume2 className="h-5 w-5 text-blue-600 animate-pulse" />
+                <span className="text-sm text-blue-600 font-medium">Speaking</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Last Transcript */}
+        {lastTranscript && (
+          <div className="p-3 bg-secondary rounded-lg">
+            <Label className="text-xs text-muted-foreground">Last Heard:</Label>
+            <p className="text-sm mt-1" data-testid="text-last-transcript">
+              "{lastTranscript}"
             </p>
           </div>
         )}
-        
-        <div className="grid md:grid-cols-3 gap-4 mb-6">
-          <Button 
-            onClick={enable}
-            disabled={!isPowerOn || isEnabled}
-            data-testid="button-enable-voice"
-          >
-            Enable Voice
-          </Button>
-          <Button 
-            onClick={test}
+
+        {/* Test Button */}
+        <div className="flex gap-2">
+          <Button
+            onClick={testTTS}
             variant="secondary"
-            disabled={!isPowerOn || !isEnabled || isPlaying}
-            data-testid="button-test-speech"
+            size="sm"
+            disabled={!voiceEnabled || isSpeaking}
+            data-testid="button-test-tts"
           >
+            <Volume2 className="h-4 w-4 mr-1" />
             Test Speech
           </Button>
-          <Button 
-            onClick={stop}
-            variant="outline"
-            disabled={!isPlaying}
-            data-testid="button-stop-speech"
-          >
-            Stop
-          </Button>
         </div>
 
-        {/* Ask Button with Input */}
-        <div className="flex gap-2 mb-6">
-          <Input
-            type="text"
-            placeholder="Type a question (e.g., 'what time is it?')"
-            value={askInputValue}
-            onChange={(e) => setAskInputValue(e.target.value)}
-            onKeyPress={async (e) => {
-              if (e.key === 'Enter') {
-                console.log("[VoiceControls] Enter key pressed");
-                console.log("[VoiceControls] Current state (Enter):", {
-                  isPowerOn,
-                  isEnabled,
-                  askInputValue
-                });
-                
-                const text = askInputValue || 'what time is it?';
-                console.log("[VoiceControls] Processing text (Enter):", text);
-                
-                // Use the conversation orchestrator for consistent Q&A flow
-                const result = await ConversationOrchestrator.processConversation(text, {
-                  addUserMessage,
-                  addChangoMessage,
-                  speak,
-                  showToast: (title, description, variant) => {
-                    console.log("[VoiceControls] Toast (Enter):", title, description);
-                    toast({
-                      title,
-                      description,
-                      variant: variant as any,
-                    });
-                  }
-                });
-                
-                console.log("[VoiceControls] Result (Enter):", result);
-                
-                // Clear input on success
-                if (result.success) {
-                  setAskInputValue("");
-                }
-              }
-            }}
-            disabled={!isPowerOn || !isEnabled}
-            data-testid="input-ask-question"
-          />
-          <Button
-            onClick={async () => {
-              console.log("[VoiceControls] Ask button clicked");
-              console.log("[VoiceControls] Current state:", {
-                isPowerOn,
-                isEnabled,
-                askInputValue
-              });
-              
-              const text = askInputValue || 'what time is it?';
-              console.log("[VoiceControls] Processing text:", text);
-              
-              // Use the conversation orchestrator for consistent Q&A flow
-              const result = await ConversationOrchestrator.processConversation(text, {
-                addUserMessage,
-                addChangoMessage,
-                speak,
-                showToast: (title, description, variant) => {
-                  console.log("[VoiceControls] Toast:", title, description);
-                  toast({
-                    title,
-                    description,
-                    variant: variant as any,
-                  });
-                }
-              });
-              
-              console.log("[VoiceControls] Result:", result);
-              
-              // Clear input on success
-              if (result.success) {
-                setAskInputValue("");
-              }
-            }}
-            disabled={!isPowerOn || !isEnabled}
-            size="sm"
-            data-testid="button-ask"
-          >
-            <Send className="h-4 w-4 mr-1" />
-            Ask
-          </Button>
+        {/* Info */}
+        <div className="text-xs text-muted-foreground space-y-1">
+          <p>• In WAKE mode, say "Hey Chango" to activate</p>
+          <p>• In ACTIVE mode, all speech is processed</p>
+          <p>• STT pauses during TTS to prevent feedback</p>
         </div>
-
-        {/* Mic control */}
-        <div className="flex items-center justify-between mb-4 p-3 border rounded-lg">
-          <div className="flex items-center space-x-2">
-            <Label className="cursor-pointer flex items-center gap-2">
-              Microphone
-              {isMicOn ? (
-                <Mic className="h-4 w-4 text-green-500" />
-              ) : (
-                <MicOff className="h-4 w-4 text-red-500" />
-              )}
-            </Label>
-          </div>
-          <Button
-            variant={isMicOn ? "outline" : "destructive"}
-            size="sm"
-            onClick={handleMicToggle}
-            disabled={!isPowerOn || isTransitioning}
-            data-testid="button-mic-toggle"
-          >
-            {isMicOn ? "ON" : "OFF"}
-          </Button>
-        </div>
-        
-        {/* Auto Listen controls */}
-        <div className="space-y-4 mb-6 p-4 border rounded-lg">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Checkbox 
-                id="auto-listen"
-                checked={autoListen}
-                onCheckedChange={(checked) => setAutoListen(!!checked)}
-                disabled={!isPowerOn || !isEnabled || !isMicOn || isTransitioning}
-                data-testid="checkbox-auto-listen"
-              />
-              <Label 
-                htmlFor="auto-listen" 
-                className="cursor-pointer flex items-center gap-2"
-              >
-                Auto Listen
-                {vad.isListening ? (
-                  <Mic className="h-4 w-4 text-green-500" />
-                ) : (
-                  <MicOff className="h-4 w-4 text-muted-foreground" />
-                )}
-              </Label>
-            </div>
-            {autoListen && (
-              <span className="text-sm text-muted-foreground">
-                {vad.isListening ? "Listening for speech..." : "Not listening"}
-              </span>
-            )}
-          </div>
-
-          {/* Speech detection indicator */}
-          {vad.isListening && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span>Audio Level</span>
-                <span className={vad.isSpeaking ? "text-green-500" : "text-muted-foreground"}>
-                  {vad.isSpeaking ? "Speaking Detected" : "Silent"}
-                </span>
-              </div>
-              <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
-                <div 
-                  className={`h-full transition-all duration-100 ${
-                    vad.isSpeaking ? 'bg-green-500' : 'bg-blue-500'
-                  }`}
-                  style={{ width: `${speechIndicatorLevel * 100}%` }}
-                  data-testid="audio-level-indicator"
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {requiresHumanSpeech 
-                  ? "Chango will only respond after detecting human speech" 
-                  : "VAD active but not blocking speech"}
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Wake word control */}
-        <div className="flex items-center justify-between mb-4 p-3 border rounded-lg">
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="wake-word"
-              checked={wakeWordEnabled}
-              onCheckedChange={(checked) => setWakeWordEnabled(!!checked)}
-              disabled={!isPowerOn || !isMicOn}
-              data-testid="checkbox-wake-word"
-            />
-            <Label 
-              htmlFor="wake-word" 
-              className="cursor-pointer"
-            >
-              Wake Word ("Chango")
-            </Label>
-          </div>
-          {wakeWord.isListening && (
-            <span className="text-sm text-muted-foreground">
-              Listening...
-            </span>
-          )}
-        </div>
-        
-        {/* Mute control */}
-        <div className="flex items-center justify-between mb-4 p-3 border rounded-lg">
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="mute"
-              checked={isMuted}
-              onCheckedChange={(checked) => setMuted(!!checked)}
-              disabled={!isPowerOn}
-              data-testid="checkbox-mute"
-            />
-            <Label 
-              htmlFor="mute" 
-              className="cursor-pointer flex items-center gap-2"
-            >
-              Mute Speech Output
-              {isMuted ? (
-                <VolumeX className="h-4 w-4 text-red-500" />
-              ) : (
-                <Volume2 className="h-4 w-4 text-green-500" />
-              )}
-            </Label>
-          </div>
-        </div>
-        
-        {/* Voice Controller Controls */}
-        <div className="space-y-2 mb-4 p-3 border rounded-lg bg-secondary/20">
-          <div className="text-sm font-medium mb-2">Voice Controller</div>
-          
-          {/* Mode toggle for WAKE/ACTIVE */}
-          <div className="flex items-center gap-2 mb-2">
-            <Button
-              variant={voiceMode === 'WAKE' ? "secondary" : "default"}
-              size="sm"
-              onClick={() => Voice.setMode(voiceMode === 'WAKE' ? 'ACTIVE' : 'WAKE')}
-              disabled={voiceMode === 'KILLED' || voiceMode === 'MUTED'}
-              data-testid="button-mode-toggle"
-            >
-              {voiceMode === 'WAKE' ? (
-                <>🌙 Wake Mode</>
-              ) : voiceMode === 'ACTIVE' ? (
-                <>🔊 Active Mode</>
-              ) : (
-                <>Mode: {voiceMode}</>
-              )}
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              {voiceMode === 'WAKE' ? "Say 'Chango' to activate" : 
-               voiceMode === 'ACTIVE' ? "Actively listening" : ""}
-            </span>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Button
-              variant={voiceMode === 'MUTED' ? "destructive" : "default"}
-              size="sm"
-              onClick={handleVoiceMuteToggle}
-              disabled={voiceMode === 'KILLED'}
-              data-testid="button-voice-mute"
-            >
-              {voiceMode === 'MUTED' ? (
-                <><VolumeX className="h-4 w-4 mr-1" /> Unmute Voice</>
-              ) : (
-                <><Volume2 className="h-4 w-4 mr-1" /> Mute Voice</>
-              )}
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleVoiceKill}
-              disabled={voiceMode === 'KILLED'}
-              data-testid="button-voice-kill"
-            >
-              <ShieldOff className="h-4 w-4 mr-1" /> Kill
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleVoiceRevive}
-              disabled={voiceMode !== 'KILLED'}
-              data-testid="button-voice-revive"
-            >
-              <Shield className="h-4 w-4 mr-1" /> Revive
-            </Button>
-          </div>
-          <div className="text-xs text-muted-foreground mt-2">
-            Mode: <span className={`font-bold ${
-              voiceMode === 'ACTIVE' ? 'text-green-500' : 
-              voiceMode === 'WAKE' ? 'text-blue-500' :
-              voiceMode === 'MUTED' ? 'text-yellow-500' : 
-              'text-red-500'
-            }`}>{voiceMode}</span>
-            {isVoiceListening && ' • Listening'}
-            {voiceMode === 'WAKE' && ' • Say "Chango" to wake'}
-          </div>
-        </div>
-
-        <div className={`voice-visualizer ${isPlaying ? 'active' : ''} mb-4`}></div>
-        
-        <p className="text-sm text-muted-foreground" data-testid="text-voice-status">
-          Status: {!isPowerOn ? 'Power OFF' : isEnabled ? 'Voice synthesis ready' : 'Voice synthesis disabled'} 
-          {isPlaying && ' • Currently playing'}
-          {vad.isListening && ' • VAD active'}
-          {wakeWord.isListening && ' • Wake word active'}
-          {isMuted && ' • Muted'}
-          {!isMicOn && ' • Mic OFF'}
-        </p>
       </CardContent>
     </Card>
   );

@@ -34,7 +34,7 @@ class VoiceOrchestrator {
   private currentProfile: VoiceProfile = JARVIS_PROFILE;
   private isInitialized: boolean = false;
   private speakingQueue: Array<{ text: string; options?: TTSSpeakOptions }> = [];
-  private isSpeaking: boolean = false;
+  private isSpeakingFlag: boolean = false;
 
   constructor() {
     console.log('[VoiceOrchestrator] Initializing with local-only mode');
@@ -117,20 +117,20 @@ class VoiceOrchestrator {
     };
 
     // Handle interruption
-    if (speakOptions.interrupt && this.isSpeaking) {
+    if (speakOptions.interrupt && this.isSpeakingFlag) {
       this.stop();
       this.speakingQueue = [];
     }
 
     // Add to queue if already speaking and not interrupting
-    if (this.isSpeaking && !speakOptions.interrupt) {
+    if (this.isSpeakingFlag && !speakOptions.interrupt) {
       console.log('[VoiceOrchestrator] Queuing speech:', text.substring(0, 50) + '...');
       this.speakingQueue.push({ text, options: speakOptions });
       return;
     }
 
     try {
-      this.isSpeaking = true;
+      this.isSpeakingFlag = true;
       console.log('[VoiceOrchestrator] Speaking:', text.substring(0, 50) + '...');
       
       await this.localProvider!.speak(text, speakOptions);
@@ -146,7 +146,7 @@ class VoiceOrchestrator {
     } catch (error) {
       console.error('[VoiceOrchestrator] Speech error:', error);
     } finally {
-      this.isSpeaking = false;
+      this.isSpeakingFlag = false;
     }
   }
 
@@ -155,7 +155,7 @@ class VoiceOrchestrator {
    */
   private async processQueue(): Promise<void> {
     if (this.speakingQueue.length === 0) {
-      this.isSpeaking = false;
+      this.isSpeakingFlag = false;
       return;
     }
 
@@ -176,21 +176,28 @@ class VoiceOrchestrator {
 
     console.log('[VoiceOrchestrator] Stopping speech');
     this.localProvider.stop();
-    this.isSpeaking = false;
+    this.isSpeakingFlag = false;
     this.speakingQueue = [];
   }
 
   /**
    * Check if currently speaking
    */
-  isSpeakingNow(): boolean {
+  isSpeaking(): boolean {
     if (!this.localProvider) return false;
     
     if (this.localProvider.isSpeaking) {
       return this.localProvider.isSpeaking();
     }
     
-    return this.isSpeaking;
+    return this.isSpeakingFlag;
+  }
+
+  /**
+   * Alias for isSpeaking (backward compatibility)
+   */
+  isSpeakingNow(): boolean {
+    return this.isSpeaking();
   }
 
   /**

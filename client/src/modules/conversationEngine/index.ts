@@ -178,22 +178,26 @@ export function initConversationEngine(): void {
   
   // Listen for user speech recognized events
   voiceBus.on('userSpeechRecognized', (event) => {
+    console.log('[ConversationEngine] 🎯 RECEIVED userSpeechRecognized event!', event);
+    
     if (event.text) {
-      console.log('[ConversationEngine] Received speech input:', event.text);
+      console.log('[ConversationEngine] 📢 Received speech input:', event.text);
       console.log('[ConversationEngine] Processing speech-to-text result...');
       
       const response = route(event.text);
       if (response) {
-        console.log('[ConversationEngine] Generated response:', response);
+        console.log('[ConversationEngine] ✅ Generated response:', response);
         // Use voiceOrchestrator to speak the response
         voiceOrchestrator.speak(response);
         console.log('[ConversationEngine] Response sent to voice orchestrator');
       } else {
-        console.log('[ConversationEngine] No specific route matched, using default response');
+        console.log('[ConversationEngine] ⚠️ No specific route matched, using default response');
         const defaultResponse = "I'm not sure how to respond to that. Could you please rephrase or ask something else?";
         voiceOrchestrator.speak(defaultResponse);
         console.log('[ConversationEngine] Default response sent to voice orchestrator');
       }
+    } else {
+      console.log('[ConversationEngine] ❌ Received event without text!', event);
     }
   });
   

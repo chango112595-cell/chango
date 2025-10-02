@@ -173,23 +173,25 @@ export function route(text: string): string | null {
 
 // Initialize conversation engine with event listeners
 export function initConversationEngine(): void {
-  console.log('Initializing Conversation Engine...');
+  console.log('[ConversationEngine] Initializing...');
   
   // Listen for user speech recognized events
   voiceBus.on('userSpeechRecognized', (event) => {
     if (event.text) {
-      console.log('Processing speech:', event.text);
+      console.log('[ConversationEngine] Received speech input:', event.text);
+      console.log('[ConversationEngine] Processing speech-to-text result...');
       
       const response = route(event.text);
       if (response) {
+        console.log('[ConversationEngine] Generated response:', response);
         // Emit speak event with the response
         voiceBus.emitSpeak(response, 'conversation');
+        console.log('[ConversationEngine] Response sent to voice synthesis');
       } else {
-        // If no local response, could forward to backend or provide default
-        voiceBus.emitSpeak(
-          "I'm not sure how to respond to that. Could you please rephrase or ask something else?",
-          'conversation'
-        );
+        console.log('[ConversationEngine] No specific route matched, using default response');
+        const defaultResponse = "I'm not sure how to respond to that. Could you please rephrase or ask something else?";
+        voiceBus.emitSpeak(defaultResponse, 'conversation');
+        console.log('[ConversationEngine] Default response sent to voice synthesis');
       }
     }
   });
@@ -197,33 +199,36 @@ export function initConversationEngine(): void {
   // Listen for user text submitted events
   voiceBus.on('userTextSubmitted', (event) => {
     if (event.text) {
-      console.log('Processing text:', event.text);
+      console.log('[ConversationEngine] Received text input:', event.text);
+      console.log('[ConversationEngine] Processing text submission...');
       
       const response = route(event.text);
       if (response) {
+        console.log('[ConversationEngine] Generated response:', response);
         // Emit speak event with the response
         voiceBus.emitSpeak(response, 'conversation');
+        console.log('[ConversationEngine] Response sent to voice synthesis');
       } else {
-        // If no local response, could forward to backend or provide default
-        voiceBus.emitSpeak(
-          "I'm not sure how to respond to that. Could you please rephrase or ask something else?",
-          'conversation'
-        );
+        console.log('[ConversationEngine] No specific route matched, using default response');
+        const defaultResponse = "I'm not sure how to respond to that. Could you please rephrase or ask something else?";
+        voiceBus.emitSpeak(defaultResponse, 'conversation');
+        console.log('[ConversationEngine] Default response sent to voice synthesis');
       }
     }
   });
   
   // Listen for cancel events
   voiceBus.on('cancel', (event) => {
-    console.log('Speech cancelled:', event.source);
+    console.log('[ConversationEngine] Speech cancelled by:', event.source);
   });
   
   // Listen for mute changes
   voiceBus.on('muteChange', (event) => {
-    console.log('Mute state changed:', event.muted);
+    console.log('[ConversationEngine] Mute state changed to:', event.muted);
   });
   
-  console.log('Conversation Engine initialized');
+  console.log('[ConversationEngine] Initialization complete');
+  console.log('[ConversationEngine] Ready to process user input via text or speech');
 }
 
 // Export for testing individual functions

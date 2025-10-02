@@ -38,7 +38,7 @@ class VoiceControllerModule {
       return;
     }
 
-    console.log('[VoiceController] Initializing voice controller...');
+    console.log('[VoiceController] 🚀 Initializing voice controller...');
 
     // Set initial mode
     this.mode = config?.mode || 'WAKE';
@@ -51,26 +51,60 @@ class VoiceControllerModule {
     try {
       const permitted = await sttService.requestPermissions();
       if (!permitted) {
-        console.error('[VoiceController] Microphone permission denied');
+        console.error('[VoiceController] ❌ Microphone permission denied');
         throw new Error('Microphone permission required for voice features');
       }
+      console.log('[VoiceController] ✅ Microphone permission granted');
     } catch (error) {
-      console.error('[VoiceController] Failed to get microphone permissions:', error);
+      console.error('[VoiceController] ❌ Failed to get microphone permissions:', error);
       throw error;
     }
 
     // Start STT service
     if (config?.autoStart !== false) {
+      console.log('[VoiceController] 🎧 Starting STT service...');
       await this.startSTT();
+      
+      // Force check if Voice thinks it's speaking when it shouldn't be
+      const voiceThinksSpeaking = Voice.isSpeaking();
+      const ttsActuallySpeaking = voiceOrchestrator.isSpeaking();
+      
+      console.log('[VoiceController] 🔍 Speaking check:', {
+        voiceThinksSpeaking,
+        ttsActuallySpeaking,
+        ttsActive: this.ttsActive
+      });
+      
+      // If Voice thinks it's speaking but TTS isn't, clear the flag
+      if (voiceThinksSpeaking && !ttsActuallySpeaking) {
+        console.log('[VoiceController] 🔧 Voice thinks it\'s speaking but TTS is not, clearing flag');
+        this.ttsActive = false;
+        Voice.speaking(false);
+      }
+      
+      // Ensure STT actually starts listening after a short delay
+      setTimeout(() => {
+        console.log('[VoiceController] 🎤 Ensuring STT is listening...');
+        sttService.start().then(() => {
+          console.log('[VoiceController] ✅ STT service started successfully');
+          
+          // Double-check the listening status
+          const status = sttService.getStatus();
+          console.log('[VoiceController] 📊 STT Status:', status);
+        }).catch(err => {
+          console.error('[VoiceController] ❌ Failed to ensure STT is listening:', err);
+        });
+      }, 500);
     }
 
     // Enable wake word if requested
     if (this.wakeWordEnabled) {
+      console.log('[VoiceController] 👂 Enabling wake word detection');
       wakeWordDetector.enable();
     }
 
     this.isInitialized = true;
-    console.log('[VoiceController] Initialization complete');
+    console.log('[VoiceController] ✅ Initialization complete!');
   }
 
   /**
@@ -116,21 +150,26 @@ class VoiceControllerModule {
    * Handle TTS start - pause STT to prevent feedback
    */
   private handleTTSStart(): void {
-    console.log('[VoiceController] TTS starting, pausing STT');
-    this.ttsActive = true;
+    // Check if TTS is actually going to speak
+    const actuallySpeeking = voiceOrchestrator.isSpeaking();
+    console.log('[VoiceController] 🔊 TTS event received, actually speaking:', actuallySpeeking);
     
-    // Notify Voice controller that we're speaking
-    Voice.speaking(true);
-    
-    // Pause STT to prevent self-listening
-    sttService.pauseForTTS();
+    if (actuallySpeeking) {
+      console.log('[VoiceController] ⏸️ Pausing STT for TTS');
+      this.ttsActive = true;
+      Voice.speaking(true);
+      sttService.pauseForTTS();
+    } else {
+      console.log('[VoiceController] ℹ️ TTS event received but not actually speaking (text-only mode)');
+      // Don't set ttsActive or pause STT if not actually speaking
+    }
   }
 
   /**
    * Handle TTS complete - resume STT
    */
   private handleTTSComplete(): void {
-    console.log('[VoiceController] TTS completed, resuming STT');
+    console.log('[VoiceController] 🔇 TTS completed');
     this.ttsActive = false;
     
     // Notify Voice controller that we're done speaking
@@ -138,7 +177,8 @@ class VoiceControllerModule {
     
     // Resume STT after a short delay
     setTimeout(() => {
-      if (!this.ttsActive) {
+      if (!this.ttsActive && this.sttEnabled) {
+        console.log('[VoiceController] 🎧 Resuming STT after TTS complete');
         sttService.resumeAfterTTS();
       }
     }, 300);
@@ -148,24 +188,31 @@ class VoiceControllerModule {
    * Handle user speech input
    */
   private handleUserSpeech(text: string): void {
+    console.log('[VoiceController] 🎤 User speech detected:', text);
+    console.log('[VoiceController] 📊 Current state:', { 
+      mode: this.mode, 
+      wakeWordEnabled: this.wakeWordEnabled,
+      voiceMode: Voice.getMode()
+    });
+    
     // In WAKE mode, check for wake word
     if (this.mode === 'WAKE' && this.wakeWordEnabled) {
       const lowercaseText = text.toLowerCase();
       if (lowercaseText.includes('chango') || 
           lowercaseText.includes('hey chango') ||
           lowercaseText.includes('hi chango')) {
-        console.log('[VoiceController] Wake word detected, activating');
+        console.log('[VoiceController] 🎉 Wake word detected! Activating...');
         Voice.wakeWordHeard();
         return;
       }
       // Don't process other speech in WAKE mode
-      console.log('[VoiceController] In WAKE mode, ignoring non-wake-word speech');
+      console.log('[VoiceController] 👂 In WAKE mode, waiting for wake word...');
       return;
     }
 
     // In ACTIVE mode or when wake window is open, process the speech
     if (this.mode === 'ACTIVE' || Voice.getMode() === 'ACTIVE') {
-      console.log('[VoiceController] Processing user speech in ACTIVE mode:', text);
+      console.log('[VoiceController] 💬 Processing user speech in ACTIVE mode:', text);
       // The conversation engine will handle this via the voiceBus event
     }
   }

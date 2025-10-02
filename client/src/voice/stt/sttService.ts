@@ -68,17 +68,19 @@ class STTService {
         const transcript = result[0].transcript.trim();
         const confidence = result[0].confidence || 1.0;
         
-        console.log(`[STTService] Final: "${transcript}" (confidence: ${confidence})`);
+        console.log(`[STTService] 🎯 Final transcript: "${transcript}" (confidence: ${confidence})`);
+        console.log(`[STTService] 📊 Current mode: ${Voice.getMode()}, Speaking: ${Voice.isSpeaking()}`);
         
         // Don't process if we're speaking or should ignore input
         if (Voice.isSpeaking() || Voice.shouldIgnoreInput()) {
-          console.log('[STTService] Ignoring transcript (speaking or muted)');
+          console.log('[STTService] 🚫 Ignoring transcript (speaking or muted)');
           return;
         }
         
         // Emit speech recognized event via VoiceBus
         if (transcript.length > 0) {
           this.lastTranscript = transcript;
+          console.log('[STTService] 📢 Emitting user speech event');
           voiceBus.emitUserSpeech(transcript);
           
           // Reset silence timer on speech
@@ -87,12 +89,11 @@ class STTService {
       } else if (this.interimResults) {
         // Handle interim results
         const transcript = result[0].transcript.trim();
-        console.log(`[STTService] Interim: "${transcript}"`);
+        console.log(`[STTService] 📝 Interim: "${transcript}"`);
         
-        // You could emit interim results with a different event if needed
-        // For wake word detection, we'll check interim results too
+        // For wake word detection, check interim results too
         if (Voice.getMode() === 'WAKE' && this.containsWakeWord(transcript)) {
-          console.log('[STTService] Wake word detected in interim result!');
+          console.log('[STTService] 🎉 Wake word detected in interim result!');
           Voice.wakeWordHeard();
         }
       }
@@ -139,20 +140,31 @@ class STTService {
 
     // Handle start
     this.recognition.onstart = () => {
-      console.log('[STTService] Recognition started');
+      console.log('[STTService] ✅ Recognition STARTED - Microphone is now LISTENING!');
       this.isListening = true;
       this.permissionGranted = true;
+      console.log('[STTService] 📊 Status:', { 
+        isListening: true, 
+        isEnabled: this.isEnabled, 
+        mode: Voice.getMode() 
+      });
     };
 
     // Handle end
     this.recognition.onend = () => {
-      console.log('[STTService] Recognition ended');
+      console.log('[STTService] ⏹️ Recognition ended');
       this.isListening = false;
       
       // Auto-restart if enabled and not speaking
       if (this.autoRestart && this.isEnabled && !Voice.isSpeaking()) {
-        console.log('[STTService] Auto-restarting recognition');
+        console.log('[STTService] 🔄 Auto-restarting recognition in 100ms');
         setTimeout(() => this.restart(), 100);
+      } else {
+        console.log('[STTService] ⏸️ Not restarting:', { 
+          autoRestart: this.autoRestart, 
+          isEnabled: this.isEnabled, 
+          isSpeaking: Voice.isSpeaking() 
+        });
       }
     };
 
@@ -189,17 +201,23 @@ class STTService {
    */
   async requestPermissions(): Promise<boolean> {
     try {
-      console.log('[STTService] Requesting microphone permissions...');
+      console.log('[STTService] 🎤 Requesting microphone permissions...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
       // Stop the stream immediately - we just needed permission
       stream.getTracks().forEach(track => track.stop());
       
       this.permissionGranted = true;
-      console.log('[STTService] Microphone permission granted');
+      console.log('[STTService] ✅ Microphone permission GRANTED! Ready to listen.');
+      console.log('[STTService] 📊 Permission status:', { 
+        permissionGranted: this.permissionGranted, 
+        isEnabled: this.isEnabled,
+        isListening: this.isListening 
+      });
+      
       return true;
     } catch (error: any) {
-      console.error('[STTService] Microphone permission denied:', error);
+      console.error('[STTService] ❌ Microphone permission DENIED:', error);
       this.permissionGranted = false;
       return false;
     }
@@ -211,24 +229,33 @@ class STTService {
   async start(): Promise<void> {
     if (this.isEnabled) {
       console.log('[STTService] Already enabled');
+      // Make sure we're actually listening
+      if (!this.isListening && !Voice.isSpeaking()) {
+        console.log('[STTService] 🔄 Service enabled but not listening, starting recognition...');
+        this.startRecognition();
+      }
       return;
     }
 
     // Request permissions if not granted
     if (!this.permissionGranted) {
+      console.log('[STTService] 🎤 Permissions not yet granted, requesting...');
       const granted = await this.requestPermissions();
       if (!granted) {
         throw new Error('Microphone permission denied');
       }
     }
 
-    console.log('[STTService] Starting service');
+    console.log('[STTService] 🚀 Starting STT service');
     this.isEnabled = true;
     this.autoRestart = true;
     
     // Start recognition if not speaking
     if (!Voice.isSpeaking()) {
+      console.log('[STTService] 🎧 Starting recognition (not speaking)');
       this.startRecognition();
+    } else {
+      console.log('[STTService] ⏸️ Delaying recognition start (TTS is speaking)');
     }
   }
 
@@ -248,20 +275,21 @@ class STTService {
    */
   private startRecognition(): void {
     if (this.isListening) {
-      console.log('[STTService] Already listening');
+      console.log('[STTService] ✅ Already listening');
       return;
     }
 
     try {
-      console.log('[STTService] Starting recognition');
+      console.log('[STTService] 🎤 Starting recognition...');
       this.recognition.start();
       this.isListening = true;
+      console.log('[STTService] ✅ Recognition start() called successfully');
     } catch (error: any) {
-      console.error('[STTService] Failed to start recognition:', error);
+      console.error('[STTService] ❌ Failed to start recognition:', error);
       
       // Handle the case where recognition is already started
       if (error.message && error.message.includes('already started')) {
-        console.log('[STTService] Recognition was already started, stopping and restarting');
+        console.log('[STTService] ⚠️ Recognition was already started, stopping and restarting');
         this.stopRecognition();
         setTimeout(() => this.startRecognition(), 100);
       }

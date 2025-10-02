@@ -93,6 +93,8 @@ class AlwaysListenManager {
   private config: AlwaysListenConfig;
   private restartTimer: NodeJS.Timeout | null = null;
   private finalTranscript: string = '';
+  private lastInterimTranscript: string = '';
+  private hasReceivedFinalResult: boolean = false;
 
   constructor() {
     this.config = {
@@ -231,6 +233,7 @@ class AlwaysListenManager {
         if (result.isFinal) {
           // This is a final result
           finalTranscript = transcript;
+          this.hasReceivedFinalResult = true;
           console.log('[AlwaysListen] ✅ Final result detected:', finalTranscript);
           
           if (finalTranscript && finalTranscript.length > 0) {
@@ -240,6 +243,9 @@ class AlwaysListenManager {
             try {
               voiceBus.emitUserSpeech(finalTranscript);
               console.log('[AlwaysListen] ✓ Successfully emitted to voiceBus');
+              
+              // Clear the last interim transcript since we've processed a final result
+              this.lastInterimTranscript = '';
             } catch (error) {
               console.error('[AlwaysListen] ❌ Failed to emit to voiceBus:', error);
             }
@@ -259,6 +265,8 @@ class AlwaysListenManager {
         } else {
           // This is an interim result
           interimTranscript += transcript + ' ';
+          // Store the last interim transcript
+          this.lastInterimTranscript = transcript;
         }
       }
       
@@ -294,10 +302,27 @@ class AlwaysListenManager {
     // Handle speech start/end
     this.recognition.onspeechstart = () => {
       console.log('[AlwaysListen] 🗣️ Speech detected');
+      // Reset the flag when new speech starts
+      this.hasReceivedFinalResult = false;
     };
 
     this.recognition.onspeechend = () => {
       console.log('[AlwaysListen] 🤐 Speech ended');
+      
+      // CRITICAL FIX: If speech ended without a final result, emit the last interim transcript
+      if (!this.hasReceivedFinalResult && this.lastInterimTranscript && this.lastInterimTranscript.trim().length > 0) {
+        console.log('[AlwaysListen] ⚡ No final result received, emitting last interim transcript:', this.lastInterimTranscript);
+        
+        try {
+          voiceBus.emitUserSpeech(this.lastInterimTranscript.trim());
+          console.log('[AlwaysListen] ✓ Successfully emitted interim transcript as final result');
+        } catch (error) {
+          console.error('[AlwaysListen] ❌ Failed to emit interim transcript:', error);
+        }
+        
+        // Clear the interim transcript after emitting
+        this.lastInterimTranscript = '';
+      }
     };
   }
 

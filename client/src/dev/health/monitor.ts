@@ -76,10 +76,10 @@ class HealthMonitor {
   startHealthWatch(): void {
     try {
       // Don't start if already monitoring or auto-heal is disabled
-      if (this.state.isMonitoring || !FEATURES.DEBUG_AUTO_HEAL) {
+      if (this.state.isMonitoring || !FEATURES.AUTO_HEAL) {
         console.log('[HealthMonitor] Not starting:', {
           isMonitoring: this.state.isMonitoring,
-          autoHealEnabled: FEATURES.DEBUG_AUTO_HEAL
+          autoHealEnabled: FEATURES.AUTO_HEAL
         });
         return;
       }
@@ -259,4 +259,12 @@ if (import.meta.env.DEV && typeof window !== 'undefined') {
     getState: healthMonitor.getState.bind(healthMonitor)
   };
   console.log('[HealthMonitor] Exposed to window.__CH_HEALTH__');
+  
+  // Auto-start health monitoring if AUTO_HEAL is enabled
+  if (FEATURES.AUTO_HEAL) {
+    console.log('[HealthMonitor] AUTO_HEAL is enabled, starting health watch...');
+    startHealthWatch();
+  } else {
+    console.log('[HealthMonitor] AUTO_HEAL is disabled, health watch not started');
+  }
 }

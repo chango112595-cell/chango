@@ -73,7 +73,7 @@ class VoiceBusManager {
     };
   }
   
-  // Emit event to all listeners
+  // Emit event to all listeners (synchronous)
   emit(event: VoiceEvent): void {
     // Update state based on event type
     if (event.type === 'muteChange' && event.muted !== undefined) {
@@ -93,9 +93,8 @@ class VoiceBusManager {
     const eventListeners = this.listeners.get(event.type);
     if (eventListeners) {
       const listenersArray = Array.from(eventListeners);
-      // Use queueMicrotask for async emission
       for (const listener of listenersArray) {
-        queueMicrotask(() => listener(event));
+        listener(event);
       }
     }
     
@@ -105,15 +104,20 @@ class VoiceBusManager {
       if (stateListeners) {
         const stateListenersArray = Array.from(stateListeners);
         for (const listener of stateListenersArray) {
-          queueMicrotask(() => listener({ ...event, type: 'stateChange' }));
+          listener({ ...event, type: 'stateChange' });
         }
       }
     }
   }
   
+  // Emit event asynchronously using queueMicrotask to prevent synchronous loops
+  emitAsync(event: VoiceEvent): void {
+    queueMicrotask(() => this.emit(event));
+  }
+  
   // Helper method: Emit speak event
   emitSpeak(text: string, source: 'user' | 'system' | 'conversation' = 'system'): void {
-    this.emit({
+    this.emitAsync({
       type: 'speak',
       text,
       source
@@ -122,7 +126,7 @@ class VoiceBusManager {
   
   // Helper method: Emit user speech recognized
   emitUserSpeech(text: string): void {
-    this.emit({
+    this.emitAsync({
       type: 'userSpeechRecognized',
       text,
       source: 'user'
@@ -134,7 +138,7 @@ class VoiceBusManager {
     console.log('[VoiceBus] 🚀 emitUserText called with:', text);
     console.log('[VoiceBus] Current listeners for userTextSubmitted:', this.listeners.get('userTextSubmitted')?.size || 0);
     
-    this.emit({
+    this.emitAsync({
       type: 'userTextSubmitted',
       text,
       source: 'user'
@@ -154,7 +158,7 @@ class VoiceBusManager {
       this.cancelSpeak('system');
     }
     
-    this.emit({
+    this.emitAsync({
       type: 'muteChange',
       muted,
       source: 'system'
@@ -172,47 +176,34 @@ class VoiceBusManager {
       this.cancelSpeak('system');
     }
     
-    this.emit({
+    this.emitAsync({
       type: 'powerChange',
       powered,
       source: 'system'
     });
   }
   
-  // Cancel speech with safe async handling
+  // Cancel speech with safe async handling and recursion guard
   cancelSpeak(source: 'user' | 'system' = 'user'): void {
-    // Guard against multiple cancellation attempts
-    if (this._isCancelling || this._cancelScheduled) {
-      console.log('[VoiceBus] Cancel already in progress, skipping duplicate');
-      return;
-    }
+    // Guard against recursion
+    if (this._isCancelling) return;
     
-    this._cancelScheduled = true;
-    
-    // Use queueMicrotask for async safe cancellation
-    queueMicrotask(() => {
-      if (!this._cancelScheduled) return;
-      
-      this._isCancelling = true;
-      this._cancelScheduled = false;
-      
+    this._isCancelling = true;
+    try {
       // Cancel browser speech synthesis
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         window.speechSynthesis.cancel();
       }
       
       this.state.speaking = false;
-      
-      // Emit cancel event asynchronously
-      this.emit({
-        type: 'cancel',
-        source
-      });
-      
-      // Reset guard flags after a small delay
-      setTimeout(() => {
-        this._isCancelling = false;
-      }, 100);
+    } finally {
+      this._isCancelling = false;
+    }
+    
+    // Emit cancel event asynchronously
+    this.emitAsync({
+      type: 'cancel',
+      source
     });
   }
   
@@ -242,7 +233,7 @@ class VoiceBusManager {
     
     this.state.speaking = speaking;
     
-    this.emit({
+    this.emitAsync({
       type: 'speakingChange',
       speaking,
       source: 'system'

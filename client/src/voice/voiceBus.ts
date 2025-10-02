@@ -131,11 +131,16 @@ class VoiceBusManager {
   
   // Helper method: Emit user text submitted
   emitUserText(text: string): void {
+    console.log('[VoiceBus] 🚀 emitUserText called with:', text);
+    console.log('[VoiceBus] Current listeners for userTextSubmitted:', this.listeners.get('userTextSubmitted')?.size || 0);
+    
     this.emit({
       type: 'userTextSubmitted',
       text,
       source: 'user'
     });
+    
+    console.log('[VoiceBus] ✅ userTextSubmitted event emitted');
   }
   
   // Mute/unmute functionality

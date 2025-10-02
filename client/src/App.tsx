@@ -17,6 +17,7 @@ import { useVoiceBus } from "@/voice/useVoiceBus";
 import { FEATURES } from "@/config/featureFlags";
 import { voiceBus } from "@/voice/voiceBus";
 import { DebugOverlay } from "@/dev/DebugOverlay";
+import { MicrophonePermission } from "@/components/MicrophonePermission";
 import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
 import "./testTTS";
@@ -86,6 +87,9 @@ function AppContent() {
   return (
     <>
       <VoiceInitializer />
+      
+      {/* Microphone permission request card */}
+      <MicrophonePermission />
       
       {/* Conditionally render HeaderBar when mode is "header" */}
       {mode === "header" && <HeaderBar />}

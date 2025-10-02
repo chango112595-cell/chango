@@ -470,3 +470,8 @@ class AlwaysListenManager {
 
 // Export singleton instance
 export const alwaysListen = new AlwaysListenManager();
+
+// Expose to window for health monitor access
+if (typeof window !== 'undefined') {
+  (window as any).alwaysListen = alwaysListen;
+}

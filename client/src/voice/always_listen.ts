@@ -214,7 +214,7 @@ class AlwaysListenManager {
     };
 
     // Handle recognition results
-    this.recognition.onresult = (event) => {
+    this.recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interimTranscript = '';
       
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -249,7 +249,7 @@ class AlwaysListenManager {
     };
 
     // Handle recognition errors
-    this.recognition.onerror = (event) => {
+    this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error('[AlwaysListen] Recognition error:', event.error);
       
       if (event.error === 'not-allowed') {

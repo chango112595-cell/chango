@@ -12,7 +12,7 @@ import StatusDock from "@/components/StatusDock";
 import { HeaderBar } from "@/components/HeaderBar";
 import { HologramSphere } from "@/components/HologramSphere";
 import { UiModeSwitch } from "@/components/UiModeSwitch";
-import { useUIMode } from "@/hooks/useUIMode";
+import { UIModeProvider, useUIMode } from "@/contexts/UIModeContext";
 import { useVoiceBus } from "@/voice/useVoiceBus";
 import { FEATURES } from "@/config/featureFlags";
 import { voiceBus } from "@/voice/voiceBus";
@@ -79,41 +79,51 @@ function Router() {
   );
 }
 
-function App() {
+function AppContent() {
   const { mode } = useUIMode();
 
   return (
+    <>
+      <VoiceInitializer />
+      
+      {/* Conditionally render HeaderBar when mode is "header" */}
+      {mode === "header" && <HeaderBar />}
+      
+      {/* Conditionally render HologramSphere when mode is "sphere" */}
+      {mode === "sphere" && <HologramSphere state="idle" />}
+      
+      {/* Always show UiModeSwitch if the feature flag is enabled */}
+      {FEATURES.UI_MODE_TOGGLE && <UiModeSwitch />}
+      
+      {!FEATURES.HANDS_FREE_UI && <StatusDockWrapper />}
+      <Toaster />
+      <Router />
+      {/* Global AskBar for text input */}
+      <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4 z-50">
+        <AskBar 
+          placeholder="Ask Chango anything..."
+          showIcon={true}
+          submitOnEnter={true}
+          showSubmitButton={true}
+          clearAfterSubmit={true}
+        />
+      </div>
+    </>
+  );
+}
+
+function App() {
+  return (
     <QueryClientProvider client={queryClient}>
-      <SpeechCoordinationProvider>
-        <ConversationProvider>
-          <TooltipProvider>
-            <VoiceInitializer />
-            
-            {/* Conditionally render HeaderBar when mode is "header" */}
-            {mode === "header" && <HeaderBar />}
-            
-            {/* Conditionally render HologramSphere when mode is "sphere" */}
-            {mode === "sphere" && <HologramSphere state="idle" />}
-            
-            {/* Always show UiModeSwitch if the feature flag is enabled */}
-            {FEATURES.UI_MODE_TOGGLE && <UiModeSwitch />}
-            
-            {!FEATURES.HANDS_FREE_UI && <StatusDockWrapper />}
-            <Toaster />
-            <Router />
-            {/* Global AskBar for text input */}
-            <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4 z-50">
-              <AskBar 
-                placeholder="Ask Chango anything..."
-                showIcon={true}
-                submitOnEnter={true}
-                showSubmitButton={true}
-                clearAfterSubmit={true}
-              />
-            </div>
-          </TooltipProvider>
-        </ConversationProvider>
-      </SpeechCoordinationProvider>
+      <UIModeProvider>
+        <SpeechCoordinationProvider>
+          <ConversationProvider>
+            <TooltipProvider>
+              <AppContent />
+            </TooltipProvider>
+          </ConversationProvider>
+        </SpeechCoordinationProvider>
+      </UIModeProvider>
     </QueryClientProvider>
   );
 }

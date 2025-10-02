@@ -170,6 +170,17 @@ class HealthMonitor {
    */
   private restartStt(): void {
     try {
+      // Check if microphone permission exists first
+      // If no permission, don't try to restart as it will fail
+      const hasPermission = (window as any).alwaysListen?.getStatus?.()?.hasPermission;
+      
+      if (hasPermission === false) {
+        console.log('[HealthMonitor] Skipping STT restart - no microphone permission');
+        // Reset heartbeat to prevent repeated restart attempts
+        this.state.lastSttHeartbeat = Date.now();
+        return;
+      }
+      
       console.log('[HealthMonitor] Restarting STT...');
       
       if (FEATURES.DEBUG_BUS) {
@@ -196,7 +207,7 @@ class HealthMonitor {
     } catch (error) {
       console.error('[HealthMonitor] Error restarting STT:', error);
       if (FEATURES.DEBUG_BUS) {
-        debugBus.error('Health', 'auto_restart_stt_failed', { error: error.message });
+        debugBus.error('Health', 'auto_restart_stt_failed', { error: (error as any).message });
       }
     }
   }

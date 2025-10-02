@@ -9,8 +9,9 @@ import { ConversationProvider } from "@/lib/conversationContext";
 import { bootstrapChango, shutdownChango } from "@/app/bootstrap";
 import { AskBar } from "@/ui/AskBar";
 import StatusDock from "@/components/StatusDock";
+import { HeaderBar } from "@/components/HeaderBar";
 import { useVoiceBus } from "@/voice/useVoiceBus";
-import { FEATURES } from "@/config/features";
+import { FEATURES } from "@/config/featureFlags";
 import { voiceBus } from "@/voice/voiceBus";
 import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
@@ -81,7 +82,8 @@ function App() {
         <ConversationProvider>
           <TooltipProvider>
             <VoiceInitializer />
-            <StatusDockWrapper />
+            <HeaderBar />
+            {!FEATURES.HANDS_FREE_UI && <StatusDockWrapper />}
             <Toaster />
             <Router />
             {/* Global AskBar for text input */}

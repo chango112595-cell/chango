@@ -1,0 +1,165 @@
+Here’s a tight diagnosis + fix plan to isolate why Chango stopped replying, with copy-paste patches.
+
+What likely broke (ranked)
+	1.	Wake-word gate is too strict → replies only when phrased “Chango, …”.
+	2.	STT events not reaching the engine → no userSpeechRecognized → no response.
+	3.	Bootstrap not running → conversation engine and always-listen never start.
+	4.	Muted/power off → voiceBus.mute === true or power false.
+	5.	Hands-free remnants → background chatter triggering/interrupting logic.
+
+Fast isolation (1-minute checks)
+	•	Temporarily disable gate to test pipeline:
+
+// src/config/featureFlags.ts
+export const Features = { WakeWord:false, AnswerOnlyWhenAddressed:false, AlwaysListening:true };
+
+Speak: “What time is it?” → If he answers, the gate is the issue (re-enable after patch below).
+
+	•	Ensure bootstrap is called exactly once:
+
+// src/app/bootstrap.ts
+import { initTTS } from "./initTTS";
+import { initConversationEngine } from "../modules/conversationEngine";
+import { startAlwaysListening } from "../voice/always_listen";
+export function bootstrapChango(){ initTTS(); initConversationEngine(); startAlwaysListening(); }
+
+// src/main.tsx (or App.tsx)
+import { bootstrapChango } from "./app/bootstrap";
+bootstrapChango();
+
+
+	•	Force unmute/power in DevTools:
+
+voiceBus.setMute(false); voiceBus.setPower(true);
+
+
+
+Add tiny live debug (shows the real problem)
+
+Paste this component and mount it temporarily; you’ll see whether STT and the gate are firing.
+
+// src/dev/DebugOverlay.tsx
+import React from "react";
+import { voiceBus } from "../voice/voiceBus";
+
+export default function DebugOverlay(){
+  const [lines,setLines]=React.useState<string[]>([]);
+  React.useEffect(()=>{
+    const log=(m:string)=>setLines(x=>[m,...x].slice(0,12));
+    const off = voiceBus.on((ev:any)=>{
+      const txt = ev?.text ? ` :: ${String(ev.text).slice(0,80)}` : "";
+      log(`EV ${ev.type}${txt}`);
+    });
+    (window as any).voiceBus = voiceBus;
+    log("DEBUG OVERLAY ON");
+    return off;
+  },[]);
+  return (
+    <div style={{position:"fixed",bottom:8,left:8,zIndex:50,fontSize:12,
+      background:"rgba(0,0,0,.55)",color:"#0ff",padding:"8px 10px",
+      border:"1px solid #0ff",borderRadius:8}}>
+      {lines.map((l,i)=><div key={i}>{l}</div>)}
+    </div>
+  );
+}
+
+Mount it:
+
+{process.env.NODE_ENV !== 'production' && <DebugOverlay/>}
+
+Make him answer only when addressed (and still reply to typed)
+
+Use this gate (copy-paste). It blocks background speech and only allows speech that starts with “Chango, …”; the typed Ask bar still works.
+
+// src/modules/listening/gate.ts
+import { isOn } from "../../config/featureFlags";
+
+const WAKE = /^(?:\s*(hey|ok|yo)\s+)?chango[\s,.:;-]*/i;
+
+export type GateResult = { allowed: boolean; text: string; reason: "wake"|"typed"|"blocked" };
+
+export function passGate(raw: string, typed = false): GateResult {
+  const input = (raw||"").trim();
+  if (!input) return { allowed:false, text:"", reason:"blocked" };
+
+  // Typed = explicit intent from Ask bar
+  if (typed) return { allowed:true, text:input, reason:"typed" };
+
+  // Speech must address Chango directly
+  if (isOn("WakeWord")) {
+    if (WAKE.test(input)) {
+      const text = input.replace(WAKE, "").trim();
+      return { allowed: !!text, text, reason:"wake" };
+    }
+    return { allowed:false, text:"", reason:"blocked" };
+  }
+  return { allowed:false, text:"", reason:"blocked" };
+}
+
+Wire typed vs speech correctly:
+
+// src/modules/conversationEngine/index.ts (inside initConversationEngine)
+const handle = async (raw: string, typed = false) => {
+  const g = passGate(raw, typed);
+  if (!g.allowed) return;
+  await respond(g.text);
+};
+
+voiceBus.on(ev => {
+  if (ev.type === "userSpeechRecognized" && ev.text) handle(ev.text, false);
+  if (ev.type === "userTextSubmitted"  && ev.text) handle(ev.text, true);
+});
+
+Ensure STT emits userSpeechRecognized
+
+Add/confirm these logs to prove the mic path is active (if you don’t see them, STT isn’t running):
+
+// src/voice/always_listen.ts (inside startAlwaysListening)
+console.log("[STT] init");
+rec!.onresult = (e:any)=>{
+  const res = e?.results?.[e.resultIndex];
+  const text = res && res[0]?.transcript ? String(res[0].transcript).trim() : "";
+  if (text){
+    console.log("[STT] heard:", text);
+    voiceBus.emitUserSpeech(text); // must exist
+  }
+};
+rec!.onend   = ()=> console.log("[STT] end → restart");
+rec!.onerror = (err:any)=> console.warn("[STT] error", err);
+
+Keep mute/power safe (no recursion)
+
+// src/voice/voiceBus.ts (essential bits)
+export class VoiceBusManager {
+  private listeners = new Set<(ev:any)=>void>();
+  private _isCancelling=false;
+  public mute=false; public power=true;
+
+  on(fn:(ev:any)=>void){ this.listeners.add(fn); return ()=>this.listeners.delete(fn); }
+  private emitAsync(ev:any){ const f=[...this.listeners]; for(const fn of f) queueMicrotask(()=>fn(ev)); }
+
+  setMute(v:boolean){ this.mute=v; this.emitAsync({type:"muteChange", muted:v}); if(v) this.cancelSpeak("system"); }
+  setPower(v:boolean){ this.power=v; if(!v) this.cancelSpeak("system"); }
+
+  cancelSpeak(source:"user"|"system"="user"){
+    if(this._isCancelling) return;
+    this._isCancelling=true;
+    try{ if(typeof window!=="undefined" && window.speechSynthesis) window.speechSynthesis.cancel(); }
+    finally{ this._isCancelling=false; }
+    this.emitAsync({type:"cancel", source});
+  }
+
+  // helper for STT bridge:
+  emitUserSpeech(text:string){ this.emitAsync({type:"userSpeechRecognized", text}); }
+}
+
+How to verify quickly
+	1.	Load the app, click Enable Microphone once (browser permission).
+	2.	Speak: “What time is it?” → no reply (blocked by gate).
+	3.	Speak: “Chango, what time is it?” → replies with time.
+	4.	Type in Ask bar: “What time is it?” → replies.
+	5.	Watch the DebugOverlay: you should see userSpeechRecognized → then a start/end pair for TTS.
+
+⸻
+
+If any of these steps fail, the overlay will tell you exactly which stage is not firing (STT input, gate, or TTS output).

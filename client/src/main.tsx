@@ -24,6 +24,10 @@ if (import.meta.env.DEV) {
   import("./autoDiagnostic").then(() => {
     console.log("[Diagnostic] Auto-diagnostic loaded");
   });
+  
+  import("./testDebugOverlay").then(() => {
+    console.log("[Test] DebugOverlay test utilities loaded");
+  });
 }
 
 // HMR-safe initialization - prevents duplicate listeners

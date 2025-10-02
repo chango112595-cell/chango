@@ -6,11 +6,13 @@
 export const FEATURES = {
   // UI Features
   HANDS_FREE_UI: false,         // Hide the hands-free UI card entirely
-  WAKE_WORD: false,             // Disable wake word detection (e.g., "Hey Lolo")
-  ALWAYS_LISTENING: true,       // Always listen for voice input (no wake word needed)
+  WAKE_WORD: true,              // Enable wake word detection (e.g., "Hey Lolo")
+  ALWAYS_LISTENING: true,       // Always listen for voice input
   ALWAYS_LISTEN_DEFAULT: true,  // Start listening by default on app load
-  ANSWER_ONLY_WHEN_ASKED: false, // Only respond to questions (not statements)
+  ANSWER_ONLY_WHEN_ASKED: true, // Only respond to questions (not statements)
   AnswerOnlyWhenAddressed: true, // Only respond when directly addressed with "Lolo" or via Ask bar
+  COMPACT_HEADER: true,         // Use compact header UI
+  GUARDED_CANCEL: true,         // Require confirmation for cancel actions
   
   // Voice Features  
   TTS_ENABLED: true,            // Enable text-to-speech

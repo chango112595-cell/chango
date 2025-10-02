@@ -1,0 +1,169 @@
+/**
+ * Bootstrap Module for Chango
+ * Clean initialization of all voice and conversation systems
+ */
+
+import { alwaysListen } from '@/voice/always_listen';
+import { voiceOrchestrator } from '@/voice/tts/orchestrator';
+import { initConversationEngine } from '@/modules/conversationEngine';
+import { localNeuralProvider } from '@/voice/tts/providers/localNeural';
+import { voiceBus } from '@/voice/voiceBus';
+
+export interface BootstrapOptions {
+  autoStartListening?: boolean;
+  enableTTS?: boolean;
+  pauseOnHidden?: boolean;
+}
+
+/**
+ * Bootstrap Chango with all required systems
+ * This is the main entry point for initializing the voice assistant
+ */
+export async function bootstrapChango(options: BootstrapOptions = {}): Promise<void> {
+  const {
+    autoStartListening = true,
+    enableTTS = true,
+    pauseOnHidden = true
+  } = options;
+
+  console.log('[Bootstrap] 🚀 Bootstrapping Chango...');
+  console.log('[Bootstrap] Options:', { autoStartListening, enableTTS, pauseOnHidden });
+
+  try {
+    // Step 1: Initialize TTS system
+    if (enableTTS) {
+      console.log('[Bootstrap] Initializing TTS system...');
+      
+      // Register local neural provider with orchestrator
+      voiceOrchestrator.registerLocal(localNeuralProvider);
+      
+      // Test TTS availability
+      const voices = window.speechSynthesis.getVoices();
+      console.log('[Bootstrap] Available TTS voices:', voices.length);
+      
+      if (voices.length === 0) {
+        // Wait for voices to load
+        await new Promise<void>((resolve) => {
+          window.speechSynthesis.onvoiceschanged = () => {
+            const updatedVoices = window.speechSynthesis.getVoices();
+            console.log('[Bootstrap] TTS voices loaded:', updatedVoices.length);
+            resolve();
+          };
+          
+          // Timeout after 2 seconds
+          setTimeout(resolve, 2000);
+        });
+      }
+      
+      console.log('[Bootstrap] ✅ TTS system initialized');
+    }
+
+    // Step 2: Initialize conversation engine
+    console.log('[Bootstrap] Initializing conversation engine...');
+    initConversationEngine();
+    console.log('[Bootstrap] ✅ Conversation engine initialized');
+
+    // Step 3: Configure always listening
+    console.log('[Bootstrap] Configuring always listening...');
+    alwaysListen.configure({
+      autoRestart: true,
+      pauseOnHidden: pauseOnHidden,
+      silenceTimeout: 2000
+    });
+
+    // Step 4: Initialize always listening
+    await alwaysListen.initialize();
+    console.log('[Bootstrap] ✅ Always listening initialized');
+
+    // Step 5: Start listening if auto-start is enabled
+    if (autoStartListening) {
+      console.log('[Bootstrap] Starting continuous listening...');
+      
+      try {
+        await alwaysListen.start();
+        console.log('[Bootstrap] ✅ Continuous listening started');
+        
+        // Announce that Chango is ready
+        if (enableTTS) {
+          voiceBus.emitSpeak("Hello! I'm Chango, and I'm listening.", 'system');
+        }
+      } catch (error) {
+        console.error('[Bootstrap] Failed to start listening:', error);
+        console.log('[Bootstrap] ⚠️ Microphone permission may be required');
+        
+        // Will need user interaction to grant permission
+        return;
+      }
+    }
+
+    console.log('[Bootstrap] 🎉 Chango bootstrap complete!');
+    console.log('[Bootstrap] System status:');
+    console.log('[Bootstrap] - TTS:', enableTTS ? 'Enabled' : 'Disabled');
+    console.log('[Bootstrap] - Always Listening:', autoStartListening ? 'Active' : 'Manual');
+    console.log('[Bootstrap] - Conversation Engine: Ready');
+    
+  } catch (error) {
+    console.error('[Bootstrap] ❌ Bootstrap failed:', error);
+    throw error;
+  }
+}
+
+/**
+ * Request microphone permission with user interaction
+ * This should be called from a button click event
+ */
+export async function requestMicrophonePermission(): Promise<boolean> {
+  console.log('[Bootstrap] Requesting microphone permission...');
+  
+  try {
+    await alwaysListen.start();
+    console.log('[Bootstrap] ✅ Microphone permission granted and listening started');
+    
+    // Announce that Chango is ready
+    voiceBus.emitSpeak("Thank you! I'm now listening for your commands.", 'system');
+    
+    return true;
+  } catch (error) {
+    console.error('[Bootstrap] ❌ Failed to get microphone permission:', error);
+    return false;
+  }
+}
+
+/**
+ * Stop all Chango systems
+ */
+export function shutdownChango(): void {
+  console.log('[Bootstrap] Shutting down Chango...');
+  
+  // Stop listening
+  alwaysListen.stop();
+  
+  // Cancel any ongoing speech
+  voiceBus.cancelSpeak('system');
+  
+  console.log('[Bootstrap] ✅ Chango shutdown complete');
+}
+
+/**
+ * Get Chango system status
+ */
+export function getChangoStatus(): {
+  listening: boolean;
+  tts: boolean;
+  conversationEngine: boolean;
+  micPermission: boolean;
+} {
+  const listenStatus = alwaysListen.getStatus();
+  
+  return {
+    listening: listenStatus.isListening,
+    tts: voiceOrchestrator.isReady(),
+    conversationEngine: true, // Always true after init
+    micPermission: listenStatus.hasPermission
+  };
+}
+
+// Export for convenience
+export { alwaysListen } from '@/voice/always_listen';
+export { voiceBus } from '@/voice/voiceBus';
+export { voiceOrchestrator } from '@/voice/tts/orchestrator';

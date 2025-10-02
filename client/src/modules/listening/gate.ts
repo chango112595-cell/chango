@@ -8,14 +8,13 @@ import { FEATURES } from '../../config/featureFlags';
 interface GateResult {
   allowed: boolean;
   text: string;
-  reason: string;
+  reason: "wake" | "typed" | "blocked";
 }
 
-// Wake word patterns to detect when Chango is being addressed
-const WAKE_WORD_PATTERNS = [
-  /^(hey |hi |hello |yo |ok |okay )?chango[,:]?\s*/i,
-  /^chango[,:]?\s*/i
-];
+// More flexible wake word pattern
+// Matches: "hey chango", "ok chango", "yo chango", or just "chango"
+// Followed by various punctuation marks
+const WAKE_WORD_PATTERN = /^(?:\s*(hey|ok|yo)\s+)?chango[\s,.:;-]*/i;
 
 /**
  * Check if the text is directly addressed to Chango
@@ -24,15 +23,7 @@ const WAKE_WORD_PATTERNS = [
  */
 function isAddressedToChango(text: string): boolean {
   const trimmedText = text.trim();
-  
-  // Check if text starts with any wake word pattern
-  for (const pattern of WAKE_WORD_PATTERNS) {
-    if (pattern.test(trimmedText)) {
-      return true;
-    }
-  }
-  
-  return false;
+  return WAKE_WORD_PATTERN.test(trimmedText);
 }
 
 /**
@@ -43,13 +34,11 @@ function isAddressedToChango(text: string): boolean {
 function stripWakeWord(text: string): string {
   const trimmedText = text.trim();
   
-  // Try to match and remove wake word patterns
-  for (const pattern of WAKE_WORD_PATTERNS) {
-    const match = trimmedText.match(pattern);
-    if (match) {
-      // Remove the matched wake word part
-      return trimmedText.substring(match[0].length).trim();
-    }
+  // Match and remove wake word pattern
+  const match = trimmedText.match(WAKE_WORD_PATTERN);
+  if (match) {
+    // Remove the matched wake word part
+    return trimmedText.substring(match[0].length).trim();
   }
   
   return trimmedText;
@@ -67,7 +56,7 @@ export function passGate(text: string, typed: boolean = false): GateResult {
     return {
       allowed: true,
       text: text,
-      reason: 'Feature disabled - allowing all input'
+      reason: "wake" // Consider feature disabled as wake-allowed
     };
   }
   
@@ -77,7 +66,7 @@ export function passGate(text: string, typed: boolean = false): GateResult {
     return {
       allowed: true,
       text: text,
-      reason: 'Typed input always allowed'
+      reason: "typed"
     };
   }
   
@@ -89,7 +78,7 @@ export function passGate(text: string, typed: boolean = false): GateResult {
     return {
       allowed: true,
       text: processedText,
-      reason: 'Addressed to Chango'
+      reason: "wake"
     };
   }
   
@@ -98,7 +87,7 @@ export function passGate(text: string, typed: boolean = false): GateResult {
   return {
     allowed: false,
     text: text,
-    reason: 'Not addressed to Chango'
+    reason: "blocked"
   };
 }
 

@@ -8,8 +8,25 @@ import { SpeechCoordinationProvider } from "@/lib/speechCoordination";
 import { ConversationProvider } from "@/lib/conversationContext";
 import { bootstrapChango, shutdownChango } from "@/app/bootstrap";
 import { AskBar } from "@/ui/AskBar";
+import StatusDock from "@/components/StatusDock";
+import { useVoiceBus } from "@/voice/useVoiceBus";
+import { FEATURES } from "@/config/features";
+import { voiceBus } from "@/voice/voiceBus";
 import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
+
+function StatusDockWrapper() {
+  const { systemOnline, isSpeaking, isMuted, setMuted } = useVoiceBus();
+  
+  return (
+    <StatusDock
+      systemOnline={systemOnline}
+      speaking={isSpeaking}
+      muted={isMuted}
+      onToggleMute={() => setMuted(!isMuted)}
+    />
+  );
+}
 
 function VoiceInitializer() {
   // Initialize voice system on mount using bootstrap
@@ -18,14 +35,19 @@ function VoiceInitializer() {
     
     const initializeChango = async () => {
       try {
-        // Bootstrap Chango with always listening mode
+        // Bootstrap Chango with always listening mode based on feature flag
         await bootstrapChango({
-          autoStartListening: true,  // Auto-start continuous listening
+          autoStartListening: FEATURES.ALWAYS_LISTEN_DEFAULT,  // Use feature flag
           enableTTS: true,           // Enable text-to-speech
           pauseOnHidden: true        // Pause when tab is hidden
         });
         
-        console.log("[App] Chango bootstrapped successfully - always listening mode active");
+        // Set initial mute state based on feature flag (inverted logic: listening = not muted)
+        if (FEATURES.ALWAYS_LISTEN_DEFAULT) {
+          voiceBus.setMute(false);
+        }
+        
+        console.log("[App] Chango bootstrapped successfully - always listening mode:", FEATURES.ALWAYS_LISTEN_DEFAULT);
       } catch (error) {
         console.error("[App] Failed to bootstrap Chango:", error);
       }
@@ -59,6 +81,7 @@ function App() {
         <ConversationProvider>
           <TooltipProvider>
             <VoiceInitializer />
+            <StatusDockWrapper />
             <Toaster />
             <Router />
             {/* Global AskBar for text input */}

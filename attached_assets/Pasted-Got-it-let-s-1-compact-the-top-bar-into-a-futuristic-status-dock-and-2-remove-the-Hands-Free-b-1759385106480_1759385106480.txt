@@ -1,0 +1,183 @@
+Got it—let’s (1) compact the top bar into a futuristic “status dock” and (2) remove the Hands-Free block while keeping always-listening with a manual Mic toggle.
+
+Below are drop-in patches for a React + Vite + Tailwind/shadcn setup. Everything is isolated: a new StatusDock component, a feature flag to hide Hands-Free, and a small config.
+
+⸻
+
+1) src/components/StatusDock.tsx  ⟵ NEW
+
+import { useEffect, useMemo, useState } from "react";
+import { Mic, MicOff, Cpu, Radio, Power } from "lucide-react";
+
+type Props = {
+  systemOnline: boolean;
+  speaking: boolean;
+  muted: boolean;
+  onToggleMute: () => void;
+};
+
+export default function StatusDock({ systemOnline, speaking, muted, onToggleMute }: Props) {
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
+
+  // lightweight ping – replace with your real /health if you have one
+  useEffect(() => {
+    let cancel = false;
+    const ping = async () => {
+      const t0 = performance.now();
+      try { await fetch("/api/ping", { cache: "no-store" }); }
+      catch {}
+      if (!cancel) setLatencyMs(Math.max(1, Math.round(performance.now() - t0)));
+    };
+    ping();
+    const id = setInterval(ping, 6000);
+    return () => { cancel = true; clearInterval(id); };
+  }, []);
+
+  const dot = useMemo(() => systemOnline ? "bg-emerald-400" : "bg-rose-500", [systemOnline]);
+
+  return (
+    <div className="fixed top-3 left-1/2 z-30 -translate-x-1/2">
+      {/* holographic pill */}
+      <div className="relative group">
+        <div className="absolute -inset-0.5 rounded-full blur-md opacity-60 bg-gradient-to-r from-emerald-400/40 via-cyan-400/40 to-indigo-400/40 group-hover:opacity-90 transition" />
+        <div className="relative flex items-center gap-4 rounded-full px-5 py-2.5
+                        bg-black/40 backdrop-blur-md ring-1 ring-white/10 text-white">
+          {/* ID / name */}
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full shadow {dot}" />
+            <span className="font-semibold tracking-wide">Chango AI</span>
+            <span className="text-xs opacity-70">v-current</span>
+          </div>
+
+          {/* live stats */}
+          <div className="hidden sm:flex items-center gap-4 text-xs opacity-90">
+            <span className="flex items-center gap-1"><Radio className="h-3.5 w-3.5" />{systemOnline ? "Online" : "Offline"}</span>
+            <span className="flex items-center gap-1"><Cpu className="h-3.5 w-3.5" />{speaking ? "Synthesizing" : "Idle"}</span>
+            <span className="flex items-center gap-1">RTT {latencyMs ?? "—"}ms</span>
+          </div>
+
+          {/* actions */}
+          <button
+            onClick={onToggleMute}
+            title={muted ? "Enable microphone" : "Mute microphone"}
+            className={`ml-1 inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs 
+              ${muted ? "bg-rose-600/80 hover:bg-rose-600" : "bg-emerald-600/80 hover:bg-emerald-600"} transition`}>
+            {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            {muted ? "Muted" : "Listening"}
+          </button>
+
+          {/* power indicator (read-only) */}
+          <div className="hidden sm:flex items-center gap-1 text-xs opacity-80">
+            <Power className={`h-3.5 w-3.5 ${systemOnline ? "text-emerald-400" : "text-rose-500"}`} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+⸻
+
+2) Feature flag to hide Hands-Free section
+
+Create/extend src/config/features.ts:
+
+export const FEATURES = {
+  HANDS_FREE_UI: false,   // ⟵ hides the card entirely
+  ALWAYS_LISTEN_DEFAULT: true, // Chango listens unless muted
+};
+
+
+⸻
+
+3) Wire it into your main screen (replace your current top bar)
+
+In src/App.tsx (or src/pages/Home.tsx—where your header lives):
+
+import StatusDock from "@/components/StatusDock";
+import { FEATURES } from "@/config/features";
+import { useVoiceBus } from "@/voice/useVoiceBus"; // your existing bus/hook
+
+export default function Home() {
+  const bus = useVoiceBus(); // should expose speaking, muted, setMuted, online
+  return (
+    <div className="relative min-h-screen bg-neutral-950 text-white">
+      <StatusDock
+        systemOnline={bus.systemOnline}
+        speaking={bus.isSpeaking}
+        muted={bus.isMuted}
+        onToggleMute={() => bus.setMuted(!bus.isMuted)}
+      />
+
+      {/* …your hologram sphere, chat input, etc… */}
+
+      {/* Hands-Free section removed behind a flag */}
+      {FEATURES.HANDS_FREE_UI ? (
+        <HandsFreePanel /> // keep the component; it just won’t render
+      ) : null}
+    </div>
+  );
+}
+
+If your bus doesn’t have these fields, add a tiny adapter (kept isolated):
+
+src/voice/useVoiceBus.ts (add getters if missing)
+
+export function useVoiceBus() {
+  // existing code…
+  return {
+    systemOnline: state.online,     // ensure you set this where you connect
+    isSpeaking: state.speaking,
+    isMuted: state.muted,
+    setMuted: (m: boolean) => voiceBus.setMuted(m),
+    // …other methods
+  };
+}
+
+
+⸻
+
+4) Keep “always listening” but safe
+	•	Mic is on by default (if the browser permits) because ALWAYS_LISTEN_DEFAULT = true.
+	•	The StatusDock mute button is your manual hard-kill (no recursion, no stack errors).
+	•	If you want “boot muted” on mobile, set ALWAYS_LISTEN_DEFAULT to false.
+
+Add this to your existing voice init (once):
+
+import { FEATURES } from "@/config/features";
+// …
+useEffect(() => {
+  if (FEATURES.ALWAYS_LISTEN_DEFAULT) voiceBus.enableMic().catch(() => {});
+}, []);
+
+
+⸻
+
+5) Remove the “Hands-Free Mode” card
+
+No deletions needed—since it’s behind a flag, it won’t render. If you want it gone at build time, simply delete the component import and JSX and keep the flag anyway.
+
+⸻
+
+6) Tiny style tweak (optional)
+
+Tailwind glass glow utility (drop once in globals.css):
+
+.holo-glow { position: relative; }
+.holo-glow::before{
+  content:""; position:absolute; inset:-2px; border-radius:9999px;
+  filter: blur(10px); opacity:.5;
+  background: conic-gradient(from 180deg, #34d39933, #22d3ee33, #6366f133, #34d39933);
+}
+
+Use by adding holo-glow to the outer div of the dock if you want extra flair.
+
+⸻
+
+What changed (quick):
+	•	Old top bar → compact StatusDock with live Online / RTT / Speaking and single Mic toggle.
+	•	Hands-Free UI removed via feature flag; listening behavior controlled centrally.
+	•	Everything is isolated (new component + small config); your voice engine and hologram remain untouched.
+
+If you paste these pieces in, the UI will look cleaner, feel more “Jarvis,” and you’ll have one reliable place to mute/unmute Chango instantly.

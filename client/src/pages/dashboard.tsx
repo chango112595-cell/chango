@@ -13,6 +13,7 @@ import { SystemDiagnostics } from "@/components/SystemDiagnostics";
 import VoiceProfiles from "@/components/VoiceProfiles";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { FEATURES } from "@/config/features";
 import type { SystemSettings } from "@shared/schema";
 
 export default function Dashboard() {
@@ -60,44 +61,26 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-40">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-                <span className="text-primary-foreground font-bold text-sm">C</span>
-              </div>
-              <div>
-                <h1 className="text-xl font-bold">Chango AI</h1>
-                <p className="text-sm text-muted-foreground">Advanced Voice Synthesis System</p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <span className="status-indicator status-online"></span>
-                <span className="text-sm font-medium">System Online</span>
-              </div>
-              <Button 
-                onClick={toggleTheme}
-                variant="secondary"
-                data-testid="button-theme-toggle"
-              >
-                {theme === "classic" ? "HUD Theme" : "Classic Theme"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+      {/* Theme Toggle - simplified header since StatusDock handles the main UI */}
+      <div className="absolute top-4 right-4 z-20">
+        <Button 
+          onClick={toggleTheme}
+          variant="secondary"
+          size="sm"
+          data-testid="button-theme-toggle"
+        >
+          {theme === "classic" ? "HUD" : "Classic"}
+        </Button>
+      </div>
 
-      <div className="container mx-auto px-6 py-8 max-w-7xl">
+      <div className="container mx-auto px-6 py-8 max-w-7xl mt-16">
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Left Column - Main Controls */}
           <div className="lg:col-span-2 space-y-6">
             {/* Chat Interface - Prominent Position */}
             <Chat />
-            <HandsFreeMode />
-            <VoiceControls />
+            {FEATURES.HANDS_FREE_UI && <HandsFreeMode />}
+            {FEATURES.HANDS_FREE_UI && <VoiceControls />}
             <VoiceRouteSelector />
             <AccentEmulator />
             <VoiceScanner />

@@ -18,11 +18,15 @@ export function MicrophonePermission() {
       setHasPermission(granted);
       if (granted) {
         console.log('[MicrophonePermission] Permission granted!');
+        // Hide the card after success
+        setTimeout(() => setHasPermission(true), 1000);
       } else {
         console.log('[MicrophonePermission] Permission denied');
       }
     } catch (error) {
       console.error('[MicrophonePermission] Error:', error);
+      // Show a more specific message if it fails
+      alert('Microphone access failed. Please check your browser settings and ensure you are allowing microphone access for this site.');
     } finally {
       setIsRequesting(false);
     }

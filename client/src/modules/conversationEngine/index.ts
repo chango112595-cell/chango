@@ -5,6 +5,7 @@
 
 import { voiceBus } from '../../voice/voiceBus';
 import { voiceOrchestrator } from '../../voice/tts/orchestrator';
+import { FEATURES } from '../../config/featureFlags';
 
 // Intent routing functions
 function getCurrentTime(): string {
@@ -99,9 +100,23 @@ function getSmallTalkResponse(text: string): string | null {
   return null;
 }
 
+// Check if text is a question
+function isQuestion(text: string): boolean {
+  const trimmed = text.trim();
+  // Check for question mark or question words
+  return trimmed.endsWith('?') || 
+         trimmed.toLowerCase().match(/^(what|when|where|who|why|how|is|are|can|could|would|should|do|does|did)/i) !== null;
+}
+
 // Main routing function
 export function route(text: string): string | null {
   const lowercaseText = text.toLowerCase();
+  
+  // If AnswerOnlyWhenAsked is enabled, only respond to questions
+  if (FEATURES.ANSWER_ONLY_WHEN_ASKED && !isQuestion(text)) {
+    console.log('[ConversationEngine] Not a question, skipping response (AnswerOnlyWhenAsked enabled)');
+    return null;
+  }
   
   // Check for time intent
   if (lowercaseText.match(/what.*time|current time|time is it|tell.*time/)) {

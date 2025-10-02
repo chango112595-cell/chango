@@ -35,6 +35,8 @@ class VoiceBusManager {
     speaking: boolean;
     power: boolean;
   };
+  private _isCancelling: boolean = false;
+  private _cancelScheduled: boolean = false;
   
   private constructor() {
     this.listeners = new Map();
@@ -171,18 +173,40 @@ class VoiceBusManager {
     });
   }
   
-  // Cancel speech
+  // Cancel speech with safe async handling
   cancelSpeak(source: 'user' | 'system' = 'user'): void {
-    // Cancel browser speech synthesis
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+    // Guard against multiple cancellation attempts
+    if (this._isCancelling || this._cancelScheduled) {
+      console.log('[VoiceBus] Cancel already in progress, skipping duplicate');
+      return;
     }
     
-    this.state.speaking = false;
+    this._cancelScheduled = true;
     
-    this.emit({
-      type: 'cancel',
-      source
+    // Use queueMicrotask for async safe cancellation
+    queueMicrotask(() => {
+      if (!this._cancelScheduled) return;
+      
+      this._isCancelling = true;
+      this._cancelScheduled = false;
+      
+      // Cancel browser speech synthesis
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      
+      this.state.speaking = false;
+      
+      // Emit cancel event asynchronously
+      this.emit({
+        type: 'cancel',
+        source
+      });
+      
+      // Reset guard flags after a small delay
+      setTimeout(() => {
+        this._isCancelling = false;
+      }, 100);
     });
   }
   

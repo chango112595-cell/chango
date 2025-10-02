@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { Voice } from "@/lib/voiceController";
+import "./app/initHealthMonitor";
 
 // Import test utilities for browser console testing
 if (import.meta.env.DEV) {

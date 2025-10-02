@@ -48,7 +48,7 @@ export function DebugOverlay() {
         const newHealth = { ...prev };
         
         // STT events
-        if (event.source === 'STT') {
+        if (event.module === 'STT') {
           newHealth.lastSttActivity = now;
           newHealth.stt = 'ok';
           
@@ -58,14 +58,14 @@ export function DebugOverlay() {
         }
         
         // Gate events
-        if (event.source === 'Gate' && event.type === 'pass') {
+        if (event.module === 'Gate' && event.message === 'pass') {
           newHealth.lastGatePass = now;
           newHealth.gate = 'ok';
         }
         
         // TTS events
-        if (event.source === 'TTS') {
-          if (event.type === 'speak') {
+        if (event.module === 'TTS') {
+          if (event.message === 'speak') {
             newHealth.lastTtsSpeech = now;
             newHealth.ttsSpeakingStartTime = now;
             newHealth.tts = 'ok';
@@ -76,8 +76,27 @@ export function DebugOverlay() {
         }
         
         // Clear TTS speaking when done
-        if (event.source === 'TTS' && (event.type === 'end' || event.type === 'error')) {
+        if (event.module === 'TTS' && (event.message === 'end' || event.type === 'error')) {
           newHealth.ttsSpeakingStartTime = null;
+        }
+        
+        // Also check Health module heartbeats
+        if (event.module === 'Health') {
+          if (event.message === 'stt_heartbeat') {
+            newHealth.lastSttActivity = now;
+            newHealth.stt = 'ok';
+          } else if (event.message === 'gate_heartbeat' && event.data?.passed) {
+            newHealth.lastGatePass = now;
+            newHealth.gate = 'ok';
+          } else if (event.message === 'tts_heartbeat') {
+            newHealth.lastTtsSpeech = now;
+            if (event.data?.speaking === true) {
+              newHealth.ttsSpeakingStartTime = now;
+              newHealth.tts = 'ok';
+            } else if (event.data?.speaking === false) {
+              newHealth.ttsSpeakingStartTime = null;
+            }
+          }
         }
         
         return newHealth;
@@ -218,12 +237,12 @@ export function DebugOverlay() {
               {formatTime(event.timestamp)}
             </span>
             {' '}
-            <span style={{ color: getLevelColor(event.level) }}>
-              [{event.source}]
+            <span style={{ color: getLevelColor(event.type) }}>
+              [{event.module}]
             </span>
             {' '}
             <span style={{ color: '#fff' }}>
-              {event.type}
+              {event.message}
             </span>
             {event.data && (
               <>

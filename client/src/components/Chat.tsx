@@ -81,6 +81,9 @@ export default function Chat() {
     
     const userMessage = inputValue.trim();
     
+    console.log('[Chat] 📤 SENDING MESSAGE - START');
+    console.log('[Chat] Message text:', userMessage);
+    
     // Add user message to UI
     addUserMessage(userMessage);
     setInputValue("");
@@ -90,10 +93,14 @@ export default function Chat() {
     speechCoordination.setChatActive(true);
     speechCoordination.setLastChatActivity(Date.now());
     
-    console.log('[Chat] Emitting userTextSubmitted event:', userMessage);
+    console.log('[Chat] 🚀 About to emit userTextSubmitted event');
+    console.log('[Chat] voiceBus available?', !!voiceBus);
+    console.log('[Chat] voiceBus.emitUserText available?', !!voiceBus.emitUserText);
     
     // Emit the message through voiceBus to be processed by the conversation engine
     voiceBus.emitUserText(userMessage);
+    
+    console.log('[Chat] 📤 SENDING MESSAGE - COMPLETE');
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {

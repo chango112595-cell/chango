@@ -12,6 +12,18 @@ if (import.meta.env.DEV) {
   import("./testDateIntent").then(() => {
     console.log("[Test] Date intent test utilities loaded - run testDateIntent() to test");
   });
+  
+  import("./testChatFlow").then(() => {
+    console.log("[Test] Chat flow debug utilities loaded - run testChatFlow() to test");
+  });
+  
+  import("./testDirectMessage").then(() => {
+    console.log("[Test] Direct message test loaded");
+  });
+  
+  import("./autoDiagnostic").then(() => {
+    console.log("[Diagnostic] Auto-diagnostic loaded");
+  });
 }
 
 // HMR-safe initialization - prevents duplicate listeners

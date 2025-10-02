@@ -272,8 +272,9 @@ export function initConversationEngine(): void {
   
   // Listen for user text submitted events
   voiceBus.on('userTextSubmitted', (event) => {
+    console.log('[ConversationEngine] 🎯 RECEIVED userTextSubmitted event!', event);
     if (event.text) {
-      console.log('[ConversationEngine] Received text input:', event.text);
+      console.log('[ConversationEngine] 📢 Received text input:', event.text);
       console.log('[ConversationEngine] Processing text submission...');
       
       // Apply gate filtering for typed input (typed=true)

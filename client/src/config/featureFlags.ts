@@ -23,6 +23,7 @@ export const FEATURES = {
   SHOW_ASK_BAR: true,           // Show the text input ask bar
   SHOW_STATUS_DOCK: true,       // Show the status dock
   SHOW_HOLOGRAM: true,          // Show the hologram/sphere
+  UI_MODE_TOGGLE: true,          // Enable toggling between header and sphere UI modes
   
   // Debug Features
   DEBUG_LOGS: false,            // Enable verbose console logging

@@ -110,8 +110,8 @@ function AppContent() {
         />
       </div>
       
-      {/* Debug Overlay - only show in development or when DEBUG_LOGS is enabled */}
-      {(process.env.NODE_ENV === 'development' || FEATURES.DEBUG_LOGS) && <DebugOverlay />}
+      {/* Debug Overlay - controlled by feature flag */}
+      <DebugOverlay />
     </>
   );
 }

@@ -1,11 +1,12 @@
 /**
  * Debug Overlay Component
- * Visual debug monitoring interface for Lolo AI with health status indicators
+ * Responsive, non-intrusive debug monitoring interface with health status indicators
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { debugBus, DebugEvent } from './debugBus';
 import { FEATURES } from '../config/featureFlags';
+import { X, Bug, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface HealthStatus {
   stt: 'ok' | 'issue';
@@ -17,6 +18,8 @@ interface HealthStatus {
   ttsSpeakingStartTime: number | null;
 }
 
+const STORAGE_KEY = 'debug-overlay-state';
+
 export function DebugOverlay() {
   // Don't render if feature flag is disabled
   if (!FEATURES.DEBUG_OVERLAY) {
@@ -24,6 +27,14 @@ export function DebugOverlay() {
   }
   
   const [events, setEvents] = useState<DebugEvent[]>([]);
+  const [isVisible, setIsVisible] = useState<boolean>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved).visible ?? false : false;
+  });
+  const [isExpanded, setIsExpanded] = useState<boolean>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved).expanded ?? true : true;
+  });
   const [health, setHealth] = useState<HealthStatus>({
     stt: 'ok',
     gate: 'ok',
@@ -34,13 +45,54 @@ export function DebugOverlay() {
     ttsSpeakingStartTime: null
   });
   
+  // Determine viewport size for responsive design
+  const [viewport, setViewport] = useState<'mobile' | 'tablet' | 'desktop'>('desktop');
+  
+  useEffect(() => {
+    const handleResize = () => {
+      const width = window.innerWidth;
+      if (width < 640) {
+        setViewport('mobile');
+      } else if (width < 1024) {
+        setViewport('tablet');
+      } else {
+        setViewport('desktop');
+      }
+    };
+    
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  
+  // Save state to localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      visible: isVisible,
+      expanded: isExpanded
+    }));
+  }, [isVisible, isExpanded]);
+  
+  // Get max events based on viewport
+  const getMaxEvents = () => {
+    if (!isExpanded) return 0;
+    switch (viewport) {
+      case 'mobile': return 6;
+      case 'tablet': return 10;
+      default: return 14;
+    }
+  };
+  
   useEffect(() => {
     // Subscribe to debug events
     const unsubscribe = debugBus.subscribe((event) => {
-      setEvents(prev => {
-        const newEvents = [event, ...prev].slice(0, 14); // Keep last 14 events
-        return newEvents;
-      });
+      const maxEvents = getMaxEvents();
+      if (maxEvents > 0) {
+        setEvents(prev => {
+          const newEvents = [event, ...prev].slice(0, maxEvents);
+          return newEvents;
+        });
+      }
       
       // Update health status based on events
       setHealth(prev => {
@@ -129,13 +181,16 @@ export function DebugOverlay() {
     }, 3000);
     
     // Get initial history
-    setEvents(debugBus.getHistory().slice(0, 14));
+    const maxEvents = getMaxEvents();
+    if (maxEvents > 0) {
+      setEvents(debugBus.getHistory().slice(0, maxEvents));
+    }
     
     return () => {
       unsubscribe();
       clearInterval(healthInterval);
     };
-  }, []);
+  }, [viewport, isExpanded]);
   
   // Format timestamp for display
   const formatTime = (timestamp: number) => {
@@ -157,116 +212,257 @@ export function DebugOverlay() {
     return status === 'ok' ? '#00ff00' : '#ff4444';
   };
   
-  return (
-    <div
+  // Get overlay styles based on viewport
+  const getOverlayStyles = (): React.CSSProperties => {
+    const baseStyles: React.CSSProperties = {
+      position: 'fixed',
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      border: '2px solid #00ffff',
+      borderRadius: 8,
+      fontFamily: 'monospace',
+      color: '#00ffff',
+      zIndex: 99999,
+      display: 'flex',
+      flexDirection: 'column',
+      transition: 'all 0.3s ease-in-out',
+      pointerEvents: 'auto',
+    };
+    
+    switch (viewport) {
+      case 'mobile':
+        return {
+          ...baseStyles,
+          bottom: 0,
+          left: 0,
+          right: 0,
+          width: '100%',
+          maxHeight: isExpanded ? '30vh' : 'auto',
+          fontSize: 10,
+          padding: 8,
+          borderRadius: '8px 8px 0 0',
+        };
+      case 'tablet':
+        return {
+          ...baseStyles,
+          bottom: 20,
+          left: 20,
+          width: 350,
+          maxHeight: isExpanded ? 400 : 'auto',
+          fontSize: 11,
+          padding: 10,
+        };
+      default:
+        return {
+          ...baseStyles,
+          bottom: 20,
+          left: 20,
+          width: 400,
+          maxHeight: isExpanded ? 500 : 'auto',
+          fontSize: 11,
+          padding: 12,
+        };
+    }
+  };
+  
+  // Toggle Button Component
+  const ToggleButton = () => (
+    <button
+      onClick={() => setIsVisible(!isVisible)}
       style={{
         position: 'fixed',
-        bottom: 20,
-        left: 20,
-        width: 400,
-        maxHeight: 500,
-        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+        bottom: viewport === 'mobile' ? 20 : 30,
+        right: viewport === 'mobile' ? 20 : 30,
+        width: viewport === 'mobile' ? 48 : 56,
+        height: viewport === 'mobile' ? 48 : 56,
+        borderRadius: '50%',
+        backgroundColor: isVisible ? 'rgba(0, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.8)',
         border: '2px solid #00ffff',
-        borderRadius: 8,
-        padding: 12,
-        fontFamily: 'monospace',
-        fontSize: 11,
         color: '#00ffff',
-        zIndex: 99999,
-        overflow: 'hidden',
         display: 'flex',
-        flexDirection: 'column'
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        zIndex: 99999,
+        transition: 'all 0.3s ease-in-out',
+        pointerEvents: 'auto',
+        boxShadow: '0 4px 12px rgba(0, 255, 255, 0.3)',
       }}
-      data-testid="debug-overlay"
+      data-testid="debug-toggle-button"
+      aria-label="Toggle debug overlay"
     >
-      {/* Health Status */}
-      <div style={{ 
-        display: 'flex', 
-        gap: 20, 
-        marginBottom: 12,
-        paddingBottom: 8,
-        borderBottom: '1px solid #00ffff44'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{
-            width: 10,
-            height: 10,
-            borderRadius: '50%',
-            backgroundColor: getHealthColor(health.stt)
-          }} data-testid="health-stt" />
-          <span>STT</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{
-            width: 10,
-            height: 10,
-            borderRadius: '50%',
-            backgroundColor: getHealthColor(health.gate)
-          }} data-testid="health-gate" />
-          <span>Gate</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{
-            width: 10,
-            height: 10,
-            borderRadius: '50%',
-            backgroundColor: getHealthColor(health.tts)
-          }} data-testid="health-tts" />
-          <span>TTS</span>
-        </div>
-      </div>
-      
-      {/* Event Log */}
-      <div style={{ 
-        flex: 1,
-        overflowY: 'auto',
-        overflowX: 'hidden'
-      }}>
-        {events.map((event, index) => (
-          <div
-            key={`${event.timestamp}-${index}`}
-            style={{
-              marginBottom: 4,
-              fontSize: 10,
-              lineHeight: '14px',
-              wordBreak: 'break-word'
-            }}
-            data-testid={`debug-event-${index}`}
-          >
-            <span style={{ color: '#888' }}>
-              {formatTime(event.timestamp)}
-            </span>
-            {' '}
-            <span style={{ color: getLevelColor(event.type) }}>
-              [{event.module}]
-            </span>
-            {' '}
-            <span style={{ color: '#fff' }}>
-              {event.message}
-            </span>
-            {event.data && (
-              <>
-                {' '}
-                <span style={{ color: '#999', fontSize: 9 }}>
-                  {JSON.stringify(event.data).slice(0, 50)}
-                </span>
-              </>
-            )}
+      <Bug size={viewport === 'mobile' ? 20 : 24} />
+    </button>
+  );
+  
+  if (!isVisible) {
+    return <ToggleButton />;
+  }
+  
+  return (
+    <>
+      <ToggleButton />
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          pointerEvents: 'none',
+          zIndex: 99998,
+        }}
+      >
+        <div
+          style={getOverlayStyles()}
+          data-testid="debug-overlay"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header with controls */}
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 8,
+            paddingBottom: 8,
+            borderBottom: '1px solid #00ffff44'
+          }}>
+            {/* Health Status */}
+            <div style={{ 
+              display: 'flex', 
+              gap: viewport === 'mobile' ? 12 : 20,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{
+                  width: viewport === 'mobile' ? 8 : 10,
+                  height: viewport === 'mobile' ? 8 : 10,
+                  borderRadius: '50%',
+                  backgroundColor: getHealthColor(health.stt),
+                  boxShadow: health.stt === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : '0 0 8px rgba(255, 68, 68, 0.5)',
+                }} data-testid="health-stt" />
+                <span style={{ fontSize: viewport === 'mobile' ? 10 : 11 }}>STT</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{
+                  width: viewport === 'mobile' ? 8 : 10,
+                  height: viewport === 'mobile' ? 8 : 10,
+                  borderRadius: '50%',
+                  backgroundColor: getHealthColor(health.gate),
+                  boxShadow: health.gate === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : '0 0 8px rgba(255, 68, 68, 0.5)',
+                }} data-testid="health-gate" />
+                <span style={{ fontSize: viewport === 'mobile' ? 10 : 11 }}>Gate</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{
+                  width: viewport === 'mobile' ? 8 : 10,
+                  height: viewport === 'mobile' ? 8 : 10,
+                  borderRadius: '50%',
+                  backgroundColor: getHealthColor(health.tts),
+                  boxShadow: health.tts === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : '0 0 8px rgba(255, 68, 68, 0.5)',
+                }} data-testid="health-tts" />
+                <span style={{ fontSize: viewport === 'mobile' ? 10 : 11 }}>TTS</span>
+              </div>
+            </div>
+            
+            {/* Control buttons */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#00ffff',
+                  cursor: 'pointer',
+                  padding: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                data-testid="debug-expand-toggle"
+                aria-label={isExpanded ? "Collapse" : "Expand"}
+              >
+                {isExpanded ? 
+                  <ChevronDown size={viewport === 'mobile' ? 16 : 18} /> : 
+                  <ChevronUp size={viewport === 'mobile' ? 16 : 18} />
+                }
+              </button>
+              <button
+                onClick={() => setIsVisible(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#00ffff',
+                  cursor: 'pointer',
+                  padding: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                data-testid="debug-close"
+                aria-label="Close"
+              >
+                <X size={viewport === 'mobile' ? 16 : 18} />
+              </button>
+            </div>
           </div>
-        ))}
+          
+          {/* Event Log (only when expanded) */}
+          {isExpanded && (
+            <>
+              <div style={{ 
+                flex: 1,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                minHeight: viewport === 'mobile' ? 100 : 200,
+              }}>
+                {events.map((event, index) => (
+                  <div
+                    key={`${event.timestamp}-${index}`}
+                    style={{
+                      marginBottom: 4,
+                      fontSize: viewport === 'mobile' ? 9 : 10,
+                      lineHeight: viewport === 'mobile' ? '12px' : '14px',
+                      wordBreak: 'break-word'
+                    }}
+                    data-testid={`debug-event-${index}`}
+                  >
+                    <span style={{ color: '#888' }}>
+                      {formatTime(event.timestamp)}
+                    </span>
+                    {' '}
+                    <span style={{ color: getLevelColor(event.type) }}>
+                      [{event.module}]
+                    </span>
+                    {' '}
+                    <span style={{ color: '#fff' }}>
+                      {event.message}
+                    </span>
+                    {event.data && viewport !== 'mobile' && (
+                      <>
+                        {' '}
+                        <span style={{ color: '#999', fontSize: 9 }}>
+                          {JSON.stringify(event.data).slice(0, 50)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              
+              {/* Footer */}
+              <div style={{
+                marginTop: 8,
+                paddingTop: 8,
+                borderTop: '1px solid #00ffff44',
+                fontSize: viewport === 'mobile' ? 8 : 9,
+                color: '#666',
+                textAlign: 'center'
+              }}>
+                Debug Monitor v2.0 | Events: {events.length} | {viewport}
+              </div>
+            </>
+          )}
+        </div>
       </div>
-      
-      {/* Footer */}
-      <div style={{
-        marginTop: 8,
-        paddingTop: 8,
-        borderTop: '1px solid #00ffff44',
-        fontSize: 9,
-        color: '#666',
-        textAlign: 'center'
-      }}>
-        Debug Monitor v1.0 | Events: {events.length}
-      </div>
-    </div>
+    </>
   );
 }

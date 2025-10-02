@@ -6,6 +6,7 @@
 import { voiceBus } from '../../voice/voiceBus';
 import { voiceOrchestrator } from '../../voice/tts/orchestrator';
 import { FEATURES } from '../../config/featureFlags';
+import { passGate } from '../listening/gate';
 
 // Intent routing functions
 function getCurrentTime(): string {
@@ -223,7 +224,20 @@ export function initConversationEngine(): void {
       console.log('[ConversationEngine] 📢 Received speech input:', event.text);
       console.log('[ConversationEngine] Processing speech-to-text result...');
       
-      const response = route(event.text);
+      // Apply gate filtering for speech input (typed=false)
+      const gateResult = passGate(event.text, false);
+      console.log('[ConversationEngine] Gate result:', gateResult);
+      
+      if (!gateResult.allowed) {
+        console.log('[ConversationEngine] 🚫 Speech blocked by gate:', gateResult.reason);
+        return; // Don't process further
+      }
+      
+      // Use the processed text from the gate (with wake word stripped)
+      const processedText = gateResult.text;
+      console.log('[ConversationEngine] Gate allowed, processing:', processedText);
+      
+      const response = route(processedText);
       if (response) {
         console.log('[ConversationEngine] ✅ Generated response:', response);
         
@@ -262,7 +276,20 @@ export function initConversationEngine(): void {
       console.log('[ConversationEngine] Received text input:', event.text);
       console.log('[ConversationEngine] Processing text submission...');
       
-      const response = route(event.text);
+      // Apply gate filtering for typed input (typed=true)
+      const gateResult = passGate(event.text, true);
+      console.log('[ConversationEngine] Gate result for typed input:', gateResult);
+      
+      if (!gateResult.allowed) {
+        console.log('[ConversationEngine] 🚫 Text blocked by gate (unexpected):', gateResult.reason);
+        return; // Don't process further (shouldn't happen for typed input)
+      }
+      
+      // Use the processed text from the gate
+      const processedText = gateResult.text;
+      console.log('[ConversationEngine] Gate allowed typed input, processing:', processedText);
+      
+      const response = route(processedText);
       if (response) {
         console.log('[ConversationEngine] Generated response:', response);
         

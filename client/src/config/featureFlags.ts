@@ -10,6 +10,7 @@ export const FEATURES = {
   ALWAYS_LISTENING: true,       // Always listen for voice input (no wake word needed)
   ALWAYS_LISTEN_DEFAULT: true,  // Start listening by default on app load
   ANSWER_ONLY_WHEN_ASKED: false, // Only respond to questions (not statements)
+  AnswerOnlyWhenAddressed: true, // Only respond when directly addressed with "Chango" or via Ask bar
   
   // Voice Features  
   TTS_ENABLED: true,            // Enable text-to-speech

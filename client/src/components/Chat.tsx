@@ -4,8 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Bot, User } from "lucide-react";
-import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
-import { generateChatResponse } from "./CuriosityEngine";
+import { voiceBus } from "@/voice/voiceBus";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useSpeechCoordination } from "@/lib/speechCoordination";
@@ -15,26 +14,43 @@ export default function Chat() {
   const { messages, addUserMessage, addChangoMessage } = useConversation();
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   
-  // Initialize voice synthesis
-  const voice = useVoiceSynthesis();
+  // Initialize speech coordination
   const speechCoordination = useSpeechCoordination();
   
-  // Enable voice on mount
+  // Listen for Chango responses from the conversation engine
   useEffect(() => {
-    voice.enable();
-    // Mark chat as active when speaking
+    const unsubscribe = voiceBus.on('changoResponse', (event) => {
+      if (event.text) {
+        console.log('[Chat] Received Chango response:', event.text);
+        addChangoMessage(event.text);
+        setIsTyping(false);
+        
+        // Track speaking state
+        setIsSpeaking(true);
+        setTimeout(() => {
+          setIsSpeaking(false);
+        }, 3000);
+        
+        // Clear chat active after a delay
+        setTimeout(() => {
+          speechCoordination.setChatActive(false);
+        }, 5000);
+      }
+    });
+    
+    // Welcome message on mount
     speechCoordination.setChatActive(true);
     speechCoordination.setLastChatActivity(Date.now());
-    // Speak the welcome message without changing global voice settings
-    voice.speak("Hey there! I'm Chango, your AI companion. What would you like to explore today?");
-    // Clear chat active after a delay
-    setTimeout(() => {
-      speechCoordination.setChatActive(false);
-    }, 3000);
-  }, []);
+    
+    // Clean up listener on unmount
+    return () => {
+      unsubscribe();
+    };
+  }, [addChangoMessage]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -65,7 +81,7 @@ export default function Chat() {
     
     const userMessage = inputValue.trim();
     
-    // Add user message using context
+    // Add user message to UI
     addUserMessage(userMessage);
     setInputValue("");
     setIsTyping(true);
@@ -74,25 +90,10 @@ export default function Chat() {
     speechCoordination.setChatActive(true);
     speechCoordination.setLastChatActivity(Date.now());
     
-    // Generate and add Chango's response after a brief delay
-    setTimeout(() => {
-      const response = generateChatResponse(userMessage, voice);
-      
-      // Add Chango's message using context
-      addChangoMessage(response);
-      setIsTyping(false);
-      
-      // Log the conversation
-      logChatMutation.mutate({
-        userMessage: userMessage,
-        changoResponse: response,
-      });
-      
-      // Clear chat active after speech completes (estimated)
-      setTimeout(() => {
-        speechCoordination.setChatActive(false);
-      }, 5000); // Give enough time for the response to be spoken
-    }, 500 + Math.random() * 500); // 500-1000ms delay for natural feel
+    console.log('[Chat] Emitting userTextSubmitted event:', userMessage);
+    
+    // Emit the message through voiceBus to be processed by the conversation engine
+    voiceBus.emitUserText(userMessage);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -209,7 +210,7 @@ export default function Chat() {
               <Send className="w-4 h-4" />
             </Button>
           </div>
-          {voice.isPlaying && (
+          {isSpeaking && (
             <div className="flex items-center gap-2 mt-2">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
               <span className="text-xs text-muted-foreground">Chango is speaking...</span>

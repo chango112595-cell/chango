@@ -7,6 +7,8 @@ import { voiceBus } from '../../voice/voiceBus';
 import { voiceOrchestrator } from '../../voice/tts/orchestrator';
 import { FEATURES } from '../../config/featureFlags';
 import { passGate } from '../listening/gate';
+import { debugBus } from '../../dev/debugBus';
+import { beat } from '../../dev/health/monitor';
 
 // Intent routing functions
 function getCurrentTime(): string {
@@ -215,6 +217,18 @@ async function respond(text: string): Promise<void> {
     });
     
     // Use voiceOrchestrator to speak the response
+    // Log TTS speak to debug bus
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('TTS', 'speak', { text: response });
+    }
+    
+    // Send TTS heartbeat
+    try {
+      beat('tts', { speaking: true, text: response });
+    } catch (error) {
+      console.error('[ConversationEngine] Error sending TTS heartbeat:', error);
+    }
+    
     voiceOrchestrator.speak(response);
     console.log('[ConversationEngine] Response sent to voice orchestrator');
   } else {
@@ -246,6 +260,23 @@ async function handle(raw: string, typed: boolean = false): Promise<void> {
     originalText: raw,
     processedText: gateResult.text
   });
+  
+  // Log gate decision to debug bus
+  if (FEATURES.DEBUG_BUS) {
+    if (gateResult.allowed) {
+      debugBus.info('Gate', 'pass', { 
+        text: gateResult.text, 
+        reason: gateResult.reason,
+        typed 
+      });
+      // Send gate heartbeat
+      try {
+        beat('gate', { passed: true, text: gateResult.text });
+      } catch (error) {
+        console.error('[ConversationEngine] Error sending gate heartbeat:', error);
+      }
+    }
+  }
   
   // If not allowed through gate, don't process further
   if (!gateResult.allowed) {

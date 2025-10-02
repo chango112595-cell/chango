@@ -3,6 +3,9 @@
  * Lightweight event-driven architecture for voice interactions
  */
 
+import { debugBus } from '../dev/debugBus';
+import { FEATURES } from '../config/featureFlags';
+
 export type VoiceEventType = 
   | 'speak'
   | 'userSpeechRecognized'
@@ -153,6 +156,11 @@ class VoiceBusManager {
     
     this.state.mute = muted;
     
+    // Log to debug bus
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('VoiceBus', 'mute', { muted });
+    }
+    
     if (muted) {
       // Cancel any ongoing speech
       this.cancelSpeak('system');
@@ -170,6 +178,11 @@ class VoiceBusManager {
     if (this.state.power === powered) return;
     
     this.state.power = powered;
+    
+    // Log to debug bus
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('VoiceBus', 'power', { powered });
+    }
     
     if (!powered) {
       // Cancel any ongoing speech
@@ -196,6 +209,11 @@ class VoiceBusManager {
       }
       
       this.state.speaking = false;
+      
+      // Log to debug bus
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('VoiceBus', 'cancel', { source });
+      }
     } finally {
       this._isCancelling = false;
     }

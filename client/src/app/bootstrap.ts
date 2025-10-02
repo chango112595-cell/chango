@@ -8,6 +8,7 @@ import { voiceOrchestrator } from '@/voice/tts/orchestrator';
 import { initConversationEngine } from '@/modules/conversationEngine';
 import { localNeuralProvider } from '@/voice/tts/providers/localNeural';
 import { voiceBus } from '@/voice/voiceBus';
+import { startHealthWatch } from '@/dev/health/monitor';
 
 export interface BootstrapOptions {
   autoStartListening?: boolean;
@@ -95,6 +96,16 @@ export async function bootstrapChango(options: BootstrapOptions = {}): Promise<v
         // Will need user interaction to grant permission
         return;
       }
+    }
+
+    // Step 4: Start health monitoring
+    console.log('[Bootstrap] Starting health monitor...');
+    try {
+      startHealthWatch();
+      console.log('[Bootstrap] ✅ Health monitor started');
+    } catch (error) {
+      console.error('[Bootstrap] ⚠️ Failed to start health monitor:', error);
+      // Don't fail bootstrap if health monitor fails
     }
 
     console.log('[Bootstrap] 🎉 Chango bootstrap complete!');

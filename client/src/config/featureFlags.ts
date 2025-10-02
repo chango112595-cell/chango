@@ -28,6 +28,9 @@ export const FEATURES = {
   // Debug Features
   DEBUG_LOGS: false,            // Enable verbose console logging
   SHOW_DIAGNOSTICS: false,      // Show system diagnostics panel
+  DEBUG_BUS: true,              // Enable debug event bus system
+  DEBUG_OVERLAY: true,          // Show debug overlay with health status
+  AUTO_HEAL: true,              // Enable auto-heal functionality
   
   // Behavior
   AUTO_RESTART_ON_ERROR: true,  // Auto-restart voice services on error

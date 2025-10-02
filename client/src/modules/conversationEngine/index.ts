@@ -4,6 +4,7 @@
  */
 
 import { voiceBus } from '../../voice/voiceBus';
+import { voiceOrchestrator } from '../../voice/tts/orchestrator';
 
 // Intent routing functions
 function getCurrentTime(): string {
@@ -184,14 +185,14 @@ export function initConversationEngine(): void {
       const response = route(event.text);
       if (response) {
         console.log('[ConversationEngine] Generated response:', response);
-        // Emit speak event with the response
-        voiceBus.emitSpeak(response, 'conversation');
-        console.log('[ConversationEngine] Response sent to voice synthesis');
+        // Use voiceOrchestrator to speak the response
+        voiceOrchestrator.speak(response);
+        console.log('[ConversationEngine] Response sent to voice orchestrator');
       } else {
         console.log('[ConversationEngine] No specific route matched, using default response');
         const defaultResponse = "I'm not sure how to respond to that. Could you please rephrase or ask something else?";
-        voiceBus.emitSpeak(defaultResponse, 'conversation');
-        console.log('[ConversationEngine] Default response sent to voice synthesis');
+        voiceOrchestrator.speak(defaultResponse);
+        console.log('[ConversationEngine] Default response sent to voice orchestrator');
       }
     }
   });
@@ -205,14 +206,14 @@ export function initConversationEngine(): void {
       const response = route(event.text);
       if (response) {
         console.log('[ConversationEngine] Generated response:', response);
-        // Emit speak event with the response
-        voiceBus.emitSpeak(response, 'conversation');
-        console.log('[ConversationEngine] Response sent to voice synthesis');
+        // Use voiceOrchestrator to speak the response
+        voiceOrchestrator.speak(response);
+        console.log('[ConversationEngine] Response sent to voice orchestrator');
       } else {
         console.log('[ConversationEngine] No specific route matched, using default response');
         const defaultResponse = "I'm not sure how to respond to that. Could you please rephrase or ask something else?";
-        voiceBus.emitSpeak(defaultResponse, 'conversation');
-        console.log('[ConversationEngine] Default response sent to voice synthesis');
+        voiceOrchestrator.speak(defaultResponse);
+        console.log('[ConversationEngine] Default response sent to voice orchestrator');
       }
     }
   });

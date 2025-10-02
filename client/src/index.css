@@ -139,4 +139,11 @@
       box-shadow: 0 0 30px hsl(var(--accent)), 0 0 40px hsl(var(--accent)); 
     }
   }
+
+  .holo-glow { position: relative; }
+  .holo-glow::before{
+    content:""; position:absolute; inset:-2px; border-radius:9999px;
+    filter: blur(10px); opacity:.5;
+    background: conic-gradient(from 180deg, #34d39933, #22d3ee33, #6366f133, #34d39933);
+  }
 }

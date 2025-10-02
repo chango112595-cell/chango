@@ -1,0 +1,199 @@
+Here’s the fast, no-nonsense answer + drop-in fixes.
+
+Why Chango isn’t replying (most likely)
+	1.	No brain wired: speech text isn’t being routed into the conversation engine → no reply generated.
+	2.	STT not emitting: mic is on, but your recognizer never emits userSpeechRecognized (ends after first utterance, errors, or permission didn’t grant).
+	3.	Reply → TTS not connected: replies aren’t passed into your TTS orchestrator (so nothing is spoken).
+	4.	Muted/Power off flags: voiceBus.mute or power=false is blocking speech.
+	5.	Browser constraints (iOS/Safari): continuous listening stops after one result unless you auto-restart and you had one initial user gesture to grant mic.
+
+What you asked: “take off hands-free mode”
+
+You said: “he should already be listening and free hand.”
+— So: remove push-to-talk and make STT auto-start + auto-restart forever (after a single permission tap, required by browsers).
+
+⸻
+
+Copy-paste patches (all you need)
+
+1) Wire the pipeline end-to-end (bootstrap once)
+
+src/app/bootstrap.ts
+
+import { initTTS } from "./initTTS";
+import { initConversationEngine } from "../modules/conversationEngine";
+import { startAlwaysListening } from "../voice/always_listen";
+
+export async function bootstrapChango() {
+  initTTS();                 // local neural provider only (no 3rd party)
+  initConversationEngine();  // routes text -> reply -> speak
+  await startAlwaysListening(); // auto-start + auto-restart STT
+}
+
+Call bootstrapChango() once in your root (e.g., main.tsx or App.tsx).
+
+⸻
+
+2) Make STT truly “always listening” (no PTT, auto-restart)
+
+src/voice/always_listen.ts
+
+import { voiceBus } from "./voiceBus";
+
+type SR = SpeechRecognition & {
+  lang: string; continuous: boolean; interimResults: boolean; maxAlternatives: number;
+};
+
+function getSR(): SR | null {
+  const SRImpl: any =
+    (window as any).SpeechRecognition ||
+    (window as any).webkitSpeechRecognition ||
+    null;
+  return SRImpl ? new SRImpl() : null;
+}
+
+let rec: SR | null = null;
+let restarting = false;
+let enabled = true;   // global “always listening” switch
+let hadUserGesture = false;
+
+export async function startAlwaysListening() {
+  if (!getSR()) {
+    console.warn("SpeechRecognition not available in this browser.");
+    return;
+  }
+  // Browsers require one user gesture before using mic.
+  if (!hadUserGesture) {
+    await requireOneTapToEnable();
+  }
+  if (rec) return;
+  rec = getSR();
+  rec!.lang = "en-US";
+  rec!.continuous = true;
+  rec!.interimResults = false;
+  rec!.maxAlternatives = 1;
+
+  rec!.onresult = (e: any) => {
+    try {
+      const res = e?.results?.[e.resultIndex];
+      const alt = res && res[0];
+      const text = alt?.transcript ? String(alt.transcript).trim() : "";
+      if (text) voiceBus.emitUserSpeech(text);
+    } catch {}
+  };
+
+  rec!.onend = () => {
+    if (!enabled) return;
+    if (restarting) return;
+    restarting = true;
+    // Restart quickly to keep “always listening” illusion
+    setTimeout(() => {
+      try { rec && rec.start(); } catch {}
+      restarting = false;
+    }, 150);
+  };
+
+  rec!.onerror = () => {
+    // Attempt recovery after brief delay
+    if (!enabled) return;
+    setTimeout(() => { try { rec && rec.start(); } catch {} }, 300);
+  };
+
+  try { rec!.start(); } catch {}
+  bindVisibilityAutoPause();
+}
+
+export function stopAlwaysListening() {
+  enabled = false;
+  try { rec && rec.stop(); } catch {}
+}
+
+function bindVisibilityAutoPause() {
+  document.addEventListener("visibilitychange", () => {
+    if (!rec) return;
+    if (document.hidden) {
+      try { rec.stop(); } catch {}
+    } else {
+      if (enabled) {
+        try { rec.start(); } catch {}
+      }
+    }
+  });
+}
+
+// Presents a minimal, one-time button for permission (required by browsers)
+function requireOneTapToEnable(): Promise<void> {
+  return new Promise((resolve) => {
+    if (hadUserGesture) return resolve();
+    const btn = document.createElement("button");
+    btn.textContent = "Enable Microphone";
+    Object.assign(btn.style, {
+      position: "fixed", inset: "0", margin: "auto", width: "220px", height: "54px",
+      zIndex: "999999", borderRadius: "10px", border: "1px solid #888",
+      background: "#111", color: "#fff", cursor: "pointer"
+    });
+    btn.onclick = () => {
+      hadUserGesture = true;
+      btn.remove();
+      resolve();
+    };
+    document.body.appendChild(btn);
+  });
+}
+
+This removes push-to-talk, auto-restarts recognition on end/error, and pauses/resumes on tab visibility changes. After one click to grant mic permission (browser rule), it stays hands-free.
+
+⸻
+
+3) Ensure speech → reply → speak is actually wired
+
+Conversation engine already routes replies; make sure it’s initialized and uses your local neural TTS.
+(If you already applied the earlier conversation engine + local orchestrator, you’re set. If not, re-add them.)
+
+Minimal check:
+	•	You must call initConversationEngine() once (bootstrap does this).
+	•	voiceBus.emitUserSpeech(text) must be called (the file above does this).
+	•	Your TTS orchestrator must be registered with local neural and voiceBus.mute/power must not block.
+
+⸻
+
+4) Guard against silent TTS
+
+Add a tiny logger to confirm replies are being requested:
+
+src/voice/tts/orchestrator.ts (inside async speak):
+
+console.log("[Chango TTS] speak:", opts.text, opts.profile?.id);
+
+If you see logs but hear no voice:
+	•	You’re muted (voiceBus.mute === true) or power===false.
+	•	Audio policy on iOS blocked auto-play; the one-time button above fixes it.
+	•	Your local neural synth function throws — add a try/catch and console the error.
+
+⸻
+
+5) Remove PTT UI (optional)
+
+Delete or hide the push-to-talk button. If you want a safety control, keep a Mic Kill Switch:
+
+// somewhere in settings:
+function toggleMic(on: boolean) {
+  if (on) { enabled = true; startAlwaysListening(); }
+  else { stopAlwaysListening(); }
+}
+
+
+⸻
+
+Quick self-test (30 seconds)
+	1.	Load app → click Enable Microphone (once).
+	2.	Say: “Chango, what time is it?” → should reply with the time.
+	3.	Switch tabs → return → speak again; recognizer should still respond.
+	4.	Toggle your mute/power → confirm speech stops/starts.
+
+⸻
+
+TL;DR
+	•	He isn’t replying because STT events aren’t reaching the conversation engine or the reply isn’t reaching TTS.
+	•	The patches above wire STT → engine → local TTS, remove push-to-talk, and make listening continuous with auto-restart.
+	•	One initial user gesture is still required by browsers, after that it’s fully hands-free.

@@ -16,6 +16,7 @@ import { UIModeProvider, useUIMode } from "@/contexts/UIModeContext";
 import { useVoiceBus } from "@/voice/useVoiceBus";
 import { FEATURES } from "@/config/featureFlags";
 import { voiceBus } from "@/voice/voiceBus";
+import { DebugOverlay } from "@/dev/DebugOverlay";
 import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
 import "./testTTS";
@@ -108,6 +109,9 @@ function AppContent() {
           clearAfterSubmit={true}
         />
       </div>
+      
+      {/* Debug Overlay - only show in development or when DEBUG_LOGS is enabled */}
+      {(process.env.NODE_ENV === 'development' || FEATURES.DEBUG_LOGS) && <DebugOverlay />}
     </>
   );
 }

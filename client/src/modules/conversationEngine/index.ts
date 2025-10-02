@@ -112,6 +112,9 @@ function isQuestion(text: string): boolean {
 export function route(text: string): string | null {
   const lowercaseText = text.toLowerCase();
   
+  console.log('[ConversationEngine] 🔍 Routing text:', text);
+  console.log('[ConversationEngine] 🔍 Lowercase text:', lowercaseText);
+  
   // If AnswerOnlyWhenAsked is enabled, only respond to questions
   if (FEATURES.ANSWER_ONLY_WHEN_ASKED && !isQuestion(text)) {
     console.log('[ConversationEngine] Not a question, skipping response (AnswerOnlyWhenAsked enabled)');
@@ -120,37 +123,44 @@ export function route(text: string): string | null {
   
   // Check for time intent
   if (lowercaseText.match(/what.*time|current time|time is it|tell.*time/)) {
+    console.log('[ConversationEngine] ⏰ Matched TIME intent');
     return getCurrentTime();
   }
   
-  // Check for date intent
-  if (lowercaseText.match(/what.*date|current date|today.*date|what day|which day/)) {
+  // Check for date intent - Updated to handle "what is today", "what's today", etc.
+  if (lowercaseText.match(/what.*today|what.*date|what's today|today's date|current date|today.*date|what day|which day/)) {
+    console.log('[ConversationEngine] 📅 Matched DATE intent');
     return getCurrentDate();
   }
   
   // Check for identity intent
   if (lowercaseText.match(/who are you|what are you|your name|tell me about yourself/)) {
+    console.log('[ConversationEngine] 🤖 Matched IDENTITY intent');
     return getIdentity();
   }
   
   // Check for mood intent
   if (lowercaseText.match(/how are you|how.*feeling|how.*doing|what.*mood/)) {
+    console.log('[ConversationEngine] 😊 Matched MOOD intent');
     return getMoodResponse();
   }
   
   // Check for small talk
   const smallTalkResponse = getSmallTalkResponse(text);
   if (smallTalkResponse) {
+    console.log('[ConversationEngine] 💬 Matched SMALL TALK intent');
     return smallTalkResponse;
   }
   
   // Weather intent (placeholder - would need actual API integration)
   if (lowercaseText.match(/weather|temperature|forecast|rain|sunny|cloudy/)) {
+    console.log('[ConversationEngine] ☁️ Matched WEATHER intent');
     return "I'd need access to weather services to provide current weather information. For now, I suggest checking your favorite weather app or website.";
   }
   
   // Math operations (simple examples)
   if (lowercaseText.match(/what is \d+ (plus|minus|times|divided by) \d+/)) {
+    console.log('[ConversationEngine] 🔢 Matched MATH intent');
     try {
       const match = lowercaseText.match(/what is (\d+) (plus|minus|times|divided by) (\d+)/);
       if (match) {
@@ -184,12 +194,26 @@ export function route(text: string): string | null {
   }
   
   // Default response for unrecognized intents
+  console.log('[ConversationEngine] ❌ No intent matched for:', text);
   return null;
 }
 
 // Initialize conversation engine with event listeners
 export function initConversationEngine(): void {
   console.log('[ConversationEngine] Initializing...');
+  
+  // Expose route function to window for testing in dev mode
+  if (import.meta.env.DEV) {
+    (window as any).conversationEngine = {
+      route,
+      getCurrentTime,
+      getCurrentDate,
+      getIdentity,
+      getMoodResponse,
+      getSmallTalkResponse
+    };
+    console.log('[ConversationEngine] Exposed to window.conversationEngine for testing');
+  }
   
   // Listen for user speech recognized events
   voiceBus.on('userSpeechRecognized', (event) => {

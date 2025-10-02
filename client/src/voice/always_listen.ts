@@ -157,22 +157,26 @@ class AlwaysListenManager {
     }
 
     try {
-      console.log('[AlwaysListen] Requesting microphone permission...');
+      console.log('[AlwaysListen] Starting speech recognition...');
       
-      // Request permission first
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(track => track.stop()); // Stop the stream after getting permission
-      
-      this.hasPermission = true;
+      // In Replit/browser environments, we can't always use getUserMedia
+      // The Web Speech API will handle its own permission request
+      // Try to start recognition directly
       this.isEnabled = true;
       
-      console.log('[AlwaysListen] Microphone permission granted');
-      console.log('[AlwaysListen] Starting continuous listening...');
-      
+      // Start recognition - this will trigger the browser's permission prompt
       this.startRecognition();
+      
+      // Assume permission is granted if we get here without error
+      // The onstart event will confirm it's working
+      this.hasPermission = true;
+      
+      console.log('[AlwaysListen] Speech recognition started, waiting for permission...');
+      
     } catch (error) {
-      console.error('[AlwaysListen] Failed to get microphone permission:', error);
+      console.error('[AlwaysListen] Failed to start speech recognition:', error);
       this.hasPermission = false;
+      this.isEnabled = false;
       throw error;
     }
   }

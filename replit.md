@@ -39,6 +39,14 @@ This is a full-stack TypeScript application called "Chango AI" that provides adv
   - Implemented async event emission with queueMicrotask() to break synchronous loops
   - System now handles rapid control toggling without errors
 
+## Completed Features (October 2, 2025)
+- ✅ **UI Mode Toggle**: Dynamic interface switching between Header and Sphere modes
+  - Toggle switch in top-right corner for switching between compact header bar and holographic sphere
+  - Header mode: Futuristic HUD-style status bar with system status indicators
+  - Sphere mode: Jarvis-style floating holographic orb with animated rings and particle effects
+  - Preference persists to localStorage for consistent experience across sessions
+  - State-based visual feedback (idle/listening/speaking/error) ready for voice integration
+
 ## Completed Features (September 29, 2025)
 - ✅ **Hands-Free Wake Word System**: Complete voice-activated interaction with "Chango..." trigger
   - Wake word detection with customizable trigger phrase (default: "chango")

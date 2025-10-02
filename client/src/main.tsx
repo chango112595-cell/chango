@@ -8,6 +8,10 @@ if (import.meta.env.DEV) {
   import("./testChatIntegration").then(() => {
     console.log("[Test] Chat integration test utilities loaded");
   });
+  
+  import("./testDateIntent").then(() => {
+    console.log("[Test] Date intent test utilities loaded - run testDateIntent() to test");
+  });
 }
 
 // HMR-safe initialization - prevents duplicate listeners

@@ -31,11 +31,6 @@ if (import.meta.env.DEV) {
   });
 }
 
-// HMR-safe initialization - prevents duplicate listeners
-if (!(window as any).__voice_bootstrapped__) {
-  (window as any).__voice_bootstrapped__ = true;
-  // Initialize voice system once
-  Voice.startListening().catch(console.error);
-}
+// Bootstrap is now handled by the App component to avoid duplicate initialization
 
 createRoot(document.getElementById("root")!).render(<App />);

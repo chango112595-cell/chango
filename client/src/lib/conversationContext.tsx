@@ -3,7 +3,7 @@ import { createContext, useContext, useState, ReactNode } from "react";
 export interface Message {
   id: string;
   text: string;
-  sender: "user" | "chango";
+  sender: "user" | "lolo";
   timestamp: Date;
 }
 
@@ -11,7 +11,7 @@ interface ConversationContextType {
   messages: Message[];
   addMessage: (message: Message) => void;
   addUserMessage: (text: string) => Message;
-  addChangoMessage: (text: string) => Message;
+  addLoloMessage: (text: string) => Message;
   clearMessages: () => void;
 }
 
@@ -29,8 +29,8 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
-      text: "Hey there! I'm Chango, your AI companion. What would you like to explore today?",
-      sender: "chango",
+      text: "Hey there! I'm Lolo, your AI companion. What would you like to explore today?",
+      sender: "lolo",
       timestamp: new Date(),
     },
   ]);
@@ -50,11 +50,11 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
     return message;
   };
 
-  const addChangoMessage = (text: string): Message => {
+  const addLoloMessage = (text: string): Message => {
     const message: Message = {
-      id: `chango-${Date.now()}`,
+      id: `lolo-${Date.now()}`,
       text,
-      sender: "chango",
+      sender: "lolo",
       timestamp: new Date(),
     };
     setMessages((prev) => [...prev, message]);
@@ -71,7 +71,7 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
         messages,
         addMessage,
         addUserMessage,
-        addChangoMessage,
+        addLoloMessage,
         clearMessages,
       }}
     >

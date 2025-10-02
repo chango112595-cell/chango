@@ -11,7 +11,7 @@ import { useSpeechCoordination } from "@/lib/speechCoordination";
 import { useConversation } from "@/lib/conversationContext";
 
 export default function Chat() {
-  const { messages, addUserMessage, addChangoMessage } = useConversation();
+  const { messages, addUserMessage, addLoloMessage } = useConversation();
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -21,12 +21,12 @@ export default function Chat() {
   // Initialize speech coordination
   const speechCoordination = useSpeechCoordination();
   
-  // Listen for Chango responses from the conversation engine
+  // Listen for Lolo responses from the conversation engine
   useEffect(() => {
-    const unsubscribe = voiceBus.on('changoResponse', (event) => {
+    const unsubscribe = voiceBus.on('loloResponse', (event) => {
       if (event.text) {
-        console.log('[Chat] Received Chango response:', event.text);
-        addChangoMessage(event.text);
+        console.log('[Chat] Received Lolo response:', event.text);
+        addLoloMessage(event.text);
         setIsTyping(false);
         
         // Track speaking state
@@ -50,7 +50,7 @@ export default function Chat() {
     return () => {
       unsubscribe();
     };
-  }, [addChangoMessage]);
+  }, [addLoloMessage]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -64,10 +64,10 @@ export default function Chat() {
 
   // Log conversation to curiosity engine
   const logChatMutation = useMutation({
-    mutationFn: async (data: { userMessage: string; changoResponse: string }) => {
+    mutationFn: async (data: { userMessage: string; loloResponse: string }) => {
       return apiRequest("POST", "/api/curiosity/log", {
         trigger: "chat_conversation",
-        response: data.changoResponse,
+        response: data.loloResponse,
         context: {
           userMessage: data.userMessage,
           timestamp: new Date().toISOString(),
@@ -122,7 +122,7 @@ export default function Chat() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Bot className="w-5 h-5 text-accent" />
-          Chat with Chango
+          Chat with Lolo
         </CardTitle>
       </CardHeader>
       <CardContent className="flex-1 flex flex-col p-0">
@@ -220,7 +220,7 @@ export default function Chat() {
           {isSpeaking && (
             <div className="flex items-center gap-2 mt-2">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-xs text-muted-foreground">Chango is speaking...</span>
+              <span className="text-xs text-muted-foreground">Lolo is speaking...</span>
             </div>
           )}
         </div>

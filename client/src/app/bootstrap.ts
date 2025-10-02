@@ -1,5 +1,5 @@
 /**
- * Bootstrap Module for Chango
+ * Bootstrap Module for Lolo
  * Clean initialization of all voice and conversation systems
  */
 
@@ -17,17 +17,17 @@ export interface BootstrapOptions {
 }
 
 /**
- * Bootstrap Chango with all required systems
+ * Bootstrap Lolo with all required systems
  * This is the main entry point for initializing the voice assistant
  */
-export async function bootstrapChango(options: BootstrapOptions = {}): Promise<void> {
+export async function bootstrapLolo(options: BootstrapOptions = {}): Promise<void> {
   const {
     autoStartListening = true,
     enableTTS = true,
     pauseOnHidden = true
   } = options;
 
-  console.log('[Bootstrap] 🚀 Bootstrapping Chango...');
+  console.log('[Bootstrap] 🚀 Bootstrapping Lolo...');
   console.log('[Bootstrap] Options:', { autoStartListening, enableTTS, pauseOnHidden });
 
   try {
@@ -85,9 +85,10 @@ export async function bootstrapChango(options: BootstrapOptions = {}): Promise<v
         await alwaysListen.start();
         console.log('[Bootstrap] ✅ Continuous listening started');
         
-        // Announce that Chango is ready
-        if (enableTTS) {
-          voiceBus.emitSpeak("Hello! I'm Chango, and I'm listening.", 'system');
+        // Announce that Lolo is ready (only on initial startup, not on STT restarts)
+        if (enableTTS && !(window as any).__lolo_welcome_spoken__) {
+          (window as any).__lolo_welcome_spoken__ = true;
+          voiceBus.emitSpeak("Hello! I'm Lolo, and I'm listening.", 'system');
         }
       } catch (error) {
         console.error('[Bootstrap] Failed to start listening:', error);
@@ -108,7 +109,7 @@ export async function bootstrapChango(options: BootstrapOptions = {}): Promise<v
       // Don't fail bootstrap if health monitor fails
     }
 
-    console.log('[Bootstrap] 🎉 Chango bootstrap complete!');
+    console.log('[Bootstrap] 🎉 Lolo bootstrap complete!');
     console.log('[Bootstrap] System status:');
     console.log('[Bootstrap] - TTS:', enableTTS ? 'Enabled' : 'Disabled');
     console.log('[Bootstrap] - Always Listening:', autoStartListening ? 'Active' : 'Manual');
@@ -131,7 +132,7 @@ export async function requestMicrophonePermission(): Promise<boolean> {
     await alwaysListen.start();
     console.log('[Bootstrap] ✅ Microphone permission granted and listening started');
     
-    // Announce that Chango is ready
+    // Announce that Lolo is ready
     voiceBus.emitSpeak("Thank you! I'm now listening for your commands.", 'system');
     
     return true;
@@ -142,10 +143,10 @@ export async function requestMicrophonePermission(): Promise<boolean> {
 }
 
 /**
- * Stop all Chango systems
+ * Stop all Lolo systems
  */
-export function shutdownChango(): void {
-  console.log('[Bootstrap] Shutting down Chango...');
+export function shutdownLolo(): void {
+  console.log('[Bootstrap] Shutting down Lolo...');
   
   // Stop listening
   alwaysListen.stop();
@@ -153,13 +154,13 @@ export function shutdownChango(): void {
   // Cancel any ongoing speech
   voiceBus.cancelSpeak('system');
   
-  console.log('[Bootstrap] ✅ Chango shutdown complete');
+  console.log('[Bootstrap] ✅ Lolo shutdown complete');
 }
 
 /**
- * Get Chango system status
+ * Get Lolo system status
  */
-export function getChangoStatus(): {
+export function getLoloStatus(): {
   listening: boolean;
   tts: boolean;
   conversationEngine: boolean;

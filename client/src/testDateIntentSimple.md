@@ -45,7 +45,7 @@ if (window.voiceBus) {
 ### Test 3: Using Ask Bar
 1. Type "what is today" in the Ask bar at the bottom of the screen
 2. Press Enter
-3. Check if Chango responds with today's date
+3. Check if Lolo responds with today's date
 
 ## Expected Results
 - Should see logging like:

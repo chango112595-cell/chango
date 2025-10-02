@@ -29,9 +29,9 @@ export function generateChatResponse(message: string, voice: any) {
   // Generate contextual responses
   if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
     const greetings = [
-      "Hey there! I'm Chango, your AI companion. What would you like to explore today?",
-      "Hello! Great to meet you! I'm Chango, and I love helping with voice synthesis. What can I do for you?",
-      "Hi there! Welcome! I'm Chango, your friendly AI assistant. Ready to create some amazing voices together?"
+      "Hey there! I'm Lolo, your AI companion. What would you like to explore today?",
+      "Hello! Great to meet you! I'm Lolo, and I love helping with voice synthesis. What can I do for you?",
+      "Hi there! Welcome! I'm Lolo, your friendly AI assistant. Ready to create some amazing voices together?"
     ];
     response = greetings[Math.floor(Math.random() * greetings.length)];
     emotion = "friendly";
@@ -44,7 +44,7 @@ export function generateChatResponse(message: string, voice: any) {
     response = responses[Math.floor(Math.random() * responses.length)];
     emotion = "excited";
   } else if (lowerMessage.includes('tell me about yourself') || lowerMessage.includes('who are you')) {
-    response = "I'm Chango, an AI with a holographic interface that floats around your screen! I love learning about voices and helping create custom speech profiles. I can synthesize speech, emulate accents, and even adjust my personality to match your preferences. What would you like to know more about?";
+    response = "I'm Lolo, an AI with a holographic interface that floats around your screen! I love learning about voices and helping create custom speech profiles. I can synthesize speech, emulate accents, and even adjust my personality to match your preferences. What would you like to know more about?";
     emotion = "cheerful";
   } else if (lowerMessage.includes('help')) {
     response = "I'd be happy to help! I can synthesize speech, create custom voice profiles, emulate different accents, and even have conversations like this one. What specifically would you like help with?";
@@ -77,7 +77,7 @@ export function generateChatResponse(message: string, voice: any) {
   // Speak the response without changing global voice settings
   // Force speak for chat responses as they are user-initiated
   if (voice && voice.speak) {
-    voice.speak(response, true);
+    voice.speak(response);
   }
   
   return response;
@@ -87,7 +87,7 @@ export default function CuriosityEngine() {
   const [curiosityLevel, setCuriosityLevel] = useState([95]);
   const [personalityVariance, setPersonalityVariance] = useState([85]);
   const [learningRate, setLearningRate] = useState([75]);
-  const [currentResponse, setCurrentResponse] = useState("Hello! I'm Chango, your AI assistant. I'm here to help with voice synthesis and more!");
+  const [currentResponse, setCurrentResponse] = useState("Hello! I'm Lolo, your AI assistant. I'm here to help with voice synthesis and more!");
   const [quietMode, setQuietMode] = useState(false); // Add quiet mode state
   const [autoCuriosity, setAutoCuriosity] = useState(false); // Auto curiosity disabled by default
   const isGeneratingRef = useRef(false); // Flag to prevent concurrent generation
@@ -95,7 +95,7 @@ export default function CuriosityEngine() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
-  // Initialize voice synthesis with Chango's cheerful personality
+  // Initialize voice synthesis with Lolo's cheerful personality
   const voice = useVoiceSynthesis();
   const speechCoordination = useSpeechCoordination();
 
@@ -156,7 +156,7 @@ export default function CuriosityEngine() {
     isGeneratingRef.current = true;
     
     // Don't generate response if speech is already active or chat was recently active
-    if (voice.isSpeaking()) {
+    if (voice.isPlaying) {
       console.log("[CuriosityEngine] Skipping response - already speaking");
       isGeneratingRef.current = false;
       return;
@@ -343,7 +343,7 @@ export default function CuriosityEngine() {
       // Speak the response without changing global voice settings
       // The voice will use the stable configuration set in useEffect
       // Don't force speak for random curiosity responses - respect VAD
-      voice.speak(naturalResponse, false);
+      voice.speak(naturalResponse);
     }
 
     // Log the curiosity response
@@ -397,7 +397,7 @@ export default function CuriosityEngine() {
       }
       
       // Check if quiet mode is enabled or if we can speak before rolling the dice
-      if (!quietMode && !voice.isSpeaking() && speechCoordination.canCuriositySpeak()) {
+      if (!quietMode && !voice.isPlaying && speechCoordination.canCuriositySpeak()) {
         // Check VAD requirements
         if (voice.requiresHumanSpeech) {
           const timeSinceHumanSpeech = Date.now() - voice.lastHumanSpeechTime;
@@ -487,7 +487,7 @@ export default function CuriosityEngine() {
                 <span className="text-sm font-medium text-destructive">Quiet Mode Active</span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Chango won't speak randomly. You can still chat normally using the Chat interface.
+                Lolo won't speak randomly. You can still chat normally using the Chat interface.
               </p>
             </div>
           )}

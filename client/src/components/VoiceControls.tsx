@@ -5,7 +5,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { voiceBus } from "@/voice/voiceBus";
 import { alwaysListen } from "@/voice/always_listen";
-import { requestMicrophonePermission, getChangoStatus } from "@/app/bootstrap";
+import { requestMicrophonePermission, getLoloStatus } from "@/app/bootstrap";
 import { Mic, MicOff, Volume2, Power } from "lucide-react";
 
 export default function VoiceControls() {
@@ -75,8 +75,8 @@ export default function VoiceControls() {
       setIsListening(status.isListening);
       setMicPermission(status.hasPermission ? 'granted' : 'prompt');
       
-      // Also check overall Chango status
-      const changoStatus = getChangoStatus();
+      // Also check overall Lolo status
+      const loloStatus = getLoloStatus();
       setIsSpeaking(window.speechSynthesis?.speaking || false);
     }, 1000);
 
@@ -88,7 +88,7 @@ export default function VoiceControls() {
 
   // Test TTS
   const testTTS = () => {
-    voiceBus.emitSpeak("Hello! I'm Chango and I'm always listening. Just speak naturally and I'll respond.");
+    voiceBus.emitSpeak("Hello! I'm Lolo and I'm always listening. Just speak naturally and I'll respond.");
   };
 
   return (
@@ -193,8 +193,8 @@ export default function VoiceControls() {
 
         {/* Info */}
         <div className="text-xs text-muted-foreground space-y-1">
-          <p>• Chango is always listening - no wake word needed</p>
-          <p>• Just speak naturally and Chango will respond</p>
+          <p>• Lolo is always listening - no wake word needed</p>
+          <p>• Just speak naturally and Lolo will respond</p>
           <p>• Listening pauses when tab is hidden</p>
         </div>
       </CardContent>

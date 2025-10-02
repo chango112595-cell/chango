@@ -256,7 +256,7 @@ export function useVoiceSynthesisWithExport() {
     }
   }, []);
 
-  const downloadAudio = useCallback((audioBlob: Blob, filename: string = 'chango-speech.webm') => {
+  const downloadAudio = useCallback((audioBlob: Blob, filename: string = 'lolo-speech.webm') => {
     const url = URL.createObjectURL(audioBlob);
     const a = document.createElement('a');
     a.href = url;

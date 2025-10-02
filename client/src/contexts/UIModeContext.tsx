@@ -2,7 +2,7 @@ import { createContext, useState, useEffect, useCallback, useContext, ReactNode 
 
 export type UIMode = "header" | "sphere";
 
-const KEY = "chango.uiMode";
+const KEY = "lolo.uiMode";
 const DEFAULT_MODE: UIMode = "sphere";
 
 interface UIModeContextType {

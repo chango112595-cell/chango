@@ -110,7 +110,7 @@ export function HeaderBar({ className = '' }: HeaderBarProps) {
               
               <div className="flex flex-col">
                 <span className="text-xs font-bold text-cyan-400 tracking-wider">
-                  CHANGO AI
+                  LOLO AI
                 </span>
                 <span className="text-[10px] text-cyan-600/80">
                   JARVIS MODE
@@ -232,7 +232,7 @@ export function HeaderBarMinimal({ className = '' }: { className?: string }) {
     <div className={`flex items-center justify-between p-2 bg-gradient-to-r from-blue-600/20 to-cyan-500/20 backdrop-blur-sm border-b border-cyan-500/20 ${className}`}>
       <div className="flex items-center gap-2">
         <Zap className="w-4 h-4 text-cyan-400" />
-        <span className="text-xs font-bold text-cyan-400">CHANGO AI</span>
+        <span className="text-xs font-bold text-cyan-400">LOLO AI</span>
       </div>
       <div className="flex items-center gap-3 text-xs">
         {/* Status indicator */}

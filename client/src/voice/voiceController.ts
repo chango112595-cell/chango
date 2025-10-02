@@ -198,9 +198,9 @@ class VoiceControllerModule {
     // In WAKE mode, check for wake word
     if (this.mode === 'WAKE' && this.wakeWordEnabled) {
       const lowercaseText = text.toLowerCase();
-      if (lowercaseText.includes('chango') || 
-          lowercaseText.includes('hey chango') ||
-          lowercaseText.includes('hi chango')) {
+      if (lowercaseText.includes('lolo') || 
+          lowercaseText.includes('hey lolo') ||
+          lowercaseText.includes('hi lolo')) {
         console.log('[VoiceController] 🎉 Wake word detected! Activating...');
         Voice.wakeWordHeard();
         return;

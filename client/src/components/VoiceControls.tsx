@@ -1,46 +1,49 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { voiceController } from "@/voice/voiceController";
+import { Label } from "@/components/ui/label";
 import { voiceBus } from "@/voice/voiceBus";
-import { sttService } from "@/voice/stt/sttService";
-import { wakeWordDetector } from "@/voice/wakeWord";
-import { Voice } from "@/lib/voiceController";
-import { Mic, MicOff, Volume2, VolumeX, Power, Zap, Shield } from "lucide-react";
+import { alwaysListen } from "@/voice/always_listen";
+import { requestMicrophonePermission, getChangoStatus } from "@/app/bootstrap";
+import { Mic, MicOff, Volume2, Power } from "lucide-react";
 
 export default function VoiceControls() {
-  const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [mode, setMode] = useState<'WAKE' | 'ACTIVE' | 'MUTED'>('WAKE');
-  const [wakeWordEnabled, setWakeWordEnabled] = useState(true);
   const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
   const [isInitializing, setIsInitializing] = useState(false);
   const [lastTranscript, setLastTranscript] = useState('');
   const [listeningPulse, setListeningPulse] = useState(false);
 
-  // Initialize voice system
-  const initializeVoice = async () => {
+  // Request microphone permission
+  const handleRequestPermission = async () => {
     setIsInitializing(true);
     try {
-      // Initialize voice controller
-      await voiceController.initialize({
-        autoStart: true,
-        wakeWordEnabled: wakeWordEnabled,
-        mode: mode
-      });
-      
-      setVoiceEnabled(true);
-      setMicPermission('granted');
-      console.log('[VoiceControls] Voice system initialized');
+      const granted = await requestMicrophonePermission();
+      setMicPermission(granted ? 'granted' : 'denied');
+      console.log('[VoiceControls] Microphone permission:', granted ? 'granted' : 'denied');
     } catch (error) {
-      console.error('[VoiceControls] Failed to initialize voice:', error);
+      console.error('[VoiceControls] Failed to get microphone permission:', error);
       setMicPermission('denied');
     } finally {
       setIsInitializing(false);
+    }
+  };
+
+  // Toggle listening on/off
+  const toggleListening = () => {
+    if (isListening) {
+      alwaysListen.stop();
+      setIsListening(false);
+      console.log('[VoiceControls] Stopped listening');
+    } else {
+      alwaysListen.start().then(() => {
+        setIsListening(true);
+        console.log('[VoiceControls] Started listening');
+      }).catch((error) => {
+        console.error('[VoiceControls] Failed to start listening:', error);
+      });
     }
   };
 
@@ -66,21 +69,15 @@ export default function VoiceControls() {
       })
     );
 
-    // Listen for Voice controller state
-    unsubscribers.push(
-      Voice.subscribe((state) => {
-        setIsListening(state.isListening);
-        setIsSpeaking(state.isSpeaking);
-        if (state.mode === 'WAKE' || state.mode === 'ACTIVE' || state.mode === 'MUTED') {
-          setMode(state.mode as 'WAKE' | 'ACTIVE' | 'MUTED');
-        }
-      })
-    );
-
-    // Check STT status periodically
+    // Check status periodically
     const statusInterval = setInterval(() => {
-      const status = sttService.getStatus();
+      const status = alwaysListen.getStatus();
       setIsListening(status.isListening);
+      setMicPermission(status.hasPermission ? 'granted' : 'prompt');
+      
+      // Also check overall Chango status
+      const changoStatus = getChangoStatus();
+      setIsSpeaking(window.speechSynthesis?.speaking || false);
     }, 1000);
 
     return () => {
@@ -89,43 +86,9 @@ export default function VoiceControls() {
     };
   }, []);
 
-  // Toggle voice on/off
-  const toggleVoice = async () => {
-    if (voiceEnabled) {
-      // Disable voice
-      voiceController.stopSTT();
-      wakeWordDetector.disable();
-      setVoiceEnabled(false);
-      console.log('[VoiceControls] Voice disabled');
-    } else {
-      // Enable voice
-      await initializeVoice();
-    }
-  };
-
-  // Toggle mode
-  const toggleMode = () => {
-    const nextMode = mode === 'WAKE' ? 'ACTIVE' : mode === 'ACTIVE' ? 'MUTED' : 'WAKE';
-    setMode(nextMode);
-    voiceController.setMode(nextMode);
-    console.log(`[VoiceControls] Mode changed to ${nextMode}`);
-  };
-
-  // Toggle wake word
-  const toggleWakeWord = () => {
-    if (wakeWordEnabled) {
-      voiceController.disableWakeWord();
-      setWakeWordEnabled(false);
-    } else {
-      voiceController.enableWakeWord();
-      setWakeWordEnabled(true);
-    }
-    console.log(`[VoiceControls] Wake word ${wakeWordEnabled ? 'disabled' : 'enabled'}`);
-  };
-
   // Test TTS
   const testTTS = () => {
-    voiceBus.emitSpeak("Hello! I am Chango, your voice assistant. I'm listening for your commands.");
+    voiceBus.emitSpeak("Hello! I'm Chango and I'm always listening. Just speak naturally and I'll respond.");
   };
 
   return (
@@ -133,21 +96,20 @@ export default function VoiceControls() {
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <span>Voice Controls</span>
-          <Button
-            variant={voiceEnabled ? "default" : "outline"}
-            size="sm"
-            onClick={toggleVoice}
-            disabled={isInitializing}
-            data-testid="button-voice-toggle"
-          >
-            {isInitializing ? (
-              <>Initializing...</>
-            ) : voiceEnabled ? (
-              <><Power className="h-4 w-4 mr-1" /> ON</>
-            ) : (
-              <><Power className="h-4 w-4 mr-1" /> OFF</>
-            )}
-          </Button>
+          {micPermission === 'granted' && (
+            <Button
+              variant={isListening ? "default" : "outline"}
+              size="sm"
+              onClick={toggleListening}
+              data-testid="button-voice-toggle"
+            >
+              {isListening ? (
+                <><Mic className="h-4 w-4 mr-1" /> ON</>
+              ) : (
+                <><MicOff className="h-4 w-4 mr-1" /> OFF</>
+              )}
+            </Button>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -156,60 +118,27 @@ export default function VoiceControls() {
           <AlertDescription className="flex items-center justify-between">
             <span className="flex items-center gap-2">
               <Mic className="h-4 w-4" />
-              Microphone Permission
+              Microphone Status
             </span>
-            <span className={`font-semibold ${
-              micPermission === 'granted' ? 'text-green-600' : 
-              micPermission === 'denied' ? 'text-red-600' : 
-              'text-yellow-600'
-            }`}>
-              {micPermission === 'granted' ? 'Granted' : 
-               micPermission === 'denied' ? 'Denied' : 
-               'Not Requested'}
-            </span>
+            {micPermission === 'granted' ? (
+              <span className="font-semibold text-green-600">Ready</span>
+            ) : micPermission === 'denied' ? (
+              <span className="font-semibold text-red-600">Denied</span>
+            ) : (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={handleRequestPermission}
+                disabled={isInitializing}
+                data-testid="button-request-permission"
+              >
+                {isInitializing ? 'Requesting...' : 'Enable Microphone'}
+              </Button>
+            )}
           </AlertDescription>
         </Alert>
 
-        {/* Voice Mode */}
-        <div className="flex items-center justify-between">
-          <Label>Voice Mode</Label>
-          <div className="flex items-center gap-2">
-            <Button
-              variant={mode === 'WAKE' ? "secondary" : mode === 'ACTIVE' ? "default" : "outline"}
-              size="sm"
-              onClick={toggleMode}
-              disabled={!voiceEnabled}
-              data-testid="button-mode-toggle"
-            >
-              {mode === 'WAKE' ? (
-                <><Shield className="h-4 w-4 mr-1" /> Wake Word</>
-              ) : mode === 'ACTIVE' ? (
-                <><Zap className="h-4 w-4 mr-1" /> Active</>
-              ) : (
-                <><VolumeX className="h-4 w-4 mr-1" /> Muted</>
-              )}
-            </Button>
-          </div>
-        </div>
-
-        {/* Wake Word Control */}
-        <div className="flex items-center justify-between">
-          <Label htmlFor="wake-word" className="flex items-center gap-2">
-            Wake Word Detection
-            {mode === 'WAKE' && wakeWordEnabled && (
-              <span className="text-xs text-muted-foreground">Say "Hey Chango"</span>
-            )}
-          </Label>
-          <Switch
-            id="wake-word"
-            checked={wakeWordEnabled}
-            onCheckedChange={toggleWakeWord}
-            disabled={!voiceEnabled || mode !== 'WAKE'}
-            data-testid="switch-wake-word"
-          />
-        </div>
-
-        {/* Listening Indicator */}
+        {/* Listening Status */}
         <div className="flex items-center justify-between">
           <Label>Status</Label>
           <div className="flex items-center gap-3">
@@ -221,7 +150,7 @@ export default function VoiceControls() {
                     <div className="absolute inset-0 rounded-full bg-green-600 opacity-50 animate-ping" />
                   )}
                 </div>
-                <span className="text-sm text-green-600 font-medium">Listening</span>
+                <span className="text-sm text-green-600 font-medium">Always Listening</span>
               </div>
             ) : (
               <div className="flex items-center gap-2">
@@ -254,7 +183,7 @@ export default function VoiceControls() {
             onClick={testTTS}
             variant="secondary"
             size="sm"
-            disabled={!voiceEnabled || isSpeaking}
+            disabled={isSpeaking}
             data-testid="button-test-tts"
           >
             <Volume2 className="h-4 w-4 mr-1" />
@@ -264,9 +193,9 @@ export default function VoiceControls() {
 
         {/* Info */}
         <div className="text-xs text-muted-foreground space-y-1">
-          <p>• In WAKE mode, say "Hey Chango" to activate</p>
-          <p>• In ACTIVE mode, all speech is processed</p>
-          <p>• STT pauses during TTS to prevent feedback</p>
+          <p>• Chango is always listening - no wake word needed</p>
+          <p>• Just speak naturally and Chango will respond</p>
+          <p>• Listening pauses when tab is hidden</p>
         </div>
       </CardContent>
     </Card>

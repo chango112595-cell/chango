@@ -3,6 +3,7 @@
  * Emits userSpeechRecognized events via VoiceBus
  */
 
+import { useState, useEffect, useCallback } from 'react';
 import { voiceBus } from './voiceBus';
 
 // TypeScript declarations for Web Speech API
@@ -255,7 +256,15 @@ export class LegacySTT {
 // Export a singleton instance for convenience
 let instance: LegacySTT | null = null;
 
-export const getLegacySTT = (options?: Parameters<typeof LegacySTT['constructor']>[0]): LegacySTT => {
+// Type definition for STT options
+type LegacySTTOptions = {
+  language?: string;
+  continuous?: boolean;
+  interimResults?: boolean;
+  maxAlternatives?: number;
+};
+
+export const getLegacySTT = (options?: LegacySTTOptions): LegacySTT => {
   if (!instance) {
     try {
       instance = new LegacySTT(options);
@@ -268,7 +277,7 @@ export const getLegacySTT = (options?: Parameters<typeof LegacySTT['constructor'
 };
 
 // Export a hook-friendly version for React components
-export const useLegacySTT = (options?: Parameters<typeof LegacySTT['constructor']>[0]) => {
+export const useLegacySTT = (options?: LegacySTTOptions) => {
   const [stt, setStt] = useState<LegacySTT | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -311,6 +320,3 @@ export const useLegacySTT = (options?: Parameters<typeof LegacySTT['constructor'
     setLanguage,
   };
 };
-
-// React import for the hook
-import { useState, useEffect, useCallback } from 'react';

@@ -4,6 +4,7 @@
  */
 
 import { FEATURES } from '../../config/featureFlags';
+import { containsWakeWord, removeWakeWord, WAKE_WORD } from '../../config/wakeword';
 
 interface GateResult {
   allowed: boolean;
@@ -11,37 +12,24 @@ interface GateResult {
   reason: "wake" | "typed" | "blocked";
 }
 
-// More flexible wake word pattern
-// Matches: "hey lolo", "ok lolo", "yo lolo", or just "lolo"
-// Followed by various punctuation marks
-const WAKE_WORD_PATTERN = /^(?:\s*(hey|ok|yo)\s+)?lolo[\s,.:;-]*/i;
-
 /**
  * Check if the text is directly addressed to Lolo
+ * Uses centralized wake word configuration
  * @param text - The text to check
  * @returns true if the text is addressed to Lolo
  */
 function isAddressedToLolo(text: string): boolean {
-  const trimmedText = text.trim();
-  return WAKE_WORD_PATTERN.test(trimmedText);
+  return containsWakeWord(text);
 }
 
 /**
  * Strip the wake word from the beginning of the text
+ * Uses centralized wake word removal
  * @param text - The text to process
  * @returns The text with the wake word removed
  */
 function stripWakeWord(text: string): string {
-  const trimmedText = text.trim();
-  
-  // Match and remove wake word pattern
-  const match = trimmedText.match(WAKE_WORD_PATTERN);
-  if (match) {
-    // Remove the matched wake word part
-    return trimmedText.substring(match[0].length).trim();
-  }
-  
-  return trimmedText;
+  return removeWakeWord(text);
 }
 
 /**

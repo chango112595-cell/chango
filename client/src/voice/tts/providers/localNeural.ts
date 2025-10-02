@@ -18,50 +18,144 @@ export class LocalNeuralProvider implements TTSProvider {
   private availableVoices: SpeechSynthesisVoice[] = [];
   private voicesLoaded: boolean = false;
   private voiceLoadPromise: Promise<void> | null = null;
+  private initialized: boolean = false;
 
   constructor() {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       this.synthesis = window.speechSynthesis;
-      this.loadVoices();
+      // Don't auto-load voices in constructor - wait for explicit init
     }
   }
 
   /**
-   * Load available voices from the browser
+   * Initialize the provider and ensure voices are loaded
+   * This should be called before using the provider
    */
-  private loadVoices(): void {
-    if (!this.synthesis) return;
+  async initialize(): Promise<boolean> {
+    if (this.initialized) {
+      return this.voicesLoaded;
+    }
+
+    if (!this.synthesis) {
+      console.error('[LocalNeuralProvider] Speech synthesis not available');
+      return false;
+    }
+
+    console.log('[LocalNeuralProvider] Initializing and loading voices...');
+    await this.loadVoices();
+    this.initialized = true;
+    
+    console.log(`[LocalNeuralProvider] Initialization complete. Voices loaded: ${this.availableVoices.length}`);
+    return this.availableVoices.length > 0;
+  }
+
+  /**
+   * Load available voices from the browser with robust retry logic
+   */
+  private loadVoices(): Promise<void> {
+    if (!this.synthesis) return Promise.resolve();
+
+    // Return existing promise if already loading
+    if (this.voiceLoadPromise) {
+      return this.voiceLoadPromise;
+    }
 
     // Create a promise that resolves when voices are loaded
     this.voiceLoadPromise = new Promise<void>((resolve) => {
+      let resolved = false;
+      let attemptCount = 0;
+      const maxAttempts = 50; // More attempts for stubborn browsers
+      
       const loadVoiceList = () => {
-        this.availableVoices = this.synthesis!.getVoices();
-        this.voicesLoaded = this.availableVoices.length > 0;
+        attemptCount++;
+        const voices = this.synthesis!.getVoices();
+        console.log(`[LocalNeuralProvider] Attempt ${attemptCount}: getVoices() returned ${voices.length} voices`);
         
-        if (this.voicesLoaded) {
-          console.log(`[LocalNeuralProvider] Loaded ${this.availableVoices.length} voices`);
-          resolve();
+        if (voices.length > 0) {
+          this.availableVoices = voices;
+          this.voicesLoaded = true;
+          console.log(`[LocalNeuralProvider] Successfully loaded ${voices.length} voices`);
+          
+          // Log first few voice names for debugging
+          const sampleVoices = voices.slice(0, 3).map(v => `${v.name} (${v.lang})`).join(', ');
+          console.log(`[LocalNeuralProvider] Sample voices: ${sampleVoices}`);
+          
+          if (!resolved) {
+            resolved = true;
+            resolve();
+          }
+          return true;
         }
+        return false;
       };
 
-      // Load immediately
-      loadVoiceList();
-
-      // Also listen for the voiceschanged event
-      if (this.synthesis && 'onvoiceschanged' in this.synthesis) {
-        this.synthesis.onvoiceschanged = () => {
-          loadVoiceList();
-        };
+      // Try loading voices immediately
+      if (loadVoiceList()) {
+        return;
       }
 
-      // Fallback: resolve after a timeout even if no voices loaded
+      // Set up voice changed listener (critical for Chrome/Edge)
+      const voicesChangedHandler = () => {
+        console.log('[LocalNeuralProvider] voiceschanged event fired');
+        if (loadVoiceList()) {
+          // Remove listener once voices are loaded
+          this.synthesis!.removeEventListener('voiceschanged', voicesChangedHandler);
+        }
+      };
+      
+      this.synthesis.addEventListener('voiceschanged', voicesChangedHandler);
+
+      // Also use the property for older browsers
+      this.synthesis.onvoiceschanged = voicesChangedHandler;
+
+      // Aggressive retry strategy with exponential backoff
+      let retryDelay = 10;
+      const retryInterval = setInterval(() => {
+        if (this.voicesLoaded || attemptCount >= maxAttempts) {
+          clearInterval(retryInterval);
+          if (!this.voicesLoaded) {
+            console.warn(`[LocalNeuralProvider] Failed to load voices after ${maxAttempts} attempts`);
+            // Still resolve to prevent hanging
+            if (!resolved) {
+              resolved = true;
+              resolve();
+            }
+          }
+          return;
+        }
+
+        // Try to trigger voice loading by creating a dummy utterance every 5 attempts
+        if (attemptCount % 5 === 0) {
+          console.log('[LocalNeuralProvider] Attempting to trigger voice loading with dummy utterance...');
+          try {
+            const dummy = new SpeechSynthesisUtterance('');
+            dummy.volume = 0;
+            this.synthesis!.speak(dummy);
+            this.synthesis!.cancel();
+          } catch (e) {
+            console.debug('[LocalNeuralProvider] Dummy utterance failed:', e);
+          }
+        }
+
+        loadVoiceList();
+        
+        // Increase delay for next retry (exponential backoff with cap)
+        retryDelay = Math.min(retryDelay * 1.2, 200);
+      }, retryDelay);
+
+      // Final timeout after 10 seconds (was 3 seconds, increase for stubborn browsers)
       setTimeout(() => {
-        if (!this.voicesLoaded) {
-          console.warn('[LocalNeuralProvider] Voice loading timed out, using defaults');
+        if (!resolved) {
+          console.warn('[LocalNeuralProvider] Voice loading timed out after 10 seconds');
+          clearInterval(retryInterval);
+          this.synthesis!.removeEventListener('voiceschanged', voicesChangedHandler);
+          resolved = true;
           resolve();
         }
-      }, 1000);
+      }, 10000);
     });
+
+    return this.voiceLoadPromise;
   }
 
   /**
@@ -120,6 +214,12 @@ export class LocalNeuralProvider implements TTSProvider {
       throw new Error('Local Neural TTS is not available');
     }
 
+    // Ensure voices are loaded first
+    if (!this.voicesLoaded && this.voiceLoadPromise) {
+      console.log('[LocalNeuralProvider] Waiting for voices to load before speaking...');
+      await this.voiceLoadPromise;
+    }
+
     // Cancel any ongoing speech if interrupting
     if (options?.interrupt !== false) {
       this.stop();
@@ -127,6 +227,7 @@ export class LocalNeuralProvider implements TTSProvider {
 
     return new Promise<void>(async (resolve, reject) => {
       try {
+        // Create the utterance
         const utterance = new SpeechSynthesisUtterance(text);
         this.currentUtterance = utterance;
 
@@ -135,6 +236,9 @@ export class LocalNeuralProvider implements TTSProvider {
         if (voice) {
           utterance.voice = voice;
           console.log(`[LocalNeuralProvider] Using voice: ${voice.name} (${voice.lang})`);
+        } else {
+          console.warn('[LocalNeuralProvider] No voice found, using browser default');
+          // Don't set a voice - let the browser use its default
         }
 
         // Apply speech parameters
@@ -147,31 +251,69 @@ export class LocalNeuralProvider implements TTSProvider {
           utterance.lang = options.locale;
         }
 
+        // Track if speech has started
+        let speechStarted = false;
+
         // Handle events
+        utterance.onstart = () => {
+          speechStarted = true;
+          console.log('[LocalNeuralProvider] Speech started');
+        };
+
         utterance.onend = () => {
           this.currentUtterance = null;
-          console.log('[LocalNeuralProvider] Speech completed');
+          console.log('[LocalNeuralProvider] Speech completed successfully');
           resolve();
         };
 
         utterance.onerror = (event) => {
           this.currentUtterance = null;
           console.error('[LocalNeuralProvider] Speech error:', event.error);
-          reject(new Error(`Speech synthesis error: ${event.error}`));
+          
+          // If it's a canceled error and we haven't started speaking, try without voice
+          if (event.error === 'canceled' && !speechStarted) {
+            console.log('[LocalNeuralProvider] Retrying without specific voice...');
+            const retryUtterance = new SpeechSynthesisUtterance(text);
+            retryUtterance.pitch = utterance.pitch;
+            retryUtterance.rate = utterance.rate;
+            retryUtterance.volume = utterance.volume;
+            
+            retryUtterance.onend = () => {
+              console.log('[LocalNeuralProvider] Retry successful');
+              resolve();
+            };
+            
+            retryUtterance.onerror = (retryEvent) => {
+              console.error('[LocalNeuralProvider] Retry failed:', retryEvent.error);
+              reject(new Error(`Speech synthesis error: ${retryEvent.error}`));
+            };
+            
+            this.synthesis!.speak(retryUtterance);
+          } else {
+            reject(new Error(`Speech synthesis error: ${event.error}`));
+          }
         };
 
+        // Clear any pending speech first
+        this.synthesis!.cancel();
+        
+        // Small delay to ensure cancel completes
+        await new Promise(r => setTimeout(r, 10));
+
         // Speak the utterance
-        console.log(`[LocalNeuralProvider] Speaking: "${text.substring(0, 50)}..."`);
+        console.log(`[LocalNeuralProvider] Attempting to speak: "${text.substring(0, 50)}..."`);
+        console.log(`[LocalNeuralProvider] Available voices count: ${this.availableVoices.length}`);
+        
         this.synthesis!.speak(utterance);
 
         // Handle edge case where speech doesn't start
         setTimeout(() => {
-          if (this.currentUtterance === utterance && !this.synthesis!.speaking) {
-            console.warn('[LocalNeuralProvider] Speech did not start, resolving anyway');
+          if (this.currentUtterance === utterance && !this.synthesis!.speaking && !speechStarted) {
+            console.warn('[LocalNeuralProvider] Speech did not start after 500ms, resolving');
             this.currentUtterance = null;
             resolve();
           }
-        }, 100);
+        }, 500);
 
       } catch (error) {
         this.currentUtterance = null;

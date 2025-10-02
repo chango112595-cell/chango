@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { voiceBus } from "../voice/voiceBus";
+import { voiceOrchestrator } from "../voice/tts/orchestrator";
 
 interface VoiceSynthesisState {
   isEnabled: boolean;
@@ -85,21 +86,15 @@ export function useVoiceSynthesis() {
     return true; // Always return true to allow system to continue
   }, [toast]);
 
-  // Basic speak function without prosody
-  const speakText = useCallback((text: string) => {
+  // Basic speak function using voiceOrchestrator
+  const speakText = useCallback(async (text: string) => {
     if (!text.trim()) {
       console.log("[VoiceSynthesis] No text to speak");
       return;
     }
 
-    // Log the text we're attempting to speak (for debugging in text-only mode)
+    // Log the text we're attempting to speak
     console.log("[VoiceSynthesis] Response generated:", text);
-
-    // Check if we have speech synthesis available
-    if (!("speechSynthesis" in window)) {
-      console.log("[VoiceSynthesis] Text-only mode: Would have spoken:", text);
-      return;
-    }
 
     // Check if TTS is enabled
     if (!state.isEnabled) {
@@ -114,66 +109,32 @@ export function useVoiceSynthesis() {
       return;
     }
 
-    // Cancel any ongoing speech
-    if (speechSynthesis.speaking) {
-      speechSynthesis.cancel();
-    }
-
-    // Create utterance
-    const utterance = new SpeechSynthesisUtterance(text);
-    utteranceRef.current = utterance;
-
-    // Get available voices and select a good one
-    const voices = speechSynthesis.getVoices();
-    console.log(`[VoiceSynthesis] Available voices: ${voices.length}`);
-    
-    if (voices.length > 0) {
-      const preferredVoice = voices.find(voice => 
-        voice.name.includes("Google") || 
-        voice.name.includes("Natural") || 
-        voice.name.includes("Premium") ||
-        voice.name.includes("Enhanced")
-      ) || voices.find(voice => voice.default) || voices[0];
-      
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
-        console.log(`[VoiceSynthesis] Using voice: ${preferredVoice.name}`);
-      }
-    } else {
-      console.log("[VoiceSynthesis] No voices available - text-only mode");
+    // Check if voiceOrchestrator is ready
+    if (!voiceOrchestrator.isReady()) {
+      console.log("[VoiceSynthesis] VoiceOrchestrator not ready - text-only mode");
       console.log("[VoiceSynthesis] Response (text-only):", text);
       return;
     }
 
-    // Set default speech parameters
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
+    // Update state to indicate we're playing
+    setState(prev => ({ ...prev, isPlaying: true, currentUtterance: text }));
+    voiceBus.setSpeaking(true);
 
-    // Set up event handlers
-    utterance.onstart = () => {
-      console.log("[VoiceSynthesis] Started speaking:", text.slice(0, 50));
-      voiceBus.setSpeaking(true);
-      setState(prev => ({ ...prev, isPlaying: true, currentUtterance: text }));
-    };
-
-    utterance.onend = () => {
-      console.log("[VoiceSynthesis] Finished speaking");
-      voiceBus.setSpeaking(false);
-      setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
-    };
-
-    utterance.onerror = (event: any) => {
-      console.error("[VoiceSynthesis] Speech error:", event.error);
-      console.log("[VoiceSynthesis] Falling back to text-only for:", text);
-      voiceBus.setSpeaking(false);
-      setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
-    };
-
-    // Speak the utterance
     try {
-      speechSynthesis.speak(utterance);
-      console.log("[VoiceSynthesis] Speaking:", text.slice(0, 50));
+      // Use voiceOrchestrator to speak
+      console.log("[VoiceSynthesis] Speaking through voiceOrchestrator:", text.slice(0, 50));
+      
+      await voiceOrchestrator.speak(text, {
+        interrupt: true,
+        callback: () => {
+          console.log("[VoiceSynthesis] Finished speaking");
+          voiceBus.setSpeaking(false);
+          setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
+        }
+      });
+
+      console.log("[VoiceSynthesis] Speech completed successfully");
+      
     } catch (error) {
       console.error("[VoiceSynthesis] Failed to speak:", error);
       console.log("[VoiceSynthesis] Text-only fallback:", text);
@@ -184,9 +145,7 @@ export function useVoiceSynthesis() {
 
   // Cancel speech
   const cancelSpeak = useCallback(() => {
-    if (speechSynthesis.speaking) {
-      speechSynthesis.cancel();
-    }
+    voiceOrchestrator.stop();
     voiceBus.setSpeaking(false);
     setState(prev => ({ ...prev, isPlaying: false, currentUtterance: "" }));
   }, []);

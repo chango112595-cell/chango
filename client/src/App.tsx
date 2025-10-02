@@ -15,6 +15,7 @@ import { FEATURES } from "@/config/featureFlags";
 import { voiceBus } from "@/voice/voiceBus";
 import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
+import "./testTTS";
 
 function StatusDockWrapper() {
   const { systemOnline, isSpeaking, isMuted, setMuted } = useVoiceBus();

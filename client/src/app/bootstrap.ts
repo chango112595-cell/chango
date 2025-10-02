@@ -34,28 +34,29 @@ export async function bootstrapChango(options: BootstrapOptions = {}): Promise<v
     if (enableTTS) {
       console.log('[Bootstrap] Initializing TTS system...');
       
-      // Register local neural provider with orchestrator
-      voiceOrchestrator.registerLocal(localNeuralProvider);
+      // Initialize the provider to load voices
+      const voicesLoaded = await localNeuralProvider.initialize();
       
-      // Test TTS availability
-      const voices = window.speechSynthesis.getVoices();
-      console.log('[Bootstrap] Available TTS voices:', voices.length);
-      
-      if (voices.length === 0) {
-        // Wait for voices to load
-        await new Promise<void>((resolve) => {
-          window.speechSynthesis.onvoiceschanged = () => {
-            const updatedVoices = window.speechSynthesis.getVoices();
-            console.log('[Bootstrap] TTS voices loaded:', updatedVoices.length);
-            resolve();
-          };
-          
-          // Timeout after 2 seconds
-          setTimeout(resolve, 2000);
-        });
+      if (voicesLoaded) {
+        // Register local neural provider with orchestrator
+        voiceOrchestrator.registerLocal(localNeuralProvider);
+        
+        // Verify voices are available through orchestrator
+        const voices = await voiceOrchestrator.getVoices();
+        console.log('[Bootstrap] Available TTS voices:', voices.length);
+        
+        if (voices.length > 0) {
+          console.log('[Bootstrap] ✅ TTS system initialized with', voices.length, 'voices');
+        } else {
+          console.warn('[Bootstrap] ⚠️ TTS initialized but no voices available');
+        }
+      } else {
+        console.warn('[Bootstrap] ⚠️ TTS provider failed to load voices');
+        console.log('[Bootstrap] TTS will operate in text-only mode');
+        
+        // Still register the provider even without voices for fallback
+        voiceOrchestrator.registerLocal(localNeuralProvider);
       }
-      
-      console.log('[Bootstrap] ✅ TTS system initialized');
     }
 
     // Step 2: Initialize conversation engine

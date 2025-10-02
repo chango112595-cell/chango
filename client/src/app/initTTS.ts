@@ -9,7 +9,7 @@ import { LocalNeuralProvider } from '../voice/tts/providers/localNeural';
 /**
  * Initialize the TTS system with local provider only
  */
-export function initTTS(): void {
+export async function initTTS(): Promise<void> {
   console.log('[InitTTS] Initializing Text-To-Speech system...');
   
   try {
@@ -23,16 +23,22 @@ export function initTTS(): void {
       return;
     }
     
-    // Register the local provider with the orchestrator
-    voiceOrchestrator.registerLocal(localProvider);
+    // Initialize the provider to load voices
+    console.log('[InitTTS] Loading browser voices...');
+    const voicesLoaded = await localProvider.initialize();
     
-    // Verify the orchestrator is ready
-    if (voiceOrchestrator.isReady()) {
-      console.log('[InitTTS] TTS system initialized successfully');
-      console.log('[InitTTS] Using profile:', voiceOrchestrator.getProfile().name);
+    if (voicesLoaded) {
+      console.log('[InitTTS] Browser voices loaded successfully');
       
-      // Log available voices after a brief delay (to allow voices to load)
-      setTimeout(async () => {
+      // Register the local provider with the orchestrator
+      voiceOrchestrator.registerLocal(localProvider);
+      
+      // Verify the orchestrator is ready
+      if (voiceOrchestrator.isReady()) {
+        console.log('[InitTTS] TTS system initialized successfully');
+        console.log('[InitTTS] Using profile:', voiceOrchestrator.getProfile().name);
+        
+        // Log available voices immediately (no need to wait anymore)
         try {
           const voices = await voiceOrchestrator.getVoices();
           console.log(`[InitTTS] Available voices: ${voices.length}`);
@@ -42,9 +48,15 @@ export function initTTS(): void {
         } catch (error) {
           console.warn('[InitTTS] Could not retrieve voice list:', error);
         }
-      }, 1000);
+      } else {
+        console.error('[InitTTS] TTS orchestrator failed to initialize');
+      }
     } else {
-      console.error('[InitTTS] TTS orchestrator failed to initialize');
+      console.warn('[InitTTS] Failed to load browser voices');
+      console.log('[InitTTS] TTS will operate in text-only mode');
+      
+      // Still register the provider even without voices for fallback
+      voiceOrchestrator.registerLocal(localProvider);
     }
     
   } catch (error) {

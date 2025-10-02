@@ -12,37 +12,31 @@ import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
 
 function VoiceInitializer() {
-  // Initialize voice system on mount
+  // Initialize voice system on mount using bootstrap
   useEffect(() => {
-    console.log("[App] Initializing voice system...");
+    console.log("[App] Initializing Chango with bootstrap...");
     
-    const initializeVoice = async () => {
+    const initializeChango = async () => {
       try {
-        // Initialize the TTS system first
-        initTTS();
-        
-        // Initialize conversation engine
-        initConversationEngine();
-        
-        // Initialize voice controller with STT and wake word
-        await voiceController.initialize({
-          autoStart: true,      // Auto-start STT
-          wakeWordEnabled: true, // Enable wake word detection
-          mode: 'WAKE'          // Start in wake mode
+        // Bootstrap Chango with always listening mode
+        await bootstrapChango({
+          autoStartListening: true,  // Auto-start continuous listening
+          enableTTS: true,           // Enable text-to-speech
+          pauseOnHidden: true        // Pause when tab is hidden
         });
         
-        console.log("[App] Voice system initialized successfully");
+        console.log("[App] Chango bootstrapped successfully - always listening mode active");
       } catch (error) {
-        console.error("[App] Failed to initialize voice system:", error);
+        console.error("[App] Failed to bootstrap Chango:", error);
       }
     };
     
     // Run initialization
-    initializeVoice();
+    initializeChango();
     
     return () => {
       // Cleanup on unmount
-      voiceController.destroy();
+      shutdownChango();
     };
   }, []);
 

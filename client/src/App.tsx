@@ -6,16 +6,17 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SpeechCoordinationProvider } from "@/lib/speechCoordination";
 import { ConversationProvider } from "@/lib/conversationContext";
-import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis";
+// import { useVoiceSynthesis } from "@/hooks/useVoiceSynthesis"; // Old VoiceBus-based system - replaced by TTS orchestrator
 import { useLegacySTT } from "@/voice/legacy_stt";
 import { initConversationEngine } from "@/modules/conversationEngine";
+import { initTTS } from "@/app/initTTS";
 import { AskBar } from "@/ui/AskBar";
 import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
 
 function VoiceInitializer() {
-  // Initialize voice synthesis
-  const voiceSynth = useVoiceSynthesis();
+  // Initialize the new local TTS system
+  // const voiceSynth = useVoiceSynthesis(); // Old VoiceBus-based system - replaced
   
   // Initialize STT (optional - can be toggled)
   const stt = useLegacySTT({
@@ -24,15 +25,20 @@ function VoiceInitializer() {
     language: 'en-US'
   });
 
-  // Initialize conversation engine on mount
+  // Initialize conversation engine and TTS on mount
   useEffect(() => {
-    console.log("[App] Initializing conversation engine...");
+    console.log("[App] Initializing TTS and conversation engine...");
+    
+    // Initialize the new local TTS system
+    initTTS();
+    
+    // Initialize conversation engine
     initConversationEngine();
     
-    // Enable voice synthesis
-    if (!voiceSynth.isEnabled) {
-      voiceSynth.enable();
-    }
+    // Old voice synthesis code - replaced by initTTS()
+    // if (!voiceSynth.isEnabled) {
+    //   voiceSynth.enable();
+    // }
     
     // Optionally start STT (user can toggle this later)
     // Uncomment to auto-start: stt.start();
@@ -42,7 +48,7 @@ function VoiceInitializer() {
       if (stt.stt) {
         stt.stop();
       }
-      voiceSynth.cancel();
+      // voiceSynth.cancel(); // Old cleanup - no longer needed
     };
   }, []);
 

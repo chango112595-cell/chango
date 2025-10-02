@@ -1,0 +1,76 @@
+You’re right — no third-party. We’ll run 100% local.
+
+Here’s the clean swap to keep your advanced local voice only, with everything else removed/disabled.
+
+What changes
+	•	Keep: local-neural provider (your advanced pipeline).
+	•	Remove/disable: Azure + ElevenLabs + WebSpeech (optional fallback).
+	•	Orchestrator: always uses local-neural; no external calls possible.
+
+Drop-in patches
+
+1) Orchestrator: lock to local only
+
+src/voice/tts/orchestrator.ts
+
+import { TTSProvider, TTSSpeakOptions, VoiceProfile } from "./interfaces";
+
+class VoiceOrchestrator {
+  private provider!: TTSProvider; // single provider
+  private defaultProfile: VoiceProfile = {
+    id: "jarvis.default", label: "Jarvis • Default • en-US",
+    gender: "neutral", accent: "en-US", rate: 1, pitch: 0, volume: 1
+  };
+
+  registerLocal(provider: TTSProvider) { this.provider = provider; }
+  isReady() { return !!this.provider?.isAvailable?.() && this.provider.isAvailable(); }
+
+  async speak(opts: TTSSpeakOptions) {
+    if (!this.isReady()) throw new Error("Local TTS not available");
+    await this.provider.speak({ ...opts, profile: opts.profile ?? this.defaultProfile });
+  }
+  async stop() { if (this.isReady()) await this.provider.stop(); }
+}
+export const voiceOrchestrator = new VoiceOrchestrator();
+
+2) Local provider only
+
+src/voice/tts/providers/localNeural.ts (same as before; ensure implemented)
+
+import { TTSProvider, TTSSpeakOptions } from "../interfaces";
+
+// Hook these to your real local pipeline:
+declare function synthLocal(text: string, profile?: any): Promise<void>;
+declare function stopLocal(): Promise<void>;
+declare function localAvailable(): boolean;
+
+export const LocalNeuralProvider: TTSProvider = {
+  id: "local-neural",
+  name: "Local Neural (Advanced)",
+  isAvailable() { return typeof localAvailable === "function" ? localAvailable() : true; },
+  async speak(opts: TTSSpeakOptions) { await synthLocal(opts.text, opts.profile); },
+  async stop() { try { await stopLocal(); } catch {} }
+};
+
+3) Init: register ONLY local
+
+src/app/initTTS.ts
+
+import { voiceOrchestrator } from "../voice/tts/orchestrator";
+import { LocalNeuralProvider } from "../voice/tts/providers/localNeural";
+
+export function initTTS() {
+  voiceOrchestrator.registerLocal(LocalNeuralProvider);
+}
+
+4) Settings UI: remove provider picker (optional)
+	•	Delete the provider dropdown or replace with local voice profile controls (accent/gender/rate/pitch).
+	•	Your conversation engine already calls voiceOrchestrator.speak(...), so nothing else changes.
+
+Quick checklist
+	•	No network keys.
+	•	No outbound requests.
+	•	All speech runs via your local neural pipeline.
+	•	Conversation engine continues to drive replies → Jarvis-style talk stays.
+
+Want me to add a tiny Voice Profile panel (accent/gender/rate/pitch) that writes into the profile your local model uses?

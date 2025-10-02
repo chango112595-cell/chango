@@ -10,6 +10,9 @@ import { bootstrapChango, shutdownChango } from "@/app/bootstrap";
 import { AskBar } from "@/ui/AskBar";
 import StatusDock from "@/components/StatusDock";
 import { HeaderBar } from "@/components/HeaderBar";
+import { HologramSphere } from "@/components/HologramSphere";
+import { UiModeSwitch } from "@/components/UiModeSwitch";
+import { useUIMode } from "@/hooks/useUIMode";
 import { useVoiceBus } from "@/voice/useVoiceBus";
 import { FEATURES } from "@/config/featureFlags";
 import { voiceBus } from "@/voice/voiceBus";
@@ -77,13 +80,24 @@ function Router() {
 }
 
 function App() {
+  const { mode } = useUIMode();
+
   return (
     <QueryClientProvider client={queryClient}>
       <SpeechCoordinationProvider>
         <ConversationProvider>
           <TooltipProvider>
             <VoiceInitializer />
-            <HeaderBar />
+            
+            {/* Conditionally render HeaderBar when mode is "header" */}
+            {mode === "header" && <HeaderBar />}
+            
+            {/* Conditionally render HologramSphere when mode is "sphere" */}
+            {mode === "sphere" && <HologramSphere state="idle" />}
+            
+            {/* Always show UiModeSwitch if the feature flag is enabled */}
+            {FEATURES.UI_MODE_TOGGLE && <UiModeSwitch />}
+            
             {!FEATURES.HANDS_FREE_UI && <StatusDockWrapper />}
             <Toaster />
             <Router />

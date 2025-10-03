@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Mic, MicOff, Cpu, Radio, Power } from "lucide-react";
+import { Mic, MicOff, Cpu, Radio, Power, Settings } from "lucide-react";
+import { SettingsModal } from "./SettingsModal";
 
 type Props = {
   systemOnline: boolean;
@@ -10,6 +11,7 @@ type Props = {
 
 export default function StatusDock({ systemOnline, speaking, muted, onToggleMute }: Props) {
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // lightweight ping – replace with your real /health if you have one
   useEffect(() => {
@@ -28,6 +30,7 @@ export default function StatusDock({ systemOnline, speaking, muted, onToggleMute
   const dot = useMemo(() => systemOnline ? "bg-emerald-400" : "bg-rose-500", [systemOnline]);
 
   return (
+    <>
     <div className="fixed top-3 left-1/2 z-30 -translate-x-1/2">
       {/* holographic pill */}
       <div className="relative group">
@@ -58,6 +61,16 @@ export default function StatusDock({ systemOnline, speaking, muted, onToggleMute
             {muted ? "Muted" : "Listening"}
           </button>
 
+          {/* settings button */}
+          <button
+            onClick={() => setSettingsOpen(true)}
+            title="Open settings"
+            className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs bg-cyan-600/20 hover:bg-cyan-600/40 transition"
+            data-testid="button-open-settings-dock">
+            <Settings className="h-4 w-4" />
+            <span className="hidden sm:inline">Settings</span>
+          </button>
+
           {/* power indicator (read-only) */}
           <div className="hidden sm:flex items-center gap-1 text-xs opacity-80">
             <Power className={`h-3.5 w-3.5 ${systemOnline ? "text-emerald-400" : "text-rose-500"}`} />
@@ -65,5 +78,9 @@ export default function StatusDock({ systemOnline, speaking, muted, onToggleMute
         </div>
       </div>
     </div>
+    
+    {/* Settings Modal */}
+    <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
+  </>
   );
 }

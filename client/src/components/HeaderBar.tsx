@@ -4,9 +4,10 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Activity, Cpu, Mic, MicOff, Power, Radio, Zap, Globe } from 'lucide-react';
+import { Activity, Cpu, Mic, MicOff, Power, Radio, Zap, Globe, Settings } from 'lucide-react';
 import { voiceBus } from '../voice/voiceBus';
 import { FEATURES } from '../config/featureFlags';
+import { SettingsModal } from './SettingsModal';
 
 interface HeaderBarProps {
   className?: string;
@@ -27,6 +28,7 @@ export function HeaderBar({ className = '' }: HeaderBarProps) {
   });
   
   const [time, setTime] = useState(new Date());
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Update time every second
   useEffect(() => {
@@ -187,6 +189,17 @@ export function HeaderBar({ className = '' }: HeaderBarProps) {
               <span>{metrics.activeConnections}</span>
             </div>
 
+            {/* Settings Button */}
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-cyan-500/10 transition-colors"
+              title="Open settings"
+              data-testid="button-open-settings-header"
+            >
+              <Settings className="w-4 h-4 text-cyan-400" />
+              <span className="hidden sm:inline text-cyan-400">Settings</span>
+            </button>
+
             {/* Status light */}
             <div className="relative">
               <div
@@ -210,6 +223,9 @@ export function HeaderBar({ className = '' }: HeaderBarProps) {
           </div>
         )}
       </div>
+      
+      {/* Settings Modal */}
+      <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
     </header>
   );
 }

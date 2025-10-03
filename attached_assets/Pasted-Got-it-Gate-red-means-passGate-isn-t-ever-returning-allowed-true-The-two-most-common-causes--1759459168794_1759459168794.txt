@@ -1,0 +1,115 @@
+Got it — Gate = red means passGate() isn’t ever returning allowed:true. The two most common causes:
+	1.	STT is feeding interim (unfinished) text, so the wake-word never matches.
+	2.	The wake-word match yields empty text (e.g., you just say “lolo”), so we block.
+
+Fix both with this tiny patch set:
+
+⸻
+
+1) STT: only emit final transcripts
+
+File: src/voice/always_listen.ts → inside rec.onresult replace the handler with:
+
+rec.onresult = (e: any) => {
+  const res = e?.results?.[e.resultIndex];
+  // Only act on final results to avoid partial noise
+  const isFinal = !!(res && res.isFinal);
+  if (!isFinal) return;
+
+  const text = res && res[0]?.transcript ? String(res[0].transcript).trim() : "";
+  if (text) {
+    dbg.info("STT", "heard.final", text.slice(0, 160));
+    beat("stt");
+    voiceBus.emitUserSpeech(text);
+  }
+};
+
+This turns STT dot green only when final speech arrives, and prevents false “red Gate” from partial phrases.
+
+⸻
+
+2) Gate: accept bare wake-word (“lolo”) as a ping
+
+File: src/modules/listening/gate.ts — replace passGate with:
+
+import { isOn } from "../../config/featureFlags";
+import { Wakeword } from "../../config/wakeword";
+
+export type GateResult = { allowed: boolean; text: string; reason: "wake"|"typed"|"ping"|"blocked" };
+
+export function passGate(raw: string, typed = false): GateResult {
+  const input = (raw || "").trim();
+  if (!input) return { allowed: false, text: "", reason: "blocked" };
+
+  // Typed path always allowed
+  if (typed) return { allowed: true, text: input, reason: "typed" };
+
+  // Speech must address with wake-word
+  if (isOn("WakeWord") && isOn("AnswerOnlyWhenAddressed")) {
+    if (Wakeword.regex.test(input)) {
+      const stripped = input.replace(Wakeword.regex, "").trim();
+      if (stripped.length === 0) {
+        // Bare "lolo" → treat as ping (so Gate goes green)
+        return { allowed: true, text: "acknowledge", reason: "ping" };
+      }
+      return { allowed: true, text: stripped, reason: "wake" };
+    }
+    return { allowed: false, text: "", reason: "blocked" };
+  }
+
+  return { allowed: false, text: "", reason: "blocked" };
+}
+
+Saying “lolo” alone now yields a quick “Yes?” type acknowledgement (Gate turns green), while “lolo, what time is it” routes the stripped query.
+
+⸻
+
+3) Conversation engine: show why it blocked (quick log)
+
+File: src/modules/conversationEngine/index.ts — ensure:
+
+const handle = async (raw: string, typed = false) => {
+  const g = passGate(raw, typed);
+  if (!g.allowed) { dbg.info("NLP", "gate.block", g.reason); return; }
+  dbg.info("NLP", "gate.pass", g.reason, g.text);
+  beat("gate");
+
+  // optional: lightweight ping reply
+  if (g.reason === "ping") {
+    const reply = "Yes?";
+    dbg.info("TTS", "speak", reply);
+    beat("tts");
+    await speak(reply);
+    return;
+  }
+
+  const reply = await respond(g.text);
+  dbg.info("TTS", "speak", (reply || "").slice(0, 160));
+  beat("tts");
+  await speak(reply);
+};
+
+
+⸻
+
+4) Confirm flags (just in case)
+
+File: src/config/featureFlags.ts
+
+export const Features = {
+  WakeWord: true,
+  AlwaysListening: true,
+  AnswerOnlyWhenAddressed: true,
+  // …rest unchanged
+} as const;
+
+
+⸻
+
+5) Quick test
+	•	Say “lolo” → Gate turns green, Chango: “Yes?”
+	•	Say “lolo, what’s the time?” → full answer
+	•	Talk without “lolo” → Gate stays red (blocked)
+	•	Type in bottom bar → still works
+
+If Gate is still red after this: check browser mic permission and confirm bootstrapChango() runs once (so startAlwaysListening() is active).

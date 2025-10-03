@@ -111,6 +111,10 @@ class AlwaysListenManager {
   private lastErrorTime: number = 0;
   private errorCount: number = 0;
   private isInitialized: boolean = false;
+  private microphoneAvailable: boolean = false;
+  private microphoneMuted: boolean = false;
+  private permissionCheckTimer: NodeJS.Timeout | null = null;
+  private lastPermissionCheck: number = 0;
 
   constructor() {
     this.config = {
@@ -129,6 +133,141 @@ class AlwaysListenManager {
 
     // Start health monitoring
     this.startHealthMonitoring();
+  }
+
+  /**
+   * Check microphone permission and availability
+   */
+  async checkMicrophonePermission(): Promise<{
+    hasPermission: boolean;
+    microphoneAvailable: boolean;
+    microphoneMuted: boolean;
+    errorType?: string;
+  }> {
+    const now = Date.now();
+    
+    // Avoid checking too frequently
+    if (now - this.lastPermissionCheck < 1000) {
+      return {
+        hasPermission: this.hasPermission,
+        microphoneAvailable: this.microphoneAvailable,
+        microphoneMuted: this.microphoneMuted
+      };
+    }
+    
+    this.lastPermissionCheck = now;
+    
+    try {
+      // Check if MediaDevices API is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.warn('[AlwaysListen] MediaDevices API not available');
+        return {
+          hasPermission: false,
+          microphoneAvailable: false,
+          microphoneMuted: false,
+          errorType: 'api-not-available'
+        };
+      }
+
+      // Try to get microphone stream
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
+
+      // Check if we got a valid stream
+      const audioTracks = stream.getAudioTracks();
+      
+      if (audioTracks.length === 0) {
+        console.warn('[AlwaysListen] No audio tracks available');
+        stream.getTracks().forEach(track => track.stop());
+        return {
+          hasPermission: false,
+          microphoneAvailable: false,
+          microphoneMuted: false,
+          errorType: 'no-audio-tracks'
+        };
+      }
+
+      // Check track state
+      const track = audioTracks[0];
+      const trackEnabled = track.enabled;
+      const trackMuted = track.muted;
+      const trackReadyState = track.readyState;
+      
+      console.log('[AlwaysListen] Audio track state:', {
+        enabled: trackEnabled,
+        muted: trackMuted,
+        readyState: trackReadyState,
+        label: track.label
+      });
+
+      // Clean up stream
+      stream.getTracks().forEach(track => track.stop());
+
+      // Update state based on track info
+      this.hasPermission = true;
+      this.microphoneAvailable = trackReadyState === 'live';
+      this.microphoneMuted = trackMuted;
+
+      if (trackMuted) {
+        console.warn('[AlwaysListen] Microphone is muted at browser/OS level');
+        if (FEATURES.DEBUG_BUS) {
+          debugBus.warn('AlwaysListen', 'Microphone is muted', { 
+            trackState: { enabled: trackEnabled, muted: trackMuted, readyState: trackReadyState }
+          });
+        }
+      }
+
+      return {
+        hasPermission: true,
+        microphoneAvailable: this.microphoneAvailable,
+        microphoneMuted: this.microphoneMuted
+      };
+
+    } catch (error: any) {
+      console.error('[AlwaysListen] Permission check failed:', error);
+      
+      // Analyze error type
+      let errorType = 'unknown';
+      let hasPermission = false;
+      
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        errorType = 'permission-denied';
+        console.error('[AlwaysListen] Microphone permission denied by user');
+      } else if (error.name === 'NotFoundError' || error.name === 'DeviceNotFoundError') {
+        errorType = 'no-microphone';
+        console.error('[AlwaysListen] No microphone device found');
+      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+        errorType = 'device-in-use';
+        console.error('[AlwaysListen] Microphone may be in use by another application');
+      } else if (error.name === 'OverconstrainedError') {
+        errorType = 'constraints-error';
+        console.error('[AlwaysListen] Audio constraints could not be satisfied');
+      }
+      
+      this.hasPermission = hasPermission;
+      this.microphoneAvailable = false;
+      this.microphoneMuted = false;
+      
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.error('AlwaysListen', 'Permission check failed', { 
+          errorName: error.name,
+          errorMessage: error.message,
+          errorType
+        });
+      }
+      
+      return {
+        hasPermission,
+        microphoneAvailable: false,
+        microphoneMuted: false,
+        errorType
+      };
+    }
   }
 
   /**
@@ -362,7 +501,7 @@ class AlwaysListenManager {
   /**
    * Handle recognition errors
    */
-  private handleError(event: SpeechRecognitionErrorEvent): void {
+  private async handleError(event: SpeechRecognitionErrorEvent): Promise<void> {
     const now = Date.now();
     
     // Track error rate
@@ -373,7 +512,7 @@ class AlwaysListenManager {
     }
     this.lastErrorTime = now;
 
-    console.warn('[AlwaysListen] Recognition error:', event.error);
+    console.warn('[AlwaysListen] Recognition error:', event.error, event.message || '');
     
     if (FEATURES.DEBUG_BUS) {
       debugBus.warn('AlwaysListen', `Error: ${event.error}`, { 
@@ -392,25 +531,73 @@ class AlwaysListenManager {
         break;
 
       case 'not-allowed':
-        // Permission denied
-        console.error('[AlwaysListen] Microphone permission denied');
-        this.hasPermission = false;
-        this.isEnabled = false;
-        this.state = 'error';
+        // Permission denied - check actual permission state
+        console.error('[AlwaysListen] Permission error detected, checking actual state...');
         
-        if (FEATURES.DEBUG_BUS) {
-          debugBus.error('AlwaysListen', 'Permission denied');
+        const permissionStatus = await this.checkMicrophonePermission();
+        
+        if (!permissionStatus.hasPermission) {
+          console.error('[AlwaysListen] Confirmed: Microphone permission denied');
+          this.hasPermission = false;
+          this.state = 'error';
+          
+          if (FEATURES.DEBUG_BUS) {
+            debugBus.error('AlwaysListen', 'Permission denied', permissionStatus);
+          }
+          
+          // Start monitoring for permission changes
+          this.startPermissionMonitoring();
+        } else {
+          // Permission is actually granted, might be a transient error
+          console.log('[AlwaysListen] Permission check passed, likely transient error');
+          if (this.isEnabled) {
+            this.scheduleRestart(1000);
+          }
         }
         break;
 
       case 'audio-capture':
-        // No microphone or audio issue
-        console.error('[AlwaysListen] Audio capture failed');
+        // Audio capture failed - could be muted mic or no device
+        console.error('[AlwaysListen] Audio capture failed, checking microphone status...');
+        
+        // Check if it's because the source is muted
+        if (event.message && event.message.includes('muted')) {
+          console.warn('[AlwaysListen] Microphone appears to be muted');
+          this.microphoneMuted = true;
+          
+          // Check actual permission/device state
+          const micStatus = await this.checkMicrophonePermission();
+          
+          if (!micStatus.hasPermission) {
+            console.error('[AlwaysListen] No microphone permission');
+            this.hasPermission = false;
+            this.startPermissionMonitoring();
+          } else if (micStatus.microphoneMuted) {
+            console.warn('[AlwaysListen] Microphone is muted at browser/OS level');
+            if (FEATURES.DEBUG_BUS) {
+              debugBus.warn('AlwaysListen', 'Microphone muted', { 
+                message: 'Please unmute your microphone to use voice commands'
+              });
+            }
+            // Start monitoring for when mic becomes unmuted
+            this.startMicrophoneMonitoring();
+          } else if (!micStatus.microphoneAvailable) {
+            console.error('[AlwaysListen] No microphone device available');
+            if (FEATURES.DEBUG_BUS) {
+              debugBus.error('AlwaysListen', 'No microphone device', { 
+                message: 'Please connect a microphone to use voice commands'
+              });
+            }
+            // Start monitoring for when mic becomes available
+            this.startMicrophoneMonitoring();
+          }
+        }
+        
         this.state = 'error';
         
         // Try to restart after delay
         if (this.isEnabled && this.restartAttempts < this.config.maxRestartAttempts) {
-          this.scheduleRestart(2000);
+          this.scheduleRestart(3000);
         }
         break;
 
@@ -487,12 +674,50 @@ class AlwaysListenManager {
   /**
    * Start speech recognition with error handling
    */
-  private startRecognition(): void {
+  private async startRecognition(): Promise<void> {
     if (!this.recognition || !this.isEnabled) return;
     
     // Check current state
     if (this.state === 'listening' || this.state === 'starting') {
       console.log('[AlwaysListen] Already starting/listening, skipping start');
+      return;
+    }
+    
+    // Check microphone permission first
+    console.log('[AlwaysListen] Checking microphone permission before starting...');
+    const permissionStatus = await this.checkMicrophonePermission();
+    
+    if (!permissionStatus.hasPermission) {
+      console.error('[AlwaysListen] Cannot start: No microphone permission');
+      this.state = 'error';
+      this.hasPermission = false;
+      
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.error('AlwaysListen', 'Cannot start - no permission', permissionStatus);
+      }
+      
+      // Start monitoring for permission
+      this.startPermissionMonitoring();
+      return;
+    }
+    
+    if (permissionStatus.microphoneMuted) {
+      console.warn('[AlwaysListen] Warning: Microphone is muted');
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.warn('AlwaysListen', 'Starting with muted microphone', permissionStatus);
+      }
+    }
+    
+    if (!permissionStatus.microphoneAvailable) {
+      console.error('[AlwaysListen] Cannot start: No microphone available');
+      this.state = 'error';
+      
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.error('AlwaysListen', 'Cannot start - no microphone', permissionStatus);
+      }
+      
+      // Start monitoring for microphone
+      this.startMicrophoneMonitoring();
       return;
     }
     
@@ -584,6 +809,106 @@ class AlwaysListenManager {
       clearTimeout(this.restartTimer);
       this.restartTimer = null;
     }
+    if (this.permissionCheckTimer) {
+      clearInterval(this.permissionCheckTimer);
+      this.permissionCheckTimer = null;
+    }
+  }
+
+  /**
+   * Start monitoring for permission changes
+   */
+  private startPermissionMonitoring(): void {
+    // Clear existing timer if any
+    if (this.permissionCheckTimer) {
+      clearInterval(this.permissionCheckTimer);
+    }
+    
+    console.log('[AlwaysListen] Starting permission monitoring...');
+    
+    // Check every 3 seconds for permission
+    this.permissionCheckTimer = setInterval(async () => {
+      const status = await this.checkMicrophonePermission();
+      
+      if (status.hasPermission && this.isEnabled && this.state === 'error') {
+        console.log('[AlwaysListen] Permission granted! Attempting to restart...');
+        
+        // Clear the timer
+        clearInterval(this.permissionCheckTimer!);
+        this.permissionCheckTimer = null;
+        
+        // Update state
+        this.hasPermission = true;
+        this.microphoneAvailable = status.microphoneAvailable;
+        this.microphoneMuted = status.microphoneMuted;
+        
+        // Reset error state and restart
+        this.restartAttempts = 0;
+        this.state = 'idle';
+        
+        if (FEATURES.DEBUG_BUS) {
+          debugBus.info('AlwaysListen', 'Permission recovered', status);
+        }
+        
+        // Restart recognition
+        this.startRecognition();
+      }
+    }, 3000);
+  }
+
+  /**
+   * Start monitoring for microphone availability
+   */
+  private startMicrophoneMonitoring(): void {
+    // Clear existing timer if any
+    if (this.permissionCheckTimer) {
+      clearInterval(this.permissionCheckTimer);
+    }
+    
+    console.log('[AlwaysListen] Starting microphone monitoring...');
+    
+    // Check every 3 seconds for microphone status
+    this.permissionCheckTimer = setInterval(async () => {
+      const status = await this.checkMicrophonePermission();
+      
+      if (status.hasPermission && status.microphoneAvailable && !status.microphoneMuted) {
+        console.log('[AlwaysListen] Microphone available and unmuted! Attempting to restart...');
+        
+        // Clear the timer
+        clearInterval(this.permissionCheckTimer!);
+        this.permissionCheckTimer = null;
+        
+        // Update state
+        this.hasPermission = true;
+        this.microphoneAvailable = true;
+        this.microphoneMuted = false;
+        
+        // Reset error state and restart
+        this.restartAttempts = 0;
+        this.state = 'idle';
+        
+        if (FEATURES.DEBUG_BUS) {
+          debugBus.info('AlwaysListen', 'Microphone recovered', status);
+        }
+        
+        // Restart recognition if enabled
+        if (this.isEnabled) {
+          this.startRecognition();
+        }
+      } else if (status.hasPermission && status.microphoneAvailable && status.microphoneMuted) {
+        // Microphone is still muted
+        if (this.microphoneMuted !== true) {
+          console.warn('[AlwaysListen] Microphone is muted - waiting for unmute...');
+          this.microphoneMuted = true;
+          
+          if (FEATURES.DEBUG_BUS) {
+            debugBus.warn('AlwaysListen', 'Microphone still muted', { 
+              message: 'Please unmute your microphone to use voice commands'
+            });
+          }
+        }
+      }
+    }, 3000);
   }
 
   /**
@@ -636,6 +961,8 @@ class AlwaysListenManager {
     state: RecognitionState;
     restartAttempts: number;
     errorCount: number;
+    microphoneAvailable: boolean;
+    microphoneMuted: boolean;
   } {
     return {
       isEnabled: this.isEnabled,
@@ -643,7 +970,9 @@ class AlwaysListenManager {
       hasPermission: this.hasPermission,
       state: this.state,
       restartAttempts: this.restartAttempts,
-      errorCount: this.errorCount
+      errorCount: this.errorCount,
+      microphoneAvailable: this.microphoneAvailable,
+      microphoneMuted: this.microphoneMuted
     };
   }
 

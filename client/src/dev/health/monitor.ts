@@ -11,6 +11,7 @@ interface HealthState {
   lastSttHeartbeat: number;
   lastGateHeartbeat: number;
   lastTtsHeartbeat: number;
+  lastOrchestratorHeartbeat: number;
   ttsStartTime: number | null;
   isTtsSpeaking: boolean;
   isMonitoring: boolean;
@@ -24,6 +25,7 @@ class HealthMonitor {
     lastSttHeartbeat: Date.now(),
     lastGateHeartbeat: Date.now(),
     lastTtsHeartbeat: Date.now(),
+    lastOrchestratorHeartbeat: Date.now(),
     ttsStartTime: null,
     isTtsSpeaking: false,
     isMonitoring: false,
@@ -40,7 +42,7 @@ class HealthMonitor {
   /**
    * Update heartbeat for a specific system
    */
-  beat(system: 'stt' | 'gate' | 'tts', data?: any): void {
+  beat(system: 'stt' | 'gate' | 'tts' | 'orchestrator', data?: any): void {
     try {
       const now = Date.now();
       
@@ -71,6 +73,13 @@ class HealthMonitor {
           }
           if (FEATURES.DEBUG_BUS) {
             debugBus.info('Health', 'tts_heartbeat', data);
+          }
+          break;
+          
+        case 'orchestrator':
+          this.state.lastOrchestratorHeartbeat = now;
+          if (FEATURES.DEBUG_BUS) {
+            debugBus.info('Health', 'orchestrator_heartbeat', data);
           }
           break;
       }
@@ -229,6 +238,7 @@ class HealthMonitor {
           sttAge,
           gateAge: now - this.state.lastGateHeartbeat,
           ttsAge: now - this.state.lastTtsHeartbeat,
+          orchestratorAge: now - this.state.lastOrchestratorHeartbeat,
           ttsSpeaking: this.state.isTtsSpeaking
         });
       }
@@ -312,7 +322,7 @@ class HealthMonitor {
     } catch (error) {
       console.error('[HealthMonitor] Error cancelling TTS:', error);
       if (FEATURES.DEBUG_BUS) {
-        debugBus.error('Health', 'auto_cancel_tts_failed', { error: error.message });
+        debugBus.error('Health', 'auto_cancel_tts_failed', { error: (error as any).message });
       }
     }
   }

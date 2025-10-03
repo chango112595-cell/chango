@@ -234,8 +234,15 @@ export class LocalNeuralProvider implements TTSProvider {
         // Find and set the best voice
         const voice = await this.findBestVoice(options);
         if (voice) {
-          utterance.voice = voice;
-          console.log(`[LocalNeuralProvider] Using voice: ${voice.name} (${voice.lang})`);
+          // Verify the voice is still available (sometimes they disappear)
+          const currentVoices = this.synthesis!.getVoices();
+          if (currentVoices.includes(voice)) {
+            utterance.voice = voice;
+            console.log(`[LocalNeuralProvider] Using voice: ${voice.name} (${voice.lang})`);
+          } else {
+            console.warn('[LocalNeuralProvider] Selected voice no longer available, using browser default');
+            // Don't set a voice - let the browser use its default
+          }
         } else {
           console.warn('[LocalNeuralProvider] No voice found, using browser default');
           // Don't set a voice - let the browser use its default
@@ -270,13 +277,16 @@ export class LocalNeuralProvider implements TTSProvider {
           this.currentUtterance = null;
           console.error('[LocalNeuralProvider] Speech error:', event.error);
           
-          // If it's a canceled error and we haven't started speaking, try without voice
-          if (event.error === 'canceled' && !speechStarted) {
+          // If it's a canceled or synthesis-failed error and we haven't started speaking, try without voice
+          if ((event.error === 'canceled' || event.error === 'synthesis-failed') && !speechStarted) {
             console.log('[LocalNeuralProvider] Retrying without specific voice...');
             const retryUtterance = new SpeechSynthesisUtterance(text);
             retryUtterance.pitch = utterance.pitch;
             retryUtterance.rate = utterance.rate;
             retryUtterance.volume = utterance.volume;
+            
+            // Don't set a voice - use system default
+            // Don't set lang - let system use default
             
             retryUtterance.onend = () => {
               console.log('[LocalNeuralProvider] Retry successful');
@@ -285,7 +295,31 @@ export class LocalNeuralProvider implements TTSProvider {
             
             retryUtterance.onerror = (retryEvent) => {
               console.error('[LocalNeuralProvider] Retry failed:', retryEvent.error);
-              reject(new Error(`Speech synthesis error: ${retryEvent.error}`));
+              
+              // Last resort: try with minimal configuration
+              if (retryEvent.error === 'synthesis-failed') {
+                console.log('[LocalNeuralProvider] Final attempt with minimal config...');
+                const finalUtterance = new SpeechSynthesisUtterance(text);
+                finalUtterance.volume = 1.0;
+                
+                finalUtterance.onend = () => {
+                  console.log('[LocalNeuralProvider] Final attempt successful');
+                  resolve();
+                };
+                
+                finalUtterance.onerror = (finalEvent) => {
+                  console.error('[LocalNeuralProvider] Final attempt failed:', finalEvent.error);
+                  reject(new Error(`Speech synthesis error: ${finalEvent.error}`));
+                };
+                
+                // Clear and try again
+                this.synthesis!.cancel();
+                setTimeout(() => {
+                  this.synthesis!.speak(finalUtterance);
+                }, 50);
+              } else {
+                reject(new Error(`Speech synthesis error: ${retryEvent.error}`));
+              }
             };
             
             this.synthesis!.speak(retryUtterance);

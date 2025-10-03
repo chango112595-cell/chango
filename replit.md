@@ -1,130 +1,6 @@
 # Overview
 
-This is a full-stack TypeScript application called "Chango AI" that provides advanced voice synthesis and accent emulation capabilities using its proprietary Chango Voice Engine (CVE). The application features a React frontend with a Node.js/Express backend, utilizing PostgreSQL for data persistence. The system allows users to synthesize speech with various accents, record and analyze voice samples to create custom voice profiles, and includes an interactive holographic interface with curiosity-driven AI responses. Chango speaks with natural, conversational responses using dynamic templates, emotional variations, and personality-driven interactions.
-
-# Recent Changes (October 3, 2025)
-
-## Debug-Based Fixes  
-- ✅ **Enhanced Microphone Permission System**: Comprehensive permission handling with automatic recovery
-  - Differentiates between permission denied, microphone muted, and no device available
-  - Monitors permission status every 3 seconds when denied
-  - Automatically recovers when microphone becomes available
-  - Clear error messages in debug overlay for troubleshooting
-  
-- ✅ **Robust Error Recovery**: Improved resilience to audio issues
-  - Smart retry logic with exponential backoff for transient failures
-  - Prevents endless error loops with maximum retry limits
-  - Graceful degradation when microphone unavailable
-  - TTS fallback handling for voice synthesis failures
-
-## Wake Word Centralization (October 2, 2025)
-- ✅ **Centralized Wake Word Configuration**: Wake word system now centralized in one location
-  - Created `client/src/config/wakeword.ts` with "lolo" as the main wake word
-  - Accepts variations: "lolo", "hey lolo", "ok lolo", "hi lolo", "yo lolo"
-  - Gate module now uses centralized configuration for speech filtering
-  - Wake word detector uses centralized variations list
-  - Typed input (chat bar) always works without wake word requirement
-  - Speech input requires wake word prefix to be processed
-  - Easy to modify - just change WAKE_WORD constant in config file
-
-# Recent Changes (October 1, 2025)
-
-## Fixed Issues
-- ✅ **Complete Voice Response Pipeline**: Chango can now answer questions via STT → NLP → TTS
-  - Fixed critical wake word detection bug: Now checks for "Chango" BEFORE shouldIgnoreInput filter
-  - Fixed recognizer race condition: Properly serializes stop/start operations with promise-based waiting
-  - Fixed self-wake issue: TTS output won't trigger wake word detection during speech
-  - Added comprehensive debug logging for troubleshooting voice flow
-  - Connected `/api/nlp/reply` endpoint to voice synthesis
-  - Added "Ask" button fallback for manual text input
-  - Tested and working: "what time is it?", "who are you?", etc.
-  
-- ✅ **Curiosity Engine Fix**: Prevented Chango from talking randomly when in WAKE mode
-  - Added Voice mode checking to CuriosityEngine component
-  - Curiosity responses now only occur in ACTIVE mode, not WAKE/MUTED/KILLED
-  - Console logs confirm fix working: "[CuriosityEngine] Skipping auto response - Voice mode is WAKE"
-  - System properly respects wake word requirement - only responds to "Chango" trigger
-  
-## Previous Fixes (September 2025)
-- ✅ **Self-Listening Loop Prevention**: Comprehensive voice system improvements
-  - **Hard-gate STT during TTS**: Speech recognition disabled while Chango speaks with 800ms buffer
-  - **Echo cancellation**: Browser-level audio processing (echo cancellation, noise suppression, auto gain control)
-  - **WAKE mode default**: System requires "Chango" wake word to activate 10-second listening window
-  - **No random replies**: Voice input ignored unless explicitly activated
-  - **Single recognizer instance**: Properly serialized stop/start prevents duplicate listeners
-  
-- ✅ **Stack Overflow Fix**: Resolved Maximum call stack size exceeded error in voice control system
-  - Implemented singleton VoiceController with ACTIVE/MUTED/KILLED/WAKE state management
-  - Added execution guards to prevent concurrent prosody executions
-  - Fixed circular dependencies between Voice controller and VoiceBus
-  - Added HMR-safe initialization to prevent duplicate listeners
-  - Implemented audit logging for debugging voice state changes
-  - Added Kill/Revive functionality with passphrase protection for emergency control
-  - Fixed mute toggle stack overflow with re-entrancy guard in cancelSpeak()
-  - Implemented async event emission with queueMicrotask() to break synchronous loops
-  - System now handles rapid control toggling without errors
-
-## Completed Features (October 2, 2025)
-- ✅ **UI Mode Toggle**: Dynamic interface switching between Header and Sphere modes
-  - Toggle switch in top-right corner for switching between compact header bar and holographic sphere
-  - Header mode: Futuristic HUD-style status bar with system status indicators
-  - Sphere mode: Jarvis-style floating holographic orb with animated rings and particle effects
-  - Preference persists to localStorage for consistent experience across sessions
-  - State-based visual feedback (idle/listening/speaking/error) ready for voice integration
-
-## Completed Features (September 29, 2025)
-- ✅ **Hands-Free Wake Word System**: Complete voice-activated interaction with "Chango..." trigger
-  - Wake word detection with customizable trigger phrase (default: "chango")
-  - Speech-to-text via Web Speech API for command processing
-  - NLP reply endpoint for natural language responses
-  - Cooldown period (2.5s) to prevent rapid triggers
-  - Maximum utterance time (8s) for commands
-  - UI controls for enabling/disabling and customizing wake word
-  - Real-time status indicators (listening, processing, cooldown)
-- ✅ **Voice Activity Detection (VAD)**: Advanced speech detection system to prevent random talking
-  - Auto Listen checkbox enables VAD requirement
-  - Visual indicators for speech detection and audio levels
-  - Anti-loop guard prevents overlapping speech
-  - Human speech detection within 30-second window
-  - User-initiated actions (chat, buttons) always work regardless of VAD
-- ✅ **Voice Intelligence System**: Advanced voice analysis and profile management
-  - POST `/api/voice/intel/analyze` - Analyzes audio samples for pitch, rate, energy features
-  - POST `/api/voice/intel/profile/save` - Saves voice profiles with custom features
-  - GET `/api/voice/intel/profile/list` - Lists all saved voice profiles
-  - GET `/api/voice/intel/profile/get/:id` - Retrieves specific voice profile
-  - DELETE `/api/voice/intel/profile/delete/:id` - Deletes voice profiles
-  - POST `/api/voice/intel/style` - Applies accent/gender style presets
-  - Voice profiles stored in `data/voice/` as JSON files
-  - UI for recording, analyzing, and managing voice profiles
-- ✅ **Voice Analysis API**: Foundation endpoints for future voice features
-  - POST `/api/voice/analyze` - Analyzes WAV audio for voice characteristics
-  - POST `/api/voice/clone` - Saves voice profile from analysis
-  - POST `/api/voice/mimic` - Generates speech using saved profile (stub)
-  - POST `/api/voice/accent/fix` - Fixes accent in audio (stub)
-- ✅ **MCP Server Integration**: Clean MCP server implementation for ChatGPT connector support
-  - Working endpoints at `/mcp` and `/mcp/write_file` 
-  - Token authentication via `MCP_TOKEN` environment variable
-  - Successfully tested with public URL access
-- ✅ **Quiet Mode Button**: Added toggle to stop Chango's random chatter
-  - Located in Curiosity Engine card header
-  - Clear visual indicators for Active/Quiet modes
-  - Preserves normal chat functionality
-- ✅ **Voice System Status**: CVE (Chango Voice Engine) fully operational
-  - Advanced prosody control with emotion variations
-  - Multiple accent profiles (British RP, Southern US, etc.)
-  - Voice profile learning from recordings
-  - Real-time voice visualizer
-- ✅ **Diagnostics Dashboard v2**: Enhanced system monitoring with persistent metrics
-  - Persistent time-series metrics collection every 5 seconds
-  - JSONL storage format in `data/metrics/metrics-YYYYMMDD.jsonl` files
-  - Real-time memory usage and CPU load charts (last ~180 data points)
-  - Export functionality to download all metrics as ZIP archive
-  - Collapsible route listing showing all API endpoints
-  - Secured with token authentication (`DIAGNOSTICS_TOKEN`)
-
-## MCP Endpoints Available
-- Discovery: `https://[your-replit-domain]/mcp?token=mcp-connect-chatgpt`
-- Write File: `https://[your-replit-domain]/mcp/write_file?token=mcp-connect-chatgpt`
+Chango AI is a full-stack TypeScript application featuring a React frontend and Node.js/Express backend with PostgreSQL. It provides advanced voice synthesis and accent emulation capabilities using its proprietary Chango Voice Engine (CVE). Key functionalities include speech synthesis with various accents, custom voice profile creation from recordings, and an interactive holographic interface that delivers curiosity-driven, natural, and personality-driven AI responses. The system also incorporates robust voice security features like voiceprint authentication and advanced voice activity detection (VAD).
 
 # User Preferences
 
@@ -132,92 +8,48 @@ Preferred communication style: Simple, everyday language.
 
 # System Architecture
 
-## Frontend Architecture
-The client-side is built with React 18 and TypeScript, using Vite as the build tool. The UI framework is based on shadcn/ui components with Radix UI primitives, styled using Tailwind CSS with custom theming support. State management is handled through TanStack Query for server state and local React hooks for component state.
+## UI/UX Decisions
+The frontend is built with React 18, TypeScript, and Vite. It leverages shadcn/ui components with Radix UI primitives, styled using Tailwind CSS for custom theming. The UI supports dynamic interface switching between a compact Header mode and a holographic Sphere mode, with preferences persisting in local storage. Visual feedback for voice status (idle, listening, speaking, error) is integrated.
 
-Key design patterns include:
-- **Component-based architecture**: Modular React components for each feature (voice controls, accent emulator, holographic interface)
-- **Custom hooks pattern**: Reusable hooks for voice synthesis, audio recording, and hologram animations
-- **Query-based data fetching**: TanStack Query for efficient server communication and caching
-- **Theme system**: CSS variables with dual theme support (classic/hud modes)
+## Technical Implementations
+The application employs a component-based architecture with custom React hooks for modularity and reusability. State management utilizes TanStack Query for server state and local React hooks for component state. The backend is an Express.js server with TypeScript, following a layered architecture with modular routes, centralized error handling, and request logging. It includes features like a hands-free wake word system, advanced voice activity detection (VAD), and a curiosity engine for dynamic AI responses. Voice security includes local voiceprint authentication, VAD, and barge-in capabilities.
 
-## Backend Architecture
-The server is built with Express.js and TypeScript, following a layered architecture pattern. The system uses a modular route structure with centralized error handling and request logging middleware.
+## Feature Specifications
+- **Chango Voice Engine (CVE)**: Proprietary engine for phrase-level synthesis, preserving punctuation, dynamic prosody (pitch, rate, volume variations for emotion), natural speech features (intonation, emphasis, pauses), and a rule-based accent engine. It also supports audio analysis and automated voice profile generation.
+- **Voice Intelligence System**: API endpoints for analyzing audio samples, saving, listing, retrieving, and deleting voice profiles, and applying accent/gender style presets. Voice profiles are stored as JSON files.
+- **Wake Word System**: Centralized configuration for "Chango" and its variations, enabling voice-activated interaction with a cooldown period and maximum utterance time.
+- **Voice Security**: Voiceprint authentication using 13-MFCC mean vector extraction, cosine similarity matching, VAD with energy/spectral flux detection, and barge-in functionality.
+- **Holographic Interface**: Canvas-based particle system with "awakened" and "sentinel" modes, providing real-time voice visualization.
+- **Diagnostics Dashboard**: Enhanced monitoring with persistent time-series metrics storage, real-time memory/CPU charts, export functionality, and secured API endpoint listing.
 
-Core architectural decisions:
-- **Storage abstraction**: Interface-based storage layer supporting both in-memory and database implementations
-- **Middleware pipeline**: Request logging, JSON parsing, and error handling middleware
-- **File upload handling**: Multer integration for audio file processing
-- **Development tooling**: Vite integration for hot reloading in development
-
-## Data Layer
-The application uses Drizzle ORM with PostgreSQL as the primary database, configured with Neon Database serverless driver. The schema includes three main entities:
-
-- **Voice Profiles**: Store accent configurations, audio features, and synthesis parameters
-- **System Settings**: User preferences, theme selection, and AI behavior settings  
-- **Curiosity Logs**: Track AI interactions and learning patterns
-
-Database design principles:
-- **UUID primary keys**: For distributed system compatibility
-- **JSONB columns**: For flexible audio feature storage and contextual data
-- **Timestamp tracking**: Automatic creation timestamps for audit trails
-
-## Voice Processing Engine
-The voice synthesis system implements the proprietary Chango Voice Engine (CVE) with advanced prosody control:
-
-- **Phrase-level synthesis**: CVE-2-Phrase engine processes text into natural conversational phrases
-- **Preserved punctuation**: Maintains all punctuation for proper pauses and intonation
-- **Dynamic prosody**: Emotional variations (15-40% pitch, 5-15% rate, 10-15% volume)
-- **Natural speech features**: Rising intonation for questions, emphasis for exclamations, thoughtful pauses for ellipses
-- **Accent engine**: Rule-based text processing for various accent profiles (British RP, Southern US, etc.)
-- **Audio analysis**: Web Audio API for extracting voice characteristics from recordings
-- **Profile generation**: Automated voice profile creation from audio samples
-
-## Real-time Features
-The application includes animated components for visual feedback:
-
-- **Holographic interface**: Canvas-based particle system with dual modes (awakened/sentinel)
-- **Voice visualizer**: Real-time audio feedback during speech synthesis
-- **Curiosity engine**: Dynamic response generation based on user interactions
-
-## Security and Error Handling
-- **Input validation**: Zod schemas for request validation
-- **File upload restrictions**: MIME type filtering and size limits for audio files
-- **Error boundaries**: Centralized error handling with user-friendly messages
-- **CORS configuration**: Proper cross-origin request handling
+## System Design Choices
+- **Data Layer**: Drizzle ORM with PostgreSQL (via Neon Database serverless driver) for data persistence. Schema includes Voice Profiles, System Settings, and Curiosity Logs, using UUID primary keys, JSONB columns for flexible data, and timestamp tracking.
+- **Security & Error Handling**: Input validation with Zod schemas, file upload restrictions (MIME type, size), centralized error boundaries, and CORS configuration.
+- **Real-time Features**: Animated components for visual feedback, including a holographic interface and voice visualizer.
+- **Voice Control System**: Singleton VoiceController with ACTIVE/MUTED/KILLED/WAKE state management, execution guards, HMR-safe initialization, kill/revive functionality, and async event emission to prevent self-listening loops and stack overflows.
 
 # External Dependencies
 
 ## Core Framework Dependencies
-- **React ecosystem**: React 18, React Router (wouter), React Hook Form with resolvers
-- **UI library**: Radix UI primitives with shadcn/ui component system
-- **Styling**: Tailwind CSS with custom CSS variables for theming
-- **Build tools**: Vite with TypeScript support and development plugins
+- **Frontend**: React 18, React Router (wouter), React Hook Form
+- **UI**: Radix UI primitives, shadcn/ui
+- **Styling**: Tailwind CSS
+- **Build Tools**: Vite, TypeScript
 
 ## Backend Infrastructure
-- **Express.js**: Web framework with TypeScript support
-- **Drizzle ORM**: Type-safe database operations with PostgreSQL dialect
-- **Neon Database**: Serverless PostgreSQL hosting (@neondatabase/serverless)
-- **File processing**: Multer for multipart form data handling
+- **Web Framework**: Express.js
+- **ORM**: Drizzle ORM
+- **Database**: PostgreSQL (via @neondatabase/serverless)
+- **File Handling**: Multer
 
 ## Database and Storage
-- **PostgreSQL**: Primary database via Neon serverless
-- **Session management**: connect-pg-simple for PostgreSQL-based sessions
-- **Migration system**: Drizzle Kit for database schema management
-
-## Development and Deployment
-- **TypeScript**: Full-stack type safety with shared schema definitions
-- **Replit integration**: Custom Vite plugins for development environment
-- **Build system**: ESBuild for server bundling, Vite for client assets
-- **Package management**: NPM with lockfile for reproducible builds
+- **Session Management**: connect-pg-simple
+- **Schema Management**: Drizzle Kit
 
 ## Audio and Voice Processing
-- **Web APIs**: Speech Synthesis API and Web Audio API for browser-based processing
-- **Audio analysis**: Custom implementations using Web Audio API for feature extraction
-- **File formats**: Support for various audio formats with MIME type validation
+- **Browser APIs**: Web Speech API (Speech Synthesis API), Web Audio API
 
 ## UI and Animation
-- **Lucide React**: Icon library for consistent iconography
-- **Class Variance Authority**: Type-safe CSS class management
-- **Date handling**: date-fns for timestamp formatting and manipulation
-- **Animation**: CSS-based animations with Tailwind transitions and custom keyframes
+- **Icons**: Lucide React
+- **CSS Utility**: Class Variance Authority
+- **Date Handling**: date-fns

@@ -115,6 +115,16 @@ class AlwaysListenManager {
   private microphoneMuted: boolean = false;
   private permissionCheckTimer: NodeJS.Timeout | null = null;
   private lastPermissionCheck: number = 0;
+  
+  // Exponential backoff and consecutive failure tracking
+  private consecutiveFailures: number = 0;
+  private currentRetryDelay: number = 500; // Start at 500ms
+  private readonly MAX_RETRY_DELAY: number = 10000; // Max 10 seconds
+  private readonly MAX_CONSECUTIVE_FAILURES: number = 10;
+  private readonly MUTED_RETRY_DELAY: number = 5000; // 5 seconds for muted mic
+  private isPausedForRecovery: boolean = false;
+  private lastSuccessfulRecognition: number = Date.now();
+  private errorMessage: string = '';
 
   constructor() {
     this.config = {
@@ -397,6 +407,12 @@ class AlwaysListenManager {
       this.restartAttempts = 0;
       this.hasPermission = true;
       
+      // Reset consecutive failures on successful start
+      this.consecutiveFailures = 0;
+      this.currentRetryDelay = 500; // Reset to initial delay
+      this.isPausedForRecovery = false;
+      this.errorMessage = '';
+      
       // Send heartbeat
       beat('stt', { status: 'started' });
       
@@ -465,6 +481,13 @@ class AlwaysListenManager {
   private handleResults(event: SpeechRecognitionEvent): void {
     console.log('[AlwaysListen] 📝 Processing recognition results...');
     
+    // Reset consecutive failures on successful recognition
+    this.consecutiveFailures = 0;
+    this.currentRetryDelay = 500; // Reset to initial delay
+    this.lastSuccessfulRecognition = Date.now();
+    this.isPausedForRecovery = false;
+    this.errorMessage = '';
+    
     // Send heartbeat
     beat('stt', { hasResults: true });
     
@@ -512,21 +535,50 @@ class AlwaysListenManager {
     }
     this.lastErrorTime = now;
 
+    // Increment consecutive failures
+    this.consecutiveFailures++;
+
     console.warn('[AlwaysListen] Recognition error:', event.error, event.message || '');
+    console.log('[AlwaysListen] Consecutive failures:', this.consecutiveFailures, '/', this.MAX_CONSECUTIVE_FAILURES);
+    
+    // Store error message for UI display
+    this.errorMessage = event.message || event.error;
     
     if (FEATURES.DEBUG_BUS) {
       debugBus.warn('AlwaysListen', `Error: ${event.error}`, { 
         message: event.message,
-        errorCount: this.errorCount 
+        errorCount: this.errorCount,
+        consecutiveFailures: this.consecutiveFailures,
+        retryDelay: this.currentRetryDelay
       });
+    }
+
+    // Check if we've hit the max consecutive failures
+    if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
+      console.error('[AlwaysListen] Max consecutive failures reached. Pausing STT for manual recovery.');
+      this.isPausedForRecovery = true;
+      this.state = 'error';
+      
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.error('AlwaysListen', 'STT paused - manual recovery needed', {
+          consecutiveFailures: this.consecutiveFailures,
+          errorMessage: this.errorMessage,
+          lastSuccessfulRecognition: new Date(this.lastSuccessfulRecognition).toISOString()
+        });
+      }
+      
+      // Don't auto-restart when paused for recovery
+      return;
     }
 
     switch (event.error) {
       case 'no-speech':
-        // Normal timeout - just restart
+        // Normal timeout - restart quickly but with backoff
         console.log('[AlwaysListen] No speech detected, will restart');
-        if (this.isEnabled) {
-          this.scheduleRestart(100);
+        if (this.isEnabled && !this.isPausedForRecovery) {
+          // Use exponential backoff for consecutive no-speech errors
+          this.scheduleRestart(this.currentRetryDelay);
+          this.currentRetryDelay = Math.min(this.currentRetryDelay * 1.5, this.MAX_RETRY_DELAY);
         }
         break;
 
@@ -562,8 +614,9 @@ class AlwaysListenManager {
         
         // Check if it's because the source is muted
         if (event.message && event.message.includes('muted')) {
-          console.warn('[AlwaysListen] Microphone appears to be muted');
+          console.warn('[AlwaysListen] 🔇 Microphone appears to be muted');
           this.microphoneMuted = true;
+          this.errorMessage = 'Microphone is muted - please unmute to use voice commands';
           
           // Check actual permission/device state
           const micStatus = await this.checkMicrophonePermission();
@@ -571,18 +624,26 @@ class AlwaysListenManager {
           if (!micStatus.hasPermission) {
             console.error('[AlwaysListen] No microphone permission');
             this.hasPermission = false;
+            this.errorMessage = 'Microphone permission denied';
             this.startPermissionMonitoring();
           } else if (micStatus.microphoneMuted) {
-            console.warn('[AlwaysListen] Microphone is muted at browser/OS level');
+            console.warn('[AlwaysListen] 🔇 Microphone is muted at browser/OS level');
             if (FEATURES.DEBUG_BUS) {
-              debugBus.warn('AlwaysListen', 'Microphone muted', { 
-                message: 'Please unmute your microphone to use voice commands'
+              debugBus.warn('AlwaysListen', 'Microphone muted - waiting 5s before retry', { 
+                message: 'Please unmute your microphone to use voice commands',
+                nextRetryIn: this.MUTED_RETRY_DELAY
               });
             }
             // Start monitoring for when mic becomes unmuted
             this.startMicrophoneMonitoring();
+            
+            // Use longer delay for muted microphone (5 seconds)
+            if (this.isEnabled && !this.isPausedForRecovery) {
+              this.scheduleRestart(this.MUTED_RETRY_DELAY);
+            }
           } else if (!micStatus.microphoneAvailable) {
             console.error('[AlwaysListen] No microphone device available');
+            this.errorMessage = 'No microphone detected - please connect a microphone';
             if (FEATURES.DEBUG_BUS) {
               debugBus.error('AlwaysListen', 'No microphone device', { 
                 message: 'Please connect a microphone to use voice commands'
@@ -590,15 +651,22 @@ class AlwaysListenManager {
             }
             // Start monitoring for when mic becomes available
             this.startMicrophoneMonitoring();
+            
+            // Use exponential backoff
+            if (this.isEnabled && !this.isPausedForRecovery) {
+              this.scheduleRestart(this.currentRetryDelay);
+              this.currentRetryDelay = Math.min(this.currentRetryDelay * 2, this.MAX_RETRY_DELAY);
+            }
+          }
+        } else {
+          // Other audio capture error - use exponential backoff
+          if (this.isEnabled && !this.isPausedForRecovery) {
+            this.scheduleRestart(this.currentRetryDelay);
+            this.currentRetryDelay = Math.min(this.currentRetryDelay * 2, this.MAX_RETRY_DELAY);
           }
         }
         
         this.state = 'error';
-        
-        // Try to restart after delay
-        if (this.isEnabled && this.restartAttempts < this.config.maxRestartAttempts) {
-          this.scheduleRestart(3000);
-        }
         break;
 
       case 'network':
@@ -952,6 +1020,51 @@ class AlwaysListenManager {
   }
 
   /**
+   * Manual recovery - force restart the STT system
+   * This clears error states and resets retry delays
+   */
+  async forceRestart(): Promise<void> {
+    console.log('[AlwaysListen] 🔧 Force restart requested');
+    
+    // Reset all error states
+    this.consecutiveFailures = 0;
+    this.currentRetryDelay = 500;
+    this.isPausedForRecovery = false;
+    this.errorMessage = '';
+    this.restartAttempts = 0;
+    this.errorCount = 0;
+    
+    // Clear any pending restart timer
+    this.clearTimers();
+    
+    // Stop current recognition if active
+    if (this.recognition && (this.state === 'listening' || this.state === 'starting')) {
+      try {
+        this.recognition.abort();
+      } catch (error) {
+        console.warn('[AlwaysListen] Error aborting during force restart:', error);
+      }
+    }
+    
+    // Update state
+    this.state = 'idle';
+    
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('AlwaysListen', 'Force restart initiated', {
+        wasEnabled: this.isEnabled,
+        hadPermission: this.hasPermission
+      });
+    }
+    
+    // Re-enable if it was enabled
+    if (this.isEnabled) {
+      // Small delay to ensure clean restart
+      await new Promise(resolve => setTimeout(resolve, 100));
+      await this.startRecognition();
+    }
+  }
+  
+  /**
    * Get current status
    */
   getStatus(): {
@@ -963,6 +1076,10 @@ class AlwaysListenManager {
     errorCount: number;
     microphoneAvailable: boolean;
     microphoneMuted: boolean;
+    consecutiveFailures: number;
+    isPausedForRecovery: boolean;
+    errorMessage: string;
+    currentRetryDelay: number;
   } {
     return {
       isEnabled: this.isEnabled,
@@ -972,7 +1089,11 @@ class AlwaysListenManager {
       restartAttempts: this.restartAttempts,
       errorCount: this.errorCount,
       microphoneAvailable: this.microphoneAvailable,
-      microphoneMuted: this.microphoneMuted
+      microphoneMuted: this.microphoneMuted,
+      consecutiveFailures: this.consecutiveFailures,
+      isPausedForRecovery: this.isPausedForRecovery,
+      errorMessage: this.errorMessage,
+      currentRetryDelay: this.currentRetryDelay
     };
   }
 

@@ -14,6 +14,9 @@ interface HealthState {
   ttsStartTime: number | null;
   isTtsSpeaking: boolean;
   isMonitoring: boolean;
+  consecutiveSttStuckChecks: number;
+  lastRecoveryAttempt: number;
+  sttErrorCount: number;
 }
 
 class HealthMonitor {
@@ -23,8 +26,14 @@ class HealthMonitor {
     lastTtsHeartbeat: Date.now(),
     ttsStartTime: null,
     isTtsSpeaking: false,
-    isMonitoring: false
+    isMonitoring: false,
+    consecutiveSttStuckChecks: 0,
+    lastRecoveryAttempt: 0,
+    sttErrorCount: 0
   };
+  
+  private readonly MIN_RECOVERY_INTERVAL = 30000; // 30 seconds between recovery attempts
+  private readonly MAX_STT_STUCK_CHECKS = 3; // Try 3 times before manual recovery
   
   private monitorInterval: NodeJS.Timeout | null = null;
   
@@ -137,9 +146,72 @@ class HealthMonitor {
       
       // Check STT health (12 second timeout)
       const sttAge = now - this.state.lastSttHeartbeat;
-      if (sttAge > 12000) {
-        console.warn('[HealthMonitor] STT appears stuck, attempting restart...');
+      
+      // Import alwaysListen dynamically to avoid circular dependency
+      const alwaysListen = (window as any).alwaysListen;
+      
+      // Get STT status if available
+      const sttStatus = alwaysListen?.getStatus?.() || {};
+      
+      // Check if STT is stuck or in error state
+      const sttStuck = sttAge > 12000;
+      const sttError = sttStatus.state === 'error';
+      const sttPaused = sttStatus.isPausedForRecovery;
+      
+      if (sttStuck || sttError) {
+        // Check if we're already paused for recovery
+        if (sttPaused) {
+          console.log('[HealthMonitor] STT paused for manual recovery, skipping auto-restart');
+          this.state.consecutiveSttStuckChecks = 0; // Reset counter
+          return;
+        }
+        
+        // Increment consecutive stuck checks
+        this.state.consecutiveSttStuckChecks++;
+        
+        // Check if we've reached max attempts
+        if (this.state.consecutiveSttStuckChecks >= this.MAX_STT_STUCK_CHECKS) {
+          console.error('[HealthMonitor] Max STT stuck checks reached, manual recovery needed');
+          
+          if (FEATURES.DEBUG_BUS) {
+            debugBus.error('Health', 'stt_max_recovery_attempts', {
+              consecutiveChecks: this.state.consecutiveSttStuckChecks,
+              sttAge,
+              sttError: sttStatus.errorMessage
+            });
+          }
+          
+          // Force pause for manual recovery
+          if (alwaysListen?.forceRestart) {
+            console.log('[HealthMonitor] Attempting force restart as last resort');
+            alwaysListen.forceRestart();
+          }
+          
+          this.state.consecutiveSttStuckChecks = 0; // Reset counter after forced restart
+          this.state.lastRecoveryAttempt = now;
+          return;
+        }
+        
+        // Check if enough time has passed since last recovery attempt
+        if (now - this.state.lastRecoveryAttempt < this.MIN_RECOVERY_INTERVAL) {
+          console.log('[HealthMonitor] Too soon since last recovery, waiting...');
+          return;
+        }
+        
+        console.warn('[HealthMonitor] STT appears stuck, attempting restart...', {
+          sttAge,
+          sttError,
+          attempt: this.state.consecutiveSttStuckChecks
+        });
+        
         this.restartStt();
+        this.state.lastRecoveryAttempt = now;
+      } else {
+        // STT is healthy, reset counter
+        if (this.state.consecutiveSttStuckChecks > 0) {
+          console.log('[HealthMonitor] STT recovered, resetting counter');
+          this.state.consecutiveSttStuckChecks = 0;
+        }
       }
       
       // Check TTS health (10 second stuck timeout)

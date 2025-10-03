@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { voiceBus } from "@/voice/voiceBus";
 import { alwaysListen } from "@/voice/always_listen";
 import { requestMicrophonePermission, getLoloStatus } from "@/app/bootstrap";
-import { Mic, MicOff, Volume2, Power } from "lucide-react";
+import { Mic, MicOff, Volume2, Power, AlertTriangle, RefreshCcw, Loader2 } from "lucide-react";
 
 export default function VoiceControls() {
   const [isListening, setIsListening] = useState(false);
@@ -15,6 +15,8 @@ export default function VoiceControls() {
   const [isInitializing, setIsInitializing] = useState(false);
   const [lastTranscript, setLastTranscript] = useState('');
   const [listeningPulse, setListeningPulse] = useState(false);
+  const [sttStatus, setSttStatus] = useState<any>({});
+  const [isRecovering, setIsRecovering] = useState(false);
 
   // Request microphone permission
   const handleRequestPermission = async () => {
@@ -46,6 +48,31 @@ export default function VoiceControls() {
       });
     }
   };
+  
+  // Handle manual recovery
+  const handleForceRestart = async () => {
+    setIsRecovering(true);
+    console.log('[VoiceControls] Initiating force restart...');
+    
+    try {
+      // Force restart the STT system
+      await alwaysListen.forceRestart();
+      console.log('[VoiceControls] Force restart successful');
+      
+      // Try to start listening if permission is granted
+      const status = alwaysListen.getStatus();
+      if (status.hasPermission && !status.isListening) {
+        await alwaysListen.start();
+      }
+      
+      // Clear any error messages
+      setSttStatus(alwaysListen.getStatus());
+    } catch (error) {
+      console.error('[VoiceControls] Force restart failed:', error);
+    } finally {
+      setIsRecovering(false);
+    }
+  };
 
   // Setup event listeners
   useEffect(() => {
@@ -74,6 +101,7 @@ export default function VoiceControls() {
       const status = alwaysListen.getStatus();
       setIsListening(status.isListening);
       setMicPermission(status.hasPermission ? 'granted' : 'prompt');
+      setSttStatus(status);
       
       // Also check overall Lolo status
       const loloStatus = getLoloStatus();
@@ -197,6 +225,69 @@ export default function VoiceControls() {
           <p>• Just speak naturally and Lolo will respond</p>
           <p>• Listening pauses when tab is hidden</p>
         </div>
+
+        {/* Error Status Display */}
+        {sttStatus.state === 'error' && (
+          <Alert variant="destructive" className="mt-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Speech Recognition Error</AlertTitle>
+            <AlertDescription>
+              <div className="space-y-2">
+                {sttStatus.microphoneMuted && (
+                  <p className="font-semibold">🔇 Microphone is muted - please unmute to use voice commands</p>
+                )}
+                {sttStatus.errorMessage && (
+                  <p className="text-sm">{sttStatus.errorMessage}</p>
+                )}
+                {sttStatus.isPausedForRecovery && (
+                  <div className="bg-red-900/20 p-2 rounded mt-2">
+                    <p className="font-semibold">⚠️ STT Paused - Manual recovery needed</p>
+                    <p className="text-xs mt-1">
+                      {sttStatus.consecutiveFailures} consecutive failures detected
+                    </p>
+                  </div>
+                )}
+                {sttStatus.consecutiveFailures > 0 && !sttStatus.isPausedForRecovery && (
+                  <p className="text-xs text-muted-foreground">
+                    Retry #{sttStatus.consecutiveFailures} - Next retry in {Math.round(sttStatus.currentRetryDelay / 1000)}s
+                  </p>
+                )}
+              </div>
+              
+              {/* Recovery Button */}
+              <Button
+                onClick={handleForceRestart}
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                disabled={isRecovering}
+                data-testid="button-force-restart"
+              >
+                {isRecovering ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Recovering...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCcw className="mr-2 h-4 w-4" />
+                    Force Restart STT
+                  </>
+                )}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Debug Info */}
+        {sttStatus.state && import.meta.env.DEV && (
+          <div className="mt-4 p-3 bg-secondary/50 rounded-lg text-xs space-y-1">
+            <p>STT State: <span className="font-mono">{sttStatus.state}</span></p>
+            <p>Consecutive Failures: <span className="font-mono">{sttStatus.consecutiveFailures || 0}/10</span></p>
+            <p>Current Retry Delay: <span className="font-mono">{sttStatus.currentRetryDelay || 500}ms</span></p>
+            <p>Microphone: {sttStatus.microphoneMuted ? '🔇 Muted' : sttStatus.microphoneAvailable ? '✅ Available' : '❌ Not available'}</p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

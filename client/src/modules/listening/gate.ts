@@ -9,7 +9,7 @@ import { containsWakeWord, removeWakeWord, WAKE_WORD } from '../../config/wakewo
 interface GateResult {
   allowed: boolean;
   text: string;
-  reason: "wake" | "typed" | "blocked";
+  reason: "wake" | "typed" | "ping" | "blocked";
 }
 
 /**
@@ -63,6 +63,17 @@ export function passGate(text: string, typed: boolean = false): GateResult {
   if (isAddressedToLolo(text)) {
     // Strip the wake word before passing through
     const processedText = stripWakeWord(text);
+    
+    // Check if it's just the wake word alone (a "ping")
+    if (processedText.trim() === '' || processedText.trim().length === 0) {
+      console.log('[Gate] Bare wake word detected (ping) - allowing through with acknowledge:', text);
+      return {
+        allowed: true,
+        text: 'acknowledge',
+        reason: "ping"
+      };
+    }
+    
     console.log('[Gate] Wake word detected - allowing through:', text, '->', processedText);
     return {
       allowed: true,

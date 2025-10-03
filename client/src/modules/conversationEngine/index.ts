@@ -278,9 +278,11 @@ async function handle(raw: string, typed: boolean = false): Promise<void> {
         reason: gateResult.reason,
         typed 
       });
+      console.log(`[ConversationEngine] ✅ Gate PASSED - reason: ${gateResult.reason}, text: "${gateResult.text}"`);
+      
       // Send gate heartbeat
       try {
-        beat('gate', { passed: true, text: gateResult.text });
+        beat('gate', { passed: true, text: gateResult.text, reason: gateResult.reason });
       } catch (error) {
         console.error('[ConversationEngine] Error sending gate heartbeat:', error);
       }
@@ -291,6 +293,8 @@ async function handle(raw: string, typed: boolean = false): Promise<void> {
         reason: gateResult.reason,
         typed 
       });
+      console.log(`[ConversationEngine] 🚫 Gate BLOCKED - reason: ${gateResult.reason}, text: "${raw}"`);
+      
       // Send gate heartbeat for blocked events too
       try {
         beat('gate', { passed: false, text: raw, reason: gateResult.reason });
@@ -303,6 +307,24 @@ async function handle(raw: string, typed: boolean = false): Promise<void> {
   // If not allowed through gate, don't process further
   if (!gateResult.allowed) {
     console.log(`[ConversationEngine] 🚫 ${inputType} blocked by gate:`, gateResult.reason);
+    return;
+  }
+  
+  // Handle "ping" reason specially - user just said the wake word alone
+  if (gateResult.reason === "ping") {
+    console.log('[ConversationEngine] 🔔 Wake word PING detected - responding with acknowledgment');
+    const ackResponse = "Yes?";
+    
+    // Emit response event for UI components
+    voiceBus.emit({
+      type: 'loloResponse',
+      text: ackResponse,
+      source: 'conversation'
+    });
+    
+    // Speak the acknowledgment
+    voiceOrchestrator.speak(ackResponse);
+    console.log('[ConversationEngine] Acknowledgment sent: "Yes?"');
     return;
   }
   

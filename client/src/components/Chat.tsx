@@ -1,9 +1,7 @@
 import { useState, useRef, useEffect } from "react";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, User } from "lucide-react";
+import { Bot, User } from "lucide-react";
 import { voiceBus } from "@/voice/voiceBus";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -12,14 +10,33 @@ import { useConversation } from "@/lib/conversationContext";
 
 export default function Chat() {
   const { messages, addUserMessage, addLoloMessage } = useConversation();
-  const [inputValue, setInputValue] = useState("");
+  // Removed inputValue - input is now handled by the global AskBar
   const [isTyping, setIsTyping] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  // Removed inputRef - no longer needed
   
   // Initialize speech coordination
   const speechCoordination = useSpeechCoordination();
+  
+  // Listen for user text submissions from the AskBar
+  useEffect(() => {
+    const unsubscribeUser = voiceBus.on('userTextSubmitted', (event) => {
+      if (event.text) {
+        console.log('[Chat] Received user text from AskBar:', event.text);
+        addUserMessage(event.text);
+        setIsTyping(true);
+        
+        // Mark chat as active
+        speechCoordination.setChatActive(true);
+        speechCoordination.setLastChatActivity(Date.now());
+      }
+    });
+    
+    return () => {
+      unsubscribeUser();
+    };
+  }, [addUserMessage, speechCoordination]);
   
   // Listen for Lolo responses from the conversation engine
   useEffect(() => {
@@ -75,40 +92,8 @@ export default function Chat() {
       });
     },
   });
-
-  const handleSendMessage = async () => {
-    if (!inputValue.trim()) return;
-    
-    const userMessage = inputValue.trim();
-    
-    console.log('[Chat] 📤 SENDING MESSAGE - START');
-    console.log('[Chat] Message text:', userMessage);
-    
-    // Add user message to UI
-    addUserMessage(userMessage);
-    setInputValue("");
-    setIsTyping(true);
-    
-    // Mark chat as active
-    speechCoordination.setChatActive(true);
-    speechCoordination.setLastChatActivity(Date.now());
-    
-    console.log('[Chat] 🚀 About to emit userTextSubmitted event');
-    console.log('[Chat] voiceBus available?', !!voiceBus);
-    console.log('[Chat] voiceBus.emitUserText available?', !!voiceBus.emitUserText);
-    
-    // Emit the message through voiceBus to be processed by the conversation engine
-    voiceBus.emitUserText(userMessage);
-    
-    console.log('[Chat] 📤 SENDING MESSAGE - COMPLETE');
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
+  
+  // Removed handleSendMessage and handleKeyPress - input is now handled by the global AskBar
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString("en-US", {
@@ -190,40 +175,16 @@ export default function Chat() {
           </div>
         </ScrollArea>
         
-        <div className="border-t border-border px-6 py-4">
-          <div className="flex gap-2">
-            <Input
-              ref={inputRef}
-              value={inputValue}
-              onChange={(e) => {
-                setInputValue(e.target.value);
-                // Mark chat activity when user is typing
-                if (e.target.value.trim()) {
-                  speechCoordination.setLastChatActivity(Date.now());
-                }
-              }}
-              onKeyPress={handleKeyPress}
-              placeholder="Type your message..."
-              disabled={isTyping}
-              className="flex-1"
-              data-testid="input-chat-message"
-            />
-            <Button
-              onClick={handleSendMessage}
-              disabled={!inputValue.trim() || isTyping}
-              size="icon"
-              data-testid="button-send-message"
-            >
-              <Send className="w-4 h-4" />
-            </Button>
-          </div>
-          {isSpeaking && (
-            <div className="flex items-center gap-2 mt-2">
+        {/* Input has been moved to the global AskBar at the bottom of the screen */}
+        {/* Only show speaking status indicator when Lolo is speaking */}
+        {isSpeaking && (
+          <div className="border-t border-border px-6 py-3">
+            <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
               <span className="text-xs text-muted-foreground">Lolo is speaking...</span>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

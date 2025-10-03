@@ -99,12 +99,21 @@ export function DebugOverlay() {
         const now = Date.now();
         const newHealth = { ...prev };
         
-        // STT events
-        if (event.module === 'STT') {
-          newHealth.lastSttActivity = now;
-          newHealth.stt = 'ok';
+        // STT events (both STT and AlwaysListen modules)
+        if (event.module === 'STT' || event.module === 'AlwaysListen') {
+          // Only mark as OK if it's a success event
+          if (event.message === 'Recognition started' || 
+              event.message === 'Speech detected' ||
+              event.message.includes('transcript')) {
+            newHealth.lastSttActivity = now;
+            newHealth.stt = 'ok';
+          }
           
-          if (event.type === 'error') {
+          // Mark as issue on errors or permission problems
+          if (event.type === 'error' || 
+              event.message === 'Permission denied' ||
+              event.message.includes('Cannot start') ||
+              event.message.includes('muted')) {
             newHealth.stt = 'issue';
           }
         }

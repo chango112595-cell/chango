@@ -1,0 +1,348 @@
+Perfect — here’s your single drop-in PASTE_ME_VOICEPRINT_VAD.md with everything stitched for your repo. Copy this whole thing into a file named exactly that and follow the paths.
+
+⸻
+
+PASTE_ME_VOICEPRINT_VAD.md — Voiceprint + VAD + Barge-in (Isolated Patch)
+
+Apply these blocks to your repo (create files if missing). All changes are isolated to the voice layer.
+
+⸻
+
+1) client/src/voice/security/voiceprint.ts (NEW)
+
+// Lightweight voiceprint: 13-MFCC mean vector + cosine match (local-only)
+export type Voiceprint = {
+  sr: number;
+  mfccMean: number[];
+  frames: number;
+  createdAt: number;
+  version: 1;
+};
+
+const MFCC_BINS = 26;
+const MFCC_DIM = 13;
+
+function hzToMel(hz:number){ return 2595 * Math.log10(1+hz/700); }
+function melToHz(mel:number){ return 700*(Math.pow(10,mel/2595)-1); }
+
+function buildMelFilters(fftSize:number, sr:number){
+  const nfft = fftSize/2;
+  const fmin = 20, fmax = sr/2;
+  const melMin = hzToMel(fmin), melMax = hzToMel(fmax);
+  const mels = Array.from({length: MFCC_BINS+2},(_,i)=> melMin + (i*(melMax-melMin))/(MFCC_BINS+1));
+  const hz = mels.map(m=> melToHz(m));
+  const bins = hz.map(h=> Math.floor((h/fmax)*nfft));
+  const filters:number[][]=[];
+  for(let m=1;m<=MFCC_BINS;m++){
+    const f:number[] = new Array(nfft).fill(0);
+    for(let k=bins[m-1]; k<bins[m]; k++) f[k] = (k - bins[m-1])/(bins[m]-bins[m-1] || 1);
+    for(let k=bins[m]; k<bins[m+1]; k++) f[k] = (bins[m+1]-k)/(bins[m+1]-bins[m] || 1);
+    filters.push(f);
+  }
+  return filters;
+}
+
+function dct(v:number[], dim=MFCC_DIM){
+  const N=v.length, out=new Array(dim).fill(0);
+  for(let k=0;k<dim;k++){
+    let s=0;
+    for(let n=0;n<N;n++) s += v[n]*Math.cos(Math.PI*k*(2*n+1)/(2*N));
+    out[k]=s*Math.sqrt(2/N);
+  }
+  out[0]*=Math.SQRT1_2;
+  return out;
+}
+
+function cosine(a:number[], b:number[]){
+  const N=Math.min(a.length,b.length);
+  let dp=0,na=0,nb=0;
+  for(let i=0;i<N;i++){ dp+=a[i]*b[i]; na+=a[i]*a[i]; nb+=b[i]*b[i]; }
+  return dp/(Math.sqrt(na)*Math.sqrt(nb)+1e-9);
+}
+
+export class VoiceprintEngine {
+  private ctx?: AudioContext;
+  private analyser?: AnalyserNode;
+  private source?: MediaStreamAudioSourceNode;
+  private filters?: number[][];
+  private buf!: Float32Array;
+  private mfccAcc = new Array(MFCC_DIM).fill(0);
+  private frames = 0;
+
+  async start(srHint?:number){
+    if(this.ctx) return;
+    this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: srHint});
+    const stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}});
+    this.source = this.ctx.createMediaStreamSource(stream);
+    this.analyser = this.ctx.createAnalyser();
+    this.analyser.fftSize = 2048;
+    this.buf = new Float32Array(this.analyser.frequencyBinCount);
+    this.filters = buildMelFilters(this.analyser.fftSize, this.ctx.sampleRate);
+    this.source.connect(this.analyser);
+  }
+
+  stop(){
+    this.ctx?.close(); this.ctx=undefined; this.analyser=undefined; this.source=undefined;
+    this.frames=0; this.mfccAcc.fill(0);
+  }
+
+  private frameMFCC(): number[] {
+    if(!this.analyser || !this.filters) return new Array(MFCC_DIM).fill(0);
+    this.analyser.getFloatFrequencyData(this.buf);
+    const mag = Array.from(this.buf, x => Math.pow(10, x/20));
+    const mel = this.filters.map(f => {
+      let s=0; for(let i=0;i<f.length;i++) s += f[i]*mag[i];
+      return Math.log(s+1e-9);
+    });
+    return dct(mel);
+  }
+
+  async enroll(seconds=7): Promise<Voiceprint>{
+    if(!this.ctx) await this.start();
+    this.frames=0; this.mfccAcc.fill(0);
+    const end = performance.now()+seconds*1000;
+    while(performance.now()<end){
+      const mfcc = this.frameMFCC();
+      for(let i=0;i<MFCC_DIM;i++) this.mfccAcc[i]+=mfcc[i];
+      this.frames++; await new Promise(r=>setTimeout(r,30));
+    }
+    const mean = this.mfccAcc.map(x=> x/Math.max(1,this.frames));
+    return { sr: this.ctx!.sampleRate, mfccMean: mean, frames: this.frames, createdAt: Date.now(), version: 1 };
+  }
+
+  similarity(print: Voiceprint): number {
+    const mfcc = this.frameMFCC();
+    return cosine(mfcc, print.mfccMean);
+  }
+}
+
+
+⸻
+
+2) client/src/voice/vad.ts (NEW)
+
+// Energy + spectral flux VAD with hysteresis; emits speech_start / speech_end
+export type VadEvent = { type:'speech_start'|'speech_end'; level:number };
+type Listener = (e:VadEvent)=>void;
+
+export class VAD {
+  private ctx?: AudioContext;
+  private analyser?: AnalyserNode;
+  private source?: MediaStreamAudioSourceNode;
+  private prevSpec?: Float32Array;
+  private listeners = new Set<Listener>();
+  private speaking=false;
+  private energyAlpha=0.9;
+  private avgEnergy=0;
+
+  on(fn:Listener){ this.listeners.add(fn); return ()=>this.listeners.delete(fn); }
+  private emit(ev:VadEvent){ for(const l of this.listeners) l(ev); }
+
+  async start(stream?:MediaStream){
+    if(this.ctx) return;
+    this.ctx=new (window.AudioContext || (window as any).webkitAudioContext)();
+    const ms = stream ?? await navigator.mediaDevices.getUserMedia({audio:true});
+    this.source=this.ctx.createMediaStreamSource(ms);
+    this.analyser=this.ctx.createAnalyser();
+    this.analyser.fftSize=1024;
+    this.source.connect(this.analyser);
+    this.loop();
+  }
+
+  stop(){ this.ctx?.close(); this.ctx=undefined; this.analyser=undefined; this.source=undefined; this.speaking=false; }
+
+  private async loop(){
+    if(!this.analyser) return;
+    const spec = new Float32Array(this.analyser.frequencyBinCount);
+    this.analyser.getFloatFrequencyData(spec);
+
+    const energy = spec.reduce((s,v)=> s + Math.pow(10, v/20), 0)/spec.length;
+    this.avgEnergy = this.energyAlpha*this.avgEnergy + (1-this.energyAlpha)*energy;
+
+    let flux=0;
+    if(this.prevSpec){
+      for(let i=0;i<spec.length;i++){
+        const m = Math.pow(10, spec[i]/20);
+        const p = Math.pow(10, this.prevSpec[i]/20);
+        flux += Math.max(0, m-p);
+      }
+      flux/=spec.length;
+    }
+    this.prevSpec = spec;
+
+    const level = 0.7*energy + 0.3*flux;
+    const thOn  = Math.max(0.002, 2.5*this.avgEnergy);
+    const thOff = Math.max(0.001, 1.3*this.avgEnergy);
+
+    if(!this.speaking && level > thOn){ this.speaking=true; this.emit({type:'speech_start', level}); }
+    else if(this.speaking && level < thOff){ this.speaking=false; this.emit({type:'speech_end', level}); }
+
+    requestAnimationFrame(()=>this.loop());
+  }
+}
+
+
+⸻
+
+3) client/src/state/voiceSecurity.ts (NEW)
+
+export type SecurityState = {
+  requireMatch: boolean;
+  threshold: number;
+  enrolled?: import('../voice/security/voiceprint').Voiceprint;
+};
+
+const KEY='chango.voice.security.v1';
+
+export const VoiceSecurity = {
+  load(): SecurityState{
+    try{ return JSON.parse(localStorage.getItem(KEY) || '') as SecurityState; }catch{}
+    return { requireMatch:false, threshold:0.82 };
+  },
+  save(s:SecurityState){ localStorage.setItem(KEY, JSON.stringify(s)); }
+};
+
+
+⸻
+
+4) client/src/hooks/useVoiceprint.ts (NEW)
+
+import { useEffect, useMemo, useState } from 'react';
+import { VoiceprintEngine } from '../voice/security/voiceprint';
+import { VoiceSecurity } from '../state/voiceSecurity';
+
+export function useVoiceprint(){
+  const [sec, setSec] = useState(VoiceSecurity.load());
+  const eng = useMemo(()=> new VoiceprintEngine(),[]);
+  useEffect(()=> VoiceSecurity.save(sec), [sec]);
+
+  async function enroll(seconds=7){
+    await eng.start();
+    const vp = await eng.enroll(seconds);
+    setSec(s=>({...s, enrolled: vp }));
+    return vp;
+  }
+
+  async function checkMatch(){
+    if(!sec.enrolled){ return {ok: !sec.requireMatch, score: 0}; }
+    await eng.start(sec.enrolled.sr);
+    const score = eng.similarity(sec.enrolled);
+    const ok = !sec.requireMatch || score >= sec.threshold;
+    return {ok, score};
+  }
+
+  function setRequireMatch(v:boolean){ setSec(s=>({...s, requireMatch:v })); }
+  function setThreshold(v:number){ setSec(s=>({...s, threshold:v })); }
+
+  return { sec, enroll, checkMatch, setRequireMatch, setThreshold };
+}
+
+
+⸻
+
+5) client/src/voice/orchestrator.ts (EDIT — integrate VAD + Voiceprint + Barge-in)
+
+import { useRef } from 'react';
+import { VAD } from './vad';
+import { useVoiceprint } from '../hooks/useVoiceprint';
+import { voiceBus } from './voiceBus';
+
+// Adapt this inside your existing orchestrator hook/component:
+export function useVoiceOrchestrator(){
+  // ...existing state/refs...
+  const vadRef = useRef<VAD>();
+  const { checkMatch } = useVoiceprint();
+
+  const startMic = async () => {
+    const gate = await checkMatch();
+    if(!gate.ok){
+      console.warn('Voice gate blocked. score=', gate.score.toFixed(2));
+      return;
+    }
+    await stt.start?.();
+
+    vadRef.current = vadRef.current ?? new VAD();
+    await vadRef.current.start(stt.currentStream);
+    vadRef.current.on(ev=>{
+      if(ev.type==='speech_start' && (window.speechSynthesis?.speaking)){
+        // barge-in: stop TTS so user can speak
+        voiceBus.cancelSpeak('system');
+      }
+      if(ev.type==='speech_end'){
+        // auto-idle after silence
+        setTimeout(()=> stt.stopIfIdle?.(), 1000);
+      }
+    });
+  };
+
+  const stopMic = async ()=> {
+    vadRef.current?.stop();
+    await stt.stop?.();
+  };
+
+  return { /* ...existing exports... */ startMic, stopMic };
+}
+
+
+⸻
+
+6) client/src/components/settings/SecurityPanel.tsx (NEW — UI)
+
+import React from 'react';
+import { useVoiceprint } from '../../hooks/useVoiceprint';
+
+export default function SecurityPanel(){
+  const { sec, enroll, setRequireMatch, setThreshold } = useVoiceprint();
+
+  return (
+    <div className="card">
+      <div className="row">
+        <strong>Voice Security</strong>
+        {sec.enrolled ? <span className="pill">Enrolled</span> : <span className="pill warn">Not enrolled</span>}
+      </div>
+
+      <div className="row">
+        <button onClick={()=> enroll(7)}>Enroll / Re-enroll</button>
+        <label>
+          <input type="checkbox" checked={!!sec.requireMatch} onChange={e=> setRequireMatch(e.target.checked)} />
+          Require match to accept commands
+        </label>
+      </div>
+
+      <div className="row">
+        <label>Match threshold: {sec.threshold.toFixed(2)}</label>
+        <input type="range" min={0.70} max={0.95} step={0.01}
+               value={sec.threshold}
+               onChange={e=> setThreshold(parseFloat(e.target.value))}/>
+      </div>
+
+      <p className="muted">Your voice stays local on this device.</p>
+    </div>
+  );
+}
+
+
+⸻
+
+7) client/src/app/initMic.ts (NEW — optional convenience)
+
+export async function ensureMicPermission(){
+  try{
+    const st = await (navigator as any).permissions?.query?.({name: 'microphone' as PermissionName});
+    if(st && st.state !== 'granted'){
+      const s = await navigator.mediaDevices.getUserMedia({audio:true});
+      s.getTracks().forEach(t=> t.stop());
+    }
+  }catch{/* safari/ios safe no-op */}
+}
+
+Call ensureMicPermission() once at app start if you want a one-tap permission prompt.
+
+⸻
+
+Quick checklist
+	•	Open Settings → Voice Security → Enroll your voice; toggle Require match ON.
+	•	Speak while Chango talks → barge-in stops TTS.
+	•	After ~1s of silence → STT auto-idles.
+
+— end —

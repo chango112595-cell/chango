@@ -252,6 +252,15 @@ async function handle(raw: string, typed: boolean = false): Promise<void> {
   const inputType = typed ? 'typed' : 'speech';
   console.log(`[ConversationEngine] 📢 Processing ${inputType} input:`, raw);
   
+  // Send STT heartbeat for speech input
+  if (!typed) {
+    try {
+      beat('stt', { processing: true, text: raw });
+    } catch (error) {
+      console.error('[ConversationEngine] Error sending STT heartbeat:', error);
+    }
+  }
+  
   // Apply gate filtering
   const gateResult = passGate(raw, typed);
   console.log(`[ConversationEngine] Gate result for ${inputType} input:`, {
@@ -272,6 +281,19 @@ async function handle(raw: string, typed: boolean = false): Promise<void> {
       // Send gate heartbeat
       try {
         beat('gate', { passed: true, text: gateResult.text });
+      } catch (error) {
+        console.error('[ConversationEngine] Error sending gate heartbeat:', error);
+      }
+    } else {
+      // Log gate block event
+      debugBus.info('Gate', 'block', { 
+        text: raw, 
+        reason: gateResult.reason,
+        typed 
+      });
+      // Send gate heartbeat for blocked events too
+      try {
+        beat('gate', { passed: false, text: raw, reason: gateResult.reason });
       } catch (error) {
         console.error('[ConversationEngine] Error sending gate heartbeat:', error);
       }

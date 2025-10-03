@@ -492,32 +492,27 @@ class AlwaysListenManager {
     beat('stt', { hasResults: true });
     
     let finalTranscript = '';
-    let interimTranscript = '';
     
-    // Process results
+    // Process results - ONLY emit final transcripts
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const result = event.results[i];
       const transcript = result[0].transcript.trim();
       
       if (result.isFinal) {
+        // Only process final results to avoid false negatives
         finalTranscript = transcript;
         console.log('[AlwaysListen] ✅ Final:', finalTranscript);
       } else {
-        interimTranscript = transcript;
+        // Store interim but don't emit it
         this.lastInterimTranscript = transcript;
-        console.log('[AlwaysListen] 💬 Interim:', interimTranscript);
+        console.log('[AlwaysListen] 💬 Interim (not emitted):', transcript);
       }
     }
     
-    // Emit final transcript
+    // Emit ONLY final transcript
     if (finalTranscript) {
       this.emitTranscript(finalTranscript, true);
       this.lastInterimTranscript = '';
-    }
-    
-    // Log interim transcript
-    if (interimTranscript && FEATURES.DEBUG_BUS) {
-      debugBus.info('AlwaysListen', 'Interim transcript', { text: interimTranscript });
     }
   }
 

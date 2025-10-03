@@ -21,7 +21,7 @@ interface AskBarProps {
 }
 
 export function AskBar({
-  placeholder = "Ask Lolo anything...",
+  placeholder = "Ask anything...",
   maxLength = 500,
   disabled = false,
   className = "",

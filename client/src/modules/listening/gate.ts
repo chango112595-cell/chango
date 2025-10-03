@@ -39,15 +39,6 @@ function stripWakeWord(text: string): string {
  * @returns GateResult with allowed status, processed text, and reason
  */
 export function passGate(text: string, typed: boolean = false): GateResult {
-  // If feature is disabled, allow everything through
-  if (!FEATURES.AnswerOnlyWhenAddressed) {
-    return {
-      allowed: true,
-      text: text,
-      reason: "wake" // Consider feature disabled as wake-allowed
-    };
-  }
-  
   // Always allow typed input (from Ask bar)
   if (typed) {
     console.log('[Gate] Typed input detected - allowing through');
@@ -55,6 +46,16 @@ export function passGate(text: string, typed: boolean = false): GateResult {
       allowed: true,
       text: text,
       reason: "typed"
+    };
+  }
+  
+  // If either wake word detection or address requirement is disabled, allow everything through
+  if (!FEATURES.WAKE_WORD || !FEATURES.AnswerOnlyWhenAddressed) {
+    console.log('[Gate] Wake word or address requirement disabled - allowing through');
+    return {
+      allowed: true,
+      text: text,
+      reason: "wake" // Consider feature disabled as wake-allowed
     };
   }
   

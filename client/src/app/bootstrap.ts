@@ -1,6 +1,7 @@
 /**
  * Bootstrap Module for Lolo
  * Clean initialization of all voice and conversation systems
+ * Ensures idempotent initialization
  */
 
 import { alwaysListen } from '@/voice/always_listen';
@@ -8,7 +9,7 @@ import { voiceOrchestrator } from '@/voice/tts/orchestrator';
 import { initConversationEngine } from '@/modules/conversationEngine';
 import { localNeuralProvider } from '@/voice/tts/providers/localNeural';
 import { voiceBus } from '@/voice/voiceBus';
-import { startHealthWatch } from '@/dev/health/monitor';
+import { startHealthWatch, stopHealthWatch } from '@/dev/health/monitor';
 
 export interface BootstrapOptions {
   autoStartListening?: boolean;
@@ -16,11 +17,30 @@ export interface BootstrapOptions {
   pauseOnHidden?: boolean;
 }
 
+// Track bootstrap state to ensure idempotency
+let isBootstrapped = false;
+let bootstrapInProgress = false;
+
 /**
  * Bootstrap Lolo with all required systems
  * This is the main entry point for initializing the voice assistant
+ * Idempotent: safe to call multiple times
  */
 export async function bootstrapLolo(options: BootstrapOptions = {}): Promise<void> {
+  // Ensure idempotency - return early if already bootstrapped or in progress
+  if (isBootstrapped) {
+    console.log('[Bootstrap] Already bootstrapped, skipping initialization');
+    return;
+  }
+
+  if (bootstrapInProgress) {
+    console.log('[Bootstrap] Bootstrap already in progress, skipping duplicate call');
+    return;
+  }
+
+  // Mark bootstrap as in progress
+  bootstrapInProgress = true;
+
   const {
     autoStartListening = true,
     enableTTS = true,
@@ -29,6 +49,7 @@ export async function bootstrapLolo(options: BootstrapOptions = {}): Promise<voi
 
   console.log('[Bootstrap] 🚀 Bootstrapping Lolo...');
   console.log('[Bootstrap] Options:', { autoStartListening, enableTTS, pauseOnHidden });
+  console.log('[Bootstrap] Timestamp:', new Date().toISOString());
 
   try {
     // Step 1: Initialize TTS system
@@ -61,62 +82,97 @@ export async function bootstrapLolo(options: BootstrapOptions = {}): Promise<voi
     }
 
     // Step 2: Initialize conversation engine
-    console.log('[Bootstrap] Initializing conversation engine...');
-    initConversationEngine();
-    console.log('[Bootstrap] ✅ Conversation engine initialized');
+    console.log('[Bootstrap] Step 2: Initializing conversation engine...');
+    try {
+      initConversationEngine();
+      console.log('[Bootstrap] ✅ Conversation engine initialized successfully');
+    } catch (error) {
+      console.error('[Bootstrap] ⚠️ Failed to initialize conversation engine:', error);
+      // Continue with bootstrap - conversation engine is not critical
+    }
 
-    // Step 3: Configure always listening
-    console.log('[Bootstrap] Configuring always listening...');
-    alwaysListen.configure({
-      autoRestart: true,
-      pauseOnHidden: pauseOnHidden,
-      silenceTimeout: 2000
-    });
+    // Step 3: Initialize always listening (STT)
+    console.log('[Bootstrap] Step 3: Initializing always listening (STT)...');
+    console.log('[Bootstrap] - Pause on hidden:', pauseOnHidden);
+    console.log('[Bootstrap] - Auto-start enabled:', autoStartListening);
+    
+    try {
+      // Initialize the always listen manager
+      await alwaysListen.initialize();
+      console.log('[Bootstrap] ✅ Always listening initialized successfully');
+      
+      // Check current status
+      const status = alwaysListen.getStatus();
+      console.log('[Bootstrap] STT Status:', {
+        isEnabled: status.isEnabled,
+        isListening: status.isListening,
+        hasPermission: status.hasPermission,
+        state: status.state
+      });
+    } catch (error) {
+      console.error('[Bootstrap] ⚠️ Failed to initialize always listening:', error);
+      console.log('[Bootstrap] STT will require manual initialization');
+    }
 
-    // Step 4: Initialize always listening
-    await alwaysListen.initialize();
-    console.log('[Bootstrap] ✅ Always listening initialized');
-
-    // Step 5: Start listening if auto-start is enabled
+    // Step 4: Start listening if auto-start is enabled
     if (autoStartListening) {
-      console.log('[Bootstrap] Starting continuous listening...');
+      console.log('[Bootstrap] Step 4: Starting continuous listening...');
       
       try {
         await alwaysListen.start();
+        const status = alwaysListen.getStatus();
         console.log('[Bootstrap] ✅ Continuous listening started');
+        console.log('[Bootstrap] STT listening state:', status.isListening);
         
-        // Announce that Lolo is ready (only on initial startup, not on STT restarts)
-        if (enableTTS && !(window as any).__lolo_welcome_spoken__) {
-          (window as any).__lolo_welcome_spoken__ = true;
+        // Announce that Lolo is ready (only on initial bootstrap)
+        if (enableTTS && !isBootstrapped) {
+          console.log('[Bootstrap] Speaking welcome message...');
           voiceBus.emitSpeak("Hello! I'm Lolo, and I'm listening.", 'system');
         }
       } catch (error) {
         console.error('[Bootstrap] Failed to start listening:', error);
         console.log('[Bootstrap] ⚠️ Microphone permission may be required');
+        console.log('[Bootstrap] User will need to grant permission manually');
         
-        // Will need user interaction to grant permission
-        return;
+        // Don't fail the entire bootstrap, continue with other systems
       }
+    } else {
+      console.log('[Bootstrap] Step 4: Skipped (auto-start disabled)');
     }
 
-    // Step 4: Start health monitoring
-    console.log('[Bootstrap] Starting health monitor...');
+    // Step 5: Start health monitoring
+    console.log('[Bootstrap] Step 5: Starting health monitor...');
     try {
       startHealthWatch();
-      console.log('[Bootstrap] ✅ Health monitor started');
+      console.log('[Bootstrap] ✅ Health monitor started successfully');
     } catch (error) {
       console.error('[Bootstrap] ⚠️ Failed to start health monitor:', error);
-      // Don't fail bootstrap if health monitor fails
+      // Don't fail bootstrap if health monitor fails - it's optional
     }
 
+    // Mark bootstrap as complete
+    isBootstrapped = true;
+    bootstrapInProgress = false;
+
+    // Final status report
     console.log('[Bootstrap] 🎉 Lolo bootstrap complete!');
-    console.log('[Bootstrap] System status:');
+    console.log('[Bootstrap] === Final System Status ===');
     console.log('[Bootstrap] - TTS:', enableTTS ? 'Enabled' : 'Disabled');
-    console.log('[Bootstrap] - Always Listening:', autoStartListening ? 'Active' : 'Manual');
+    console.log('[Bootstrap] - STT (Always Listening):', autoStartListening ? 'Active' : 'Manual');
     console.log('[Bootstrap] - Conversation Engine: Ready');
+    console.log('[Bootstrap] - Health Monitor: Running');
+    console.log('[Bootstrap] - Bootstrap timestamp:', new Date().toISOString());
+    console.log('[Bootstrap] === End Status Report ===');
+    
+    // Expose bootstrap status to window for debugging
+    if (import.meta.env.DEV) {
+      (window as any).__LOLO_BOOTSTRAPPED__ = true;
+      (window as any).__LOLO_BOOTSTRAP_TIME__ = new Date().toISOString();
+    }
     
   } catch (error) {
-    console.error('[Bootstrap] ❌ Bootstrap failed:', error);
+    bootstrapInProgress = false;
+    console.error('[Bootstrap] ❌ Bootstrap failed with critical error:', error);
     throw error;
   }
 }
@@ -147,33 +203,74 @@ export async function requestMicrophonePermission(): Promise<boolean> {
  */
 export function shutdownLolo(): void {
   console.log('[Bootstrap] Shutting down Lolo...');
+  console.log('[Bootstrap] Timestamp:', new Date().toISOString());
   
   // Stop listening
+  console.log('[Bootstrap] Stopping always listening...');
   alwaysListen.stop();
   
   // Cancel any ongoing speech
+  console.log('[Bootstrap] Cancelling any ongoing speech...');
   voiceBus.cancelSpeak('system');
   
+  // Stop health monitoring
+  console.log('[Bootstrap] Stopping health monitor...');
+  try {
+    stopHealthWatch();
+  } catch (error) {
+    console.warn('[Bootstrap] Error stopping health monitor:', error);
+  }
+  
+  // Reset bootstrap state to allow re-initialization
+  isBootstrapped = false;
+  bootstrapInProgress = false;
+  
   console.log('[Bootstrap] ✅ Lolo shutdown complete');
+  console.log('[Bootstrap] Systems can be re-initialized by calling bootstrapLolo() again');
+  
+  // Update debug status
+  if (import.meta.env.DEV) {
+    (window as any).__LOLO_BOOTSTRAPPED__ = false;
+    (window as any).__LOLO_SHUTDOWN_TIME__ = new Date().toISOString();
+  }
 }
 
 /**
  * Get Lolo system status
  */
 export function getLoloStatus(): {
+  bootstrapped: boolean;
+  bootstrapInProgress: boolean;
   listening: boolean;
   tts: boolean;
   conversationEngine: boolean;
   micPermission: boolean;
+  sttState: string;
+  errorCount: number;
 } {
   const listenStatus = alwaysListen.getStatus();
   
   return {
+    bootstrapped: isBootstrapped,
+    bootstrapInProgress: bootstrapInProgress,
     listening: listenStatus.isListening,
     tts: voiceOrchestrator.isReady(),
-    conversationEngine: true, // Always true after init
-    micPermission: listenStatus.hasPermission
+    conversationEngine: isBootstrapped, // True after successful bootstrap
+    micPermission: listenStatus.hasPermission,
+    sttState: listenStatus.state,
+    errorCount: listenStatus.errorCount
   };
+}
+
+/**
+ * Reset bootstrap state (for testing purposes)
+ * This allows re-running the bootstrap process
+ */
+export function resetBootstrap(): void {
+  console.log('[Bootstrap] Resetting bootstrap state...');
+  isBootstrapped = false;
+  bootstrapInProgress = false;
+  console.log('[Bootstrap] Bootstrap state reset - can now re-initialize');
 }
 
 // Export for convenience

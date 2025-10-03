@@ -21,6 +21,7 @@ import { MicrophonePermission } from "@/components/MicrophonePermission";
 import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
 import "./testTTS";
+import "./testBootstrap";
 
 function StatusDockWrapper() {
   const { systemOnline, isSpeaking, isMuted, setMuted } = useVoiceBus();

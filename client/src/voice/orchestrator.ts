@@ -41,6 +41,8 @@ class VoiceOrchestrator {
   private mediaRecorder: MediaRecorder | null = null;
   private audioStream: MediaStream | null = null;
   private unsubscribers: (() => void)[] = [];
+  private streamRequestInProgress: boolean = false;
+  private streamRequestPromise: Promise<MediaStream> | null = null;
 
   constructor() {
     this.config = {
@@ -102,20 +104,110 @@ class VoiceOrchestrator {
   }
 
   /**
+   * Get or create a shared audio stream
+   * Ensures we only request permission once and reuse the stream
+   */
+  private async getAudioStream(): Promise<MediaStream | null> {
+    // If stream already exists and is active, return it
+    if (this.audioStream) {
+      const tracks = this.audioStream.getAudioTracks();
+      if (tracks.length > 0 && tracks.every(track => track.readyState === 'live')) {
+        console.log('[VoiceOrchestrator] Reusing existing audio stream');
+        return this.audioStream;
+      }
+      // Stream exists but tracks are dead, clean it up
+      console.log('[VoiceOrchestrator] Existing stream has dead tracks, cleaning up');
+      this.cleanupStream();
+    }
+
+    // If request is already in progress, wait for it
+    if (this.streamRequestInProgress && this.streamRequestPromise) {
+      console.log('[VoiceOrchestrator] Stream request already in progress, waiting...');
+      try {
+        return await this.streamRequestPromise;
+      } catch (error) {
+        console.error('[VoiceOrchestrator] Stream request failed:', error);
+        return null;
+      }
+    }
+
+    // Create new stream request
+    this.streamRequestInProgress = true;
+    this.streamRequestPromise = navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
+
+    try {
+      console.log('[VoiceOrchestrator] Requesting new audio stream...');
+      const stream = await this.streamRequestPromise;
+      this.audioStream = stream;
+      this.streamRequestInProgress = false;
+      this.streamRequestPromise = null;
+      
+      console.log('[VoiceOrchestrator] Successfully obtained audio stream');
+      
+      // Report heartbeat
+      beat('orchestrator', 'stream_obtained');
+      
+      return stream;
+    } catch (error: any) {
+      this.streamRequestInProgress = false;
+      this.streamRequestPromise = null;
+      
+      console.error('[VoiceOrchestrator] Failed to get audio stream:', error);
+      
+      // Handle permission denial gracefully
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        console.error('[VoiceOrchestrator] Microphone permission denied');
+        voiceBus.emitSpeak('Please allow microphone access to use voice features.', 'system');
+        
+        if (FEATURES.DEBUG_BUS) {
+          debugBus.error('VoiceOrchestrator', 'Permission denied', { error: error.name });
+        }
+      } else if (error.name === 'NotFoundError') {
+        console.error('[VoiceOrchestrator] No microphone found');
+        voiceBus.emitSpeak('No microphone detected. Please connect a microphone.', 'system');
+        
+        if (FEATURES.DEBUG_BUS) {
+          debugBus.error('VoiceOrchestrator', 'No microphone', { error: error.name });
+        }
+      }
+      
+      return null;
+    }
+  }
+
+  /**
+   * Clean up the current audio stream
+   */
+  private cleanupStream(): void {
+    if (this.audioStream) {
+      console.log('[VoiceOrchestrator] Cleaning up audio stream');
+      this.audioStream.getTracks().forEach(track => {
+        track.stop();
+        console.log(`[VoiceOrchestrator] Stopped track: ${track.label}`);
+      });
+      this.audioStream = null;
+    }
+  }
+
+  /**
    * Setup VAD (Voice Activity Detection)
    */
   private async setupVAD() {
     try {
-      // Get microphone stream for VAD
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
+      // Get shared audio stream
+      const stream = await this.getAudioStream();
       
-      this.audioStream = stream;
+      if (!stream) {
+        console.error('[VoiceOrchestrator] Cannot setup VAD without audio stream');
+        this.state.vadActive = false;
+        return;
+      }
       
       // Initialize VAD with stream
       await vad.initialize(stream);
@@ -126,9 +218,14 @@ class VoiceOrchestrator {
       
       this.unsubscribers.push(unsubSpeechStart, unsubSpeechEnd);
       
-      // Start VAD monitoring
-      vad.start();
-      this.state.vadActive = true;
+      // Only start VAD if not gated or already verified
+      if (!this.config.voiceprintGatingEnabled || this.state.isVerified) {
+        vad.start();
+        this.state.vadActive = true;
+        console.log('[VoiceOrchestrator] VAD monitoring started');
+      } else {
+        console.log('[VoiceOrchestrator] VAD initialized but not started (waiting for voiceprint verification)');
+      }
       
       console.log('[VoiceOrchestrator] VAD setup complete');
     } catch (error) {
@@ -173,6 +270,13 @@ class VoiceOrchestrator {
       voiceBus.cancelSpeak('system');
       this.state.isSpeaking = false;
       
+      // Immediately resume STT after barge-in
+      if (this.state.isListening) {
+        this.resumeSpeechRecognition();
+        voiceBus.emit({ type: 'sttResume', source: 'barge-in' });
+        console.log('[VoiceOrchestrator] STT resumed after barge-in');
+      }
+      
       if (FEATURES.DEBUG_BUS) {
         debugBus.info('VoiceOrchestrator', 'Barge-in activated');
       }
@@ -181,7 +285,7 @@ class VoiceOrchestrator {
     // Check if voiceprint gating is enabled
     if (this.config.voiceprintGatingEnabled && !this.state.isVerified) {
       console.log('[VoiceOrchestrator] Starting voice verification...');
-      this.startVerificationRecording();
+      await this.startVerificationRecording();
     } else {
       // Allow speech recognition to proceed
       this.enableSpeechRecognition();
@@ -229,11 +333,26 @@ class VoiceOrchestrator {
    */
   private handleTTSEnd() {
     console.log('[VoiceOrchestrator] TTS ended');
+    const wasSpeaking = this.state.isSpeaking;
     this.state.isSpeaking = false;
 
     // Resume STT after TTS completes
     if (this.state.isListening) {
       this.resumeSpeechRecognition();
+      
+      // Emit resume event to notify other components
+      voiceBus.emit({ type: 'sttResume', source: 'orchestrator' });
+      console.log('[VoiceOrchestrator] Emitted STT resume event');
+      
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('VoiceOrchestrator', 'STT resumed after TTS');
+      }
+    }
+
+    // If this was from a barge-in, ensure system isn't stuck muted
+    if (wasSpeaking) {
+      // Report system ready for input
+      beat('orchestrator', 'ready_for_input');
     }
 
     // Start idle timer
@@ -243,15 +362,26 @@ class VoiceOrchestrator {
   /**
    * Start recording for voiceprint verification
    */
-  private startVerificationRecording() {
-    if (this.isRecording || !this.audioStream) return;
+  private async startVerificationRecording() {
+    if (this.isRecording) {
+      console.log('[VoiceOrchestrator] Already recording, skipping');
+      return;
+    }
 
     try {
+      // Get shared audio stream
+      const stream = await this.getAudioStream();
+      
+      if (!stream) {
+        console.error('[VoiceOrchestrator] Cannot start verification without audio stream');
+        return;
+      }
+
       this.isRecording = true;
       this.verificationBuffer = [];
 
-      // Create media recorder
-      this.mediaRecorder = new MediaRecorder(this.audioStream, {
+      // Create media recorder using shared stream
+      this.mediaRecorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm;codecs=opus'
       });
 
@@ -299,6 +429,8 @@ class VoiceOrchestrator {
    * Process voiceprint verification
    */
   private async processVerification(chunks: Blob[]) {
+    let audioContext: AudioContext | null = null;
+    
     try {
       // Get active voiceprint
       const activeVoiceprint = voiceSecurityStore.getActiveVoiceprint();
@@ -311,7 +443,9 @@ class VoiceOrchestrator {
       // Convert audio to Float32Array
       const audioBlob = new Blob(chunks, { type: 'audio/webm' });
       const arrayBuffer = await audioBlob.arrayBuffer();
-      const audioContext = new AudioContext({ sampleRate: 16000 });
+      
+      // Create AudioContext with proper cleanup
+      audioContext = new AudioContext({ sampleRate: 16000 });
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
       const channelData = audioBuffer.getChannelData(0);
 
@@ -330,8 +464,15 @@ class VoiceOrchestrator {
       console.log('[VoiceOrchestrator] Verification result:', result);
 
       if (result.match) {
-        // Voice verified - enable speech recognition
+        // Voice verified - enable speech recognition and VAD
         this.enableSpeechRecognition();
+        
+        // Start VAD now that verification passed
+        if (this.config.vadEnabled && !this.state.vadActive) {
+          console.log('[VoiceOrchestrator] Starting VAD after successful verification');
+          vad.start();
+          this.state.vadActive = true;
+        }
         
         if (FEATURES.DEBUG_BUS) {
           debugBus.info('VoiceOrchestrator', 'Voice verified', { similarity: result.similarity });
@@ -345,11 +486,19 @@ class VoiceOrchestrator {
           debugBus.warn('VoiceOrchestrator', 'Voice verification failed', { similarity: result.similarity });
         }
       }
-
-      audioContext.close();
     } catch (error) {
       console.error('[VoiceOrchestrator] Verification processing error:', error);
       this.state.isVerified = false;
+    } finally {
+      // Always clean up AudioContext
+      if (audioContext) {
+        try {
+          await audioContext.close();
+          console.log('[VoiceOrchestrator] AudioContext closed');
+        } catch (closeError) {
+          console.error('[VoiceOrchestrator] Failed to close AudioContext:', closeError);
+        }
+      }
     }
   }
 
@@ -517,30 +666,64 @@ class VoiceOrchestrator {
   destroy() {
     console.log('[VoiceOrchestrator] Destroying...');
     
-    // Unsubscribe from all events
-    this.unsubscribers.forEach(unsub => unsub());
-    this.unsubscribers = [];
-    
-    // Stop VAD
-    if (this.state.vadActive) {
-      vad.destroy();
-    }
-    
-    // Stop recording
+    // Stop recording first
     if (this.isRecording) {
       this.stopVerificationRecording();
     }
     
-    // Stop audio stream
-    if (this.audioStream) {
-      this.audioStream.getTracks().forEach(track => track.stop());
-      this.audioStream = null;
+    // Stop VAD and cleanup its resources
+    if (this.state.vadActive) {
+      vad.stop();
+      vad.destroy();
+      this.state.vadActive = false;
     }
     
-    // Cancel timers
+    // Unsubscribe from all events
+    this.unsubscribers.forEach(unsub => {
+      try {
+        unsub();
+      } catch (error) {
+        console.warn('[VoiceOrchestrator] Error unsubscribing:', error);
+      }
+    });
+    this.unsubscribers = [];
+    
+    // Clean up MediaRecorder
+    if (this.mediaRecorder) {
+      try {
+        if (this.mediaRecorder.state !== 'inactive') {
+          this.mediaRecorder.stop();
+        }
+        this.mediaRecorder = null;
+      } catch (error) {
+        console.warn('[VoiceOrchestrator] Error stopping MediaRecorder:', error);
+      }
+    }
+    
+    // Clean up audio stream
+    this.cleanupStream();
+    
+    // Cancel all timers
     this.cancelIdleTimer();
     
-    console.log('[VoiceOrchestrator] Destroyed');
+    // Reset state
+    this.state = {
+      isListening: false,
+      isSpeaking: false,
+      isVerified: false,
+      vadActive: false,
+      lastActivity: Date.now()
+    };
+    
+    // Clear any pending stream requests
+    this.streamRequestInProgress = false;
+    this.streamRequestPromise = null;
+    
+    console.log('[VoiceOrchestrator] Destroyed successfully');
+    
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('VoiceOrchestrator', 'Resources cleaned up');
+    }
   }
 }
 

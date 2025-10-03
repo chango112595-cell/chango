@@ -27,10 +27,32 @@ export interface MatchResult {
  * Returns 13-dimensional MFCC mean vector
  */
 function extractMFCCFeatures(audioBuffer: Float32Array, sampleRate: number = 16000): number[] {
+  // Validate input
+  if (!audioBuffer || audioBuffer.length === 0) {
+    throw new Error('Audio buffer is empty');
+  }
+  
+  // Handle sample rate properly - don't assume 16kHz
+  const validSampleRates = [8000, 11025, 16000, 22050, 32000, 44100, 48000];
+  if (!validSampleRates.includes(sampleRate)) {
+    console.warn(`[VoiceprintEngine] Non-standard sample rate: ${sampleRate}, normalizing to nearest standard rate`);
+    // Find nearest valid sample rate
+    const nearest = validSampleRates.reduce((prev, curr) => 
+      Math.abs(curr - sampleRate) < Math.abs(prev - sampleRate) ? curr : prev
+    );
+    sampleRate = nearest;
+  }
+  
   // Frame size and hop size for analysis
   const frameSize = Math.floor(0.025 * sampleRate); // 25ms frames
   const hopSize = Math.floor(0.010 * sampleRate); // 10ms hop
   const numCoeffs = 13; // Number of MFCC coefficients
+  
+  // Check if audio is too short for processing
+  const minSamples = frameSize * 2; // At least 2 frames
+  if (audioBuffer.length < minSamples) {
+    throw new Error(`Audio too short for analysis: ${audioBuffer.length} samples, need at least ${minSamples} samples (${minSamples / sampleRate * 1000}ms)`);
+  }
   
   // Pre-emphasis filter
   const preEmphasis = 0.97;
@@ -55,8 +77,18 @@ function extractMFCCFeatures(audioBuffer: Float32Array, sampleRate: number = 160
     frames.push(frame);
   }
   
+  // Guard against zero frames
+  if (frames.length === 0) {
+    throw new Error('No frames extracted from audio - buffer too short');
+  }
+  
   // Calculate MFCCs for each frame
   const mfccFrames = frames.map(frame => calculateFrameMFCC(frame, sampleRate, numCoeffs));
+  
+  // Guard against zero MFCC frames division
+  if (mfccFrames.length === 0) {
+    throw new Error('Failed to extract MFCC features from frames');
+  }
   
   // Calculate mean MFCC vector across all frames
   const meanMFCC = new Array(numCoeffs).fill(0);
@@ -66,6 +98,7 @@ function extractMFCCFeatures(audioBuffer: Float32Array, sampleRate: number = 160
     }
   }
   
+  // Safe division with guard
   for (let i = 0; i < numCoeffs; i++) {
     meanMFCC[i] /= mfccFrames.length;
   }

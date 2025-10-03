@@ -15,12 +15,13 @@ export type VoiceEventType =
   | 'muteChange'
   | 'powerChange'
   | 'speakingChange'
-  | 'stateChange';
+  | 'stateChange'
+  | 'sttResume';
 
 export interface VoiceEvent {
   type: VoiceEventType;
   text?: string;
-  source?: 'user' | 'system' | 'conversation';
+  source?: 'user' | 'system' | 'conversation' | 'barge-in' | 'orchestrator';
   muted?: boolean;
   powered?: boolean;
   speaking?: boolean;

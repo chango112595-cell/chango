@@ -17,6 +17,7 @@ import { beat } from '../dev/health/monitor';
 import { startSTT, stopSTT } from './stt';
 import { voiceGate } from '../core/gate';
 import { moduleRegistry, ModuleType } from '../dev/moduleRegistry';
+import { GlobalMonitor } from '../monitor/GlobalMonitor';
 
 // TypeScript declarations for Web Speech API
 interface SpeechRecognitionResult {
@@ -409,6 +410,9 @@ class AlwaysListenManager {
       this.isPausedForRecovery = false;
       this.errorMessage = '';
       
+      // Mark STT as active for GlobalMonitor
+      GlobalMonitor.markSTT(true);
+      
       // Send heartbeat
       beat('stt', { status: 'started' });
       
@@ -420,6 +424,9 @@ class AlwaysListenManager {
     // Handle recognition end
     this.recognition.onend = () => {
       console.log('[AlwaysListen] 🔴 Recognition ended');
+      
+      // Mark STT as inactive for GlobalMonitor
+      GlobalMonitor.markSTT(false);
       
       const wasListening = this.state === 'listening';
       this.state = 'idle';
@@ -507,6 +514,9 @@ class AlwaysListenManager {
     
     // Emit ONLY final transcript
     if (finalTranscript) {
+      // Mark that we heard something for GlobalMonitor
+      GlobalMonitor.markHeard();
+      
       this.emitTranscript(finalTranscript, true);
       this.lastInterimTranscript = '';
     }

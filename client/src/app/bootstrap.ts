@@ -10,6 +10,8 @@ import { initConversationEngine } from '@/modules/conversationEngine';
 import { localNeuralProvider } from '@/voice/tts/providers/localNeural';
 import { voiceBus } from '@/voice/voiceBus';
 import { startHealthWatch, stopHealthWatch } from '@/dev/health/monitor';
+import { GlobalMonitor } from '@/monitor/GlobalMonitor';
+import { debugBus } from '@/dev/debugBus';
 
 export interface BootstrapOptions {
   autoStartListening?: boolean;
@@ -140,8 +142,58 @@ export async function bootstrapChango(options: BootstrapOptions = {}): Promise<v
       console.log('[Bootstrap] Step 4: Skipped (auto-start disabled)');
     }
 
-    // Step 5: Start health monitoring
-    console.log('[Bootstrap] Step 5: Starting health monitor...');
+    // Step 5: Initialize Global Monitor (self-healing)
+    console.log('[Bootstrap] Step 5: Initializing Global Monitor...');
+    try {
+      GlobalMonitor.init({
+        startSTT: async () => {
+          try {
+            await alwaysListen.start();
+          } catch (error) {
+            console.error('[GlobalMonitor] Failed to start STT:', error);
+          }
+        },
+        stopSTT: async () => {
+          try {
+            alwaysListen.stop();
+          } catch (error) {
+            console.error('[GlobalMonitor] Failed to stop STT:', error);
+          }
+        },
+        isSpeaking: () => voiceOrchestrator.isSpeaking(),
+        cancelSpeak: () => {
+          voiceBus.cancelSpeak('system');
+          if (window.speechSynthesis) {
+            window.speechSynthesis.cancel();
+          }
+        },
+        ping: async () => {
+          try {
+            const response = await fetch('/api/health');
+            return response.ok;
+          } catch {
+            return false;
+          }
+        },
+        debug: (tag, level, msg, data) => {
+          // Forward to debugBus
+          if (level === 'error') {
+            debugBus.error(tag, msg, data);
+          } else if (level === 'warn') {
+            debugBus.warn(tag, msg, data);
+          } else {
+            debugBus.info(tag, msg, data);
+          }
+        }
+      });
+      console.log('[Bootstrap] ✅ Global Monitor initialized successfully');
+    } catch (error) {
+      console.error('[Bootstrap] ⚠️ Failed to initialize Global Monitor:', error);
+      // Don't fail bootstrap if Global Monitor fails - it's optional
+    }
+
+    // Step 6: Start health monitoring
+    console.log('[Bootstrap] Step 6: Starting health monitor...');
     try {
       startHealthWatch();
       console.log('[Bootstrap] ✅ Health monitor started successfully');

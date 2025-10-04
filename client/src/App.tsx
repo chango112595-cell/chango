@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -6,8 +6,23 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SpeechCoordinationProvider } from "@/lib/speechCoordination";
 import { ConversationProvider } from "@/lib/conversationContext";
-import { bootstrapLolo, shutdownLolo } from "@/app/bootstrap";
-import { AskBar } from "@/ui/AskBar";
+
+// New imports for hotfix components
+import { HeaderCompact } from "@/components/HeaderCompact";
+import { ChatInputBar } from "@/components/ChatInputBar";
+import { useAlwaysListen } from "@/hooks/useAlwaysListen";
+import { voiceGate } from "@/core/gate";
+import { orchestrator } from "@/core/orchestrator";
+import { voiceBus as coreVoiceBus } from "@/core/voice-bus";
+import { responder } from "@/services/responder";
+// Import layout styles
+import "@/styles/layout.css";
+
+// Voice system imports  
+import { voiceController } from "@/voice/voiceController";
+import { voiceBus } from "@/voice/voiceBus";
+
+// Original components still needed
 import StatusDock from "@/components/StatusDock";
 import { HeaderBar } from "@/components/HeaderBar";
 import { HologramSphere } from "@/components/HologramSphere";
@@ -15,11 +30,11 @@ import { UiModeSwitch } from "@/components/UiModeSwitch";
 import { UIModeProvider, useUIMode } from "@/contexts/UIModeContext";
 import { useVoiceBus } from "@/voice/useVoiceBus";
 import { FEATURES } from "@/config/featureFlags";
-import { voiceBus } from "@/voice/voiceBus";
 import { DebugOverlay } from "@/dev/DebugOverlay";
 import { MicrophonePermission } from "@/components/MicrophonePermission";
 import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
+import { debugBus } from "@/dev/debugBus";
 
 function StatusDockWrapper() {
   const { systemOnline, isSpeaking, isMuted, setMuted } = useVoiceBus();
@@ -34,41 +49,137 @@ function StatusDockWrapper() {
   );
 }
 
-function VoiceInitializer() {
-  // Initialize voice system on mount using bootstrap
+// New Voice System Initializer with Gate and Orchestrator integration
+function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWithGesture?: (fn: () => Promise<boolean>) => void }) {
+  const { 
+    isListening, 
+    hasPermission, 
+    gateOpen,
+    initializeWithGesture 
+  } = useAlwaysListen(FEATURES.ALWAYS_LISTEN_DEFAULT);
+  
+  // Pass the initializeWithGesture function to parent
   useEffect(() => {
-    console.log("[App] Initializing Lolo with bootstrap...");
-    
-    const initializeLolo = async () => {
+    if (onInitializeWithGesture) {
+      onInitializeWithGesture(initializeWithGesture);
+    }
+  }, [initializeWithGesture, onInitializeWithGesture]);
+  
+  // Initialize voice controller and integrate with gate/orchestrator
+  useEffect(() => {
+    const initializeVoiceSystem = async () => {
+      console.log("[App] Initializing enhanced voice system...");
+      debugBus.info("App", "voice_init_start", {});
+      
       try {
-        // Bootstrap Lolo with always listening mode based on feature flag
-        await bootstrapLolo({
-          autoStartListening: FEATURES.ALWAYS_LISTEN_DEFAULT,  // Use feature flag
-          enableTTS: true,           // Enable text-to-speech
-          pauseOnHidden: true        // Pause when tab is hidden
+        // Initialize the voice controller with new gate integration
+        await voiceController.initialize({
+          autoStart: false, // Don't auto-start, wait for gate
+          wakeWordEnabled: true,
+          mode: 'WAKE'
         });
         
-        // Set initial mute state based on feature flag (inverted logic: listening = not muted)
-        if (FEATURES.ALWAYS_LISTEN_DEFAULT) {
-          voiceBus.setMute(false);
-        }
+        // Message routing removed - now handled directly by ChatInputBar for text
+        // and by voice recognition handler for voice to prevent double responses
         
-        console.log("[App] Lolo bootstrapped successfully - always listening mode:", FEATURES.ALWAYS_LISTEN_DEFAULT);
+        // Setup voice recognition results to orchestrator
+        const unsubscribeSpeech = voiceBus.on('userSpeechRecognized', async (event) => {
+          const text = event.text;
+          if (!text) return;
+          
+          // Route through orchestrator
+          const decision = await orchestrator.routeMessage({
+            text,
+            source: 'voice'
+          });
+          
+          if (decision.shouldProcess) {
+            await orchestrator.processMessage({
+              text,
+              source: 'voice'
+            }, decision);
+            
+            // Get response from responder
+            if (decision.responseType !== 'none') {
+              await responder.respond(text, {
+                source: 'voice',
+                responseType: decision.responseType as any
+              });
+            }
+          }
+        });
+        
+        // Setup gate state monitoring
+        const unsubscribeGate = voiceGate.onStateChange((isOpen) => {
+          debugBus.info("App", "gate_state_changed", { isOpen });
+          
+          if (isOpen) {
+            // Gate opened, start voice controller if not already
+            voiceController.startSTT().catch(err => {
+              console.error("[App] Failed to start STT after gate open:", err);
+            });
+          } else {
+            // Gate closed, stop STT
+            voiceController.stopSTT();
+          }
+        });
+        
+        // Connect core voice bus to legacy voice bus
+        const unsubscribeSpeak = coreVoiceBus.on('speak', (event) => {
+          voiceBus.emit({
+            type: 'speak',
+            text: event.data?.text || ''
+          });
+        });
+        
+        const unsubscribeListen = coreVoiceBus.on('start_listening', () => {
+          voiceController.startSTT().catch(err => {
+            console.error("[App] Failed to start listening:", err);
+          });
+        });
+        
+        const unsubscribeStop = coreVoiceBus.on('stop_listening', () => {
+          voiceController.stopSTT();
+        });
+        
+        console.log("[App] Enhanced voice system initialized successfully");
+        debugBus.info("App", "voice_init_complete", { 
+          gateOpen, 
+          hasPermission 
+        });
+        
+        // Cleanup function
+        return () => {
+          unsubscribeSpeech();
+          unsubscribeGate();
+          unsubscribeSpeak();
+          unsubscribeListen();
+          unsubscribeStop();
+          voiceController.destroy();
+        };
       } catch (error) {
-        console.error("[App] Failed to bootstrap Lolo:", error);
+        console.error("[App] Failed to initialize voice system:", error);
+        debugBus.error("App", "voice_init_failed", { error: String(error) });
       }
     };
     
-    // Run initialization
-    initializeLolo();
+    const cleanup = initializeVoiceSystem();
     
     return () => {
-      // Cleanup on unmount
-      shutdownLolo();
+      cleanup.then(cleanupFn => cleanupFn?.());
     };
   }, []);
-
-  return null; // This component only handles initialization
+  
+  // Log always listen status
+  useEffect(() => {
+    debugBus.info("App", "always_listen_status", {
+      isListening,
+      hasPermission,
+      gateOpen
+    });
+  }, [isListening, hasPermission, gateOpen]);
+  
+  return null;
 }
 
 function Router() {
@@ -82,16 +193,23 @@ function Router() {
 
 function AppContent() {
   const { mode } = useUIMode();
+  const [initializeWithGesture, setInitializeWithGesture] = useState<(() => Promise<boolean>) | null>(null);
 
   return (
     <>
-      <VoiceInitializer />
+      {/* Enhanced Voice Initializer with Gate and Orchestrator */}
+      <EnhancedVoiceInitializer 
+        onInitializeWithGesture={(fn) => setInitializeWithGesture(() => fn)}
+      />
       
       {/* Microphone permission request card */}
       <MicrophonePermission />
       
-      {/* Conditionally render HeaderBar when mode is "header" */}
-      {mode === "header" && <HeaderBar />}
+      {/* Use HeaderCompact as the primary header */}
+      <HeaderCompact />
+      
+      {/* Conditionally render HeaderBar when mode is "header" (legacy support) */}
+      {mode === "header" && FEATURES.LEGACY_HEADER && <HeaderBar />}
       
       {/* Conditionally render HologramSphere when mode is "sphere" */}
       {mode === "sphere" && <HologramSphere state="idle" />}
@@ -99,21 +217,19 @@ function AppContent() {
       {/* Always show UiModeSwitch if the feature flag is enabled */}
       {FEATURES.UI_MODE_TOGGLE && <UiModeSwitch />}
       
+      {/* Status dock for legacy UI */}
       {!FEATURES.HANDS_FREE_UI && <StatusDockWrapper />}
+      
       <Toaster />
       <Router />
-      {/* Global AskBar for text input */}
-      <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4 z-50">
-        <AskBar 
-          placeholder="Ask Lolo anything..."
-          showIcon={true}
-          submitOnEnter={true}
-          showSubmitButton={true}
-          clearAfterSubmit={true}
-        />
-      </div>
       
-      {/* Debug Overlay - controlled by feature flag */}
+      {/* Use ChatInputBar instead of AskBar - sticky bottom with better mobile support */}
+      <ChatInputBar 
+        placeholder="Type a message or tap mic to speak..."
+        initializeWithGesture={initializeWithGesture}
+      />
+      
+      {/* Debug Overlay - shows Gate state and more */}
       <DebugOverlay />
     </>
   );

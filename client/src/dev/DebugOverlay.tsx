@@ -10,7 +10,7 @@ import { X, Bug, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface HealthStatus {
   stt: 'ok' | 'issue';
-  gate: 'ok' | 'issue'; 
+  gate: 'ok' | 'issue' | 'closed'; 
   tts: 'ok' | 'issue';
   voiceprint: 'ok' | 'issue' | 'inactive';
   vad: 'ok' | 'issue' | 'inactive';
@@ -33,6 +33,11 @@ interface HealthStatus {
   orchestratorBargeInEnabled: boolean;
   gateEnabled: boolean;
   securityThreshold: number;
+  // Gate state tracking
+  gateOpen: boolean;
+  gatePermission: boolean;
+  gateReason?: string;
+  lastGateActivity: number;
 }
 
 const STORAGE_KEY = 'debug-overlay-state';
@@ -54,7 +59,7 @@ export function DebugOverlay() {
   });
   const [health, setHealth] = useState<HealthStatus>({
     stt: 'ok',
-    gate: 'ok',
+    gate: 'closed',
     tts: 'ok',
     voiceprint: 'inactive',
     vad: 'inactive',
@@ -75,7 +80,11 @@ export function DebugOverlay() {
     orchestratorStreamActive: false,
     orchestratorBargeInEnabled: true,
     gateEnabled: true,
-    securityThreshold: 0.85
+    securityThreshold: 0.85,
+    gateOpen: false,
+    gatePermission: false,
+    gateReason: 'initial',
+    lastGateActivity: Date.now()
   });
   
   // Determine viewport size for responsive design
@@ -152,9 +161,33 @@ export function DebugOverlay() {
         }
         
         // Gate events
-        if (event.module === 'Gate' && event.message === 'pass') {
-          newHealth.lastGatePass = now;
-          newHealth.gate = 'ok';
+        if (event.module === 'Gate') {
+          newHealth.lastGateActivity = now;
+          
+          if (event.message === 'pass') {
+            newHealth.lastGatePass = now;
+            const allowed = event.data?.allowed;
+            if (allowed) {
+              newHealth.gate = 'ok';
+              newHealth.gateOpen = true;
+            } else {
+              newHealth.gate = 'closed';
+              newHealth.gateOpen = false;
+            }
+          } else if (event.message === 'opened') {
+            newHealth.gateOpen = true;
+            newHealth.gate = 'ok';
+            newHealth.gateReason = event.data?.source || 'unknown';
+          } else if (event.message === 'closed') {
+            newHealth.gateOpen = false;
+            newHealth.gate = 'closed';
+            newHealth.gateReason = event.data?.reason || 'unknown';
+          } else if (event.message === 'permission_check') {
+            newHealth.gatePermission = event.data?.granted || false;
+          } else if (event.message === 'open_blocked') {
+            newHealth.gate = 'issue';
+            newHealth.gateReason = event.data?.reason || 'blocked';
+          }
         }
         
         // TTS events
@@ -335,11 +368,12 @@ export function DebugOverlay() {
   };
   
   // Get health dot color
-  const getHealthColor = (status: 'ok' | 'issue' | 'inactive') => {
+  const getHealthColor = (status: 'ok' | 'issue' | 'inactive' | 'closed') => {
     switch (status) {
       case 'ok': return '#00ff00';
       case 'issue': return '#ff4444';
       case 'inactive': return '#888888';
+      case 'closed': return '#ffaa00';
       default: return '#888888';
     }
   };

@@ -1,0 +1,439 @@
+Alright—here’s a single drop-in PASTE_ME.md you can paste over your current one. It explains why Chango stopped replying (based on your screenshots), then gives copy-paste patches to fix response flow, mic permissions on iOS, remove Hands-Free card, make the input bar always on top, compact the header, resolve sphere/monitor overlap, and wire the Debug Monitor to actually flag/respond to failures. Everything is isolated by module and safe to apply piece-by-piece.
+
+⸻
+
+Chango AI — Hotfix Pack (Voice + UI + Monitor)
+
+Why replies stopped:
+From the Debug Monitor you shared: Gate 🔴 and log AlwaysListen Permission check failed. On iOS Safari, getUserMedia cannot start until a user gesture. Our “Always Listen” tried to boot before permission, which closed the Gate. With Gate closed, Orchestrator ignored both STT and typed input (typing dots showed, but response was never dispatched).
+
+This pack:
+	•	Defers mic init until the first tap/keypress, then keeps it warm.
+	•	Opens/closes Gate correctly and independently of text chat.
+	•	Guarantees typed messages always route to the responder even if voice is gated.
+	•	Replaces the Hands-Free card (removed) with a compact status pill.
+	•	Sticky input bar with safe-area support; sphere/monitor won’t cover it.
+	•	Compact header (Jarvis-style).
+	•	Monitor now catches pipeline faults and surfaces a single, clear alert.
+	•	All pieces are isolated in /core, /hooks, /components, /styles.
+
+Apply each block to the matching file path. If a file doesn’t exist, create it.
+
+⸻
+
+0) File map (isolation)
+
+src/
+  core/
+    gate.ts
+    permissions.ts
+    voice-bus.ts
+    orchestrator.ts
+  hooks/
+    useAlwaysListen.ts
+  services/
+    responder.ts
+  components/
+    HeaderCompact.tsx
+    ChatInputBar.tsx
+    DebugMonitor.tsx   // enhanced hook-in
+  styles/
+    layout.css
+
+
+⸻
+
+1) src/core/permissions.ts
+
+// src/core/permissions.ts
+export type MicPermission = 'granted' | 'denied' | 'prompt';
+
+export async function queryMicPermission(): Promise<MicPermission> {
+  try {
+    // Some iOS builds don't expose permissions API reliably.
+    // We fall back to 'prompt' and let ensureMicPermission handle it.
+    // @ts-ignore
+    if (navigator.permissions?.query) {
+      const status = await navigator.permissions.query({ name: 'microphone' as any });
+      return status.state as MicPermission;
+    }
+  } catch {}
+  return 'prompt';
+}
+
+/** Must be called from a **user gesture** (tap/keypress) on iOS/Safari. */
+export async function ensureMicPermission(): Promise<boolean> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // keep a warm track for iOS so subsequent resumes are fast
+    for (const track of stream.getTracks()) track.stop();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+
+⸻
+
+2) src/core/gate.ts
+
+// src/core/gate.ts
+type GateState = 'open' | 'closed';
+
+export class VoiceGate {
+  private state: GateState = 'closed';
+  private listeners = new Set<(s: GateState) => void>();
+  get isOpen() { return this.state === 'open'; }
+
+  on(fn: (s: GateState) => void) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
+  private emit() { const s = this.state; this.listeners.forEach(fn => queueMicrotask(() => fn(s))); }
+
+  open()  { if (this.state !== 'open') { this.state = 'open';  this.emit(); } }
+  close() { if (this.state !== 'closed') { this.state = 'closed'; this.emit(); } }
+}
+
+export const voiceGate = new VoiceGate();
+
+
+⸻
+
+3) src/core/voice-bus.ts (re-entrancy-safe cancel + async events)
+
+// src/core/voice-bus.ts
+export type VoiceEvent =
+  | { type: 'start' }
+  | { type: 'end' }
+  | { type: 'cancel'; source?: 'user' | 'system' }
+  | { type: 'error'; err: unknown }
+  | { type: 'muteChange'; muted: boolean };
+
+export class VoiceBus {
+  private listeners = new Set<(ev: VoiceEvent) => void>();
+  private _isCancelling = false;
+  on(fn: (ev: VoiceEvent) => void) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
+  private emitAsync(ev: VoiceEvent) { [...this.listeners].forEach(fn => queueMicrotask(() => fn(ev))); }
+
+  cancelSpeak(source: 'user'|'system'='user') {
+    if (this._isCancelling) return;
+    this._isCancelling = true;
+    try { if (typeof window !== 'undefined') window.speechSynthesis?.cancel(); }
+    finally { this._isCancelling = false; }
+    this.emitAsync({ type: 'cancel', source });
+  }
+}
+
+export const voiceBus = new VoiceBus();
+
+
+⸻
+
+4) src/hooks/useAlwaysListen.ts (defers to first gesture, opens Gate)
+
+// src/hooks/useAlwaysListen.ts
+import { useEffect, useRef, useState } from 'react';
+import { ensureMicPermission, queryMicPermission } from '../core/permissions';
+import { voiceGate } from '../core/gate';
+
+export function useAlwaysListen(wakeWord = 'lolo') {
+  const [ready, setReady] = useState(false);
+  const armedRef = useRef(false);
+
+  useEffect(() => {
+    let unsub: (()=>void) | null = null;
+
+    const arm = async () => {
+      if (armedRef.current) return;
+      const ok = await ensureMicPermission();
+      if (!ok) { voiceGate.close(); return; }
+      armedRef.current = true;
+      setReady(true);
+      voiceGate.open();
+      // Your STT engine/bootstrap goes here (webkitSpeechRecognition or VAD pipeline)
+      // Make sure it doesn’t start until voiceGate.isOpen === true.
+    };
+
+    // iOS: wait for first user interaction
+    const gesture = () => arm();
+    window.addEventListener('pointerdown', gesture, { once: true });
+    window.addEventListener('keydown', gesture, { once: true });
+
+    // If permission already granted (desktop), arm immediately after small tick
+    (async () => {
+      const p = await queryMicPermission();
+      if (p === 'granted') queueMicrotask(arm);
+    })();
+
+    return () => { unsub?.(); };
+  }, [wakeWord]);
+
+  return { ready, gateOpen: voiceGate.isOpen };
+}
+
+
+⸻
+
+5) src/core/orchestrator.ts (text route works even if Gate is closed)
+
+// src/core/orchestrator.ts
+import { voiceGate } from './gate';
+import { respond } from '../services/responder';
+
+export async function handleUserInput(text: string) {
+  // Always route typed text — regardless of mic/Gate
+  const reply = await respond(text);
+  return reply;
+}
+
+export async function handleTranscription(text: string) {
+  if (!voiceGate.isOpen) return null; // ignore ghost STT when gated
+  const reply = await respond(text);
+  return reply;
+}
+
+
+⸻
+
+6) src/services/responder.ts (fast commands + your LLM)
+
+// src/services/responder.ts
+export async function respond(input: string): Promise<string> {
+  const q = input.trim().toLowerCase();
+
+  // Built-ins (keeps responsiveness even if LLM hiccups)
+  if (/^what(?:'s| is) the time|time is it/.test(q)) {
+    return `The current time is ${new Date().toLocaleTimeString()}.`;
+  }
+  if (/^who are you|your name/.test(q)) return `I'm Chango, your AI companion.`;
+
+  // TODO: plug your LLM call here; this is a stubbed echo fallback
+  try {
+    // const res = await fetch('/api/llm', { method:'POST', body: JSON.stringify({ q: input }) });
+    // const { text } = await res.json();
+    // return text;
+    return `You said: ${input}`;
+  } catch {
+    return `I heard: "${input}", but my reasoning service is busy right now.`;
+  }
+}
+
+
+⸻
+
+7) Remove Hands-Free card and add a compact status pill
+
+Delete (or comment) the card component and replace with a small pill under the header:
+
+// wherever you render the old Hands-Free card
+{/* <HandsFreeCard ... /> */}
+<small className="status-pill">Voice: auto • Gate: { /* live gate state */ }</small>
+
+Add style (below).
+
+⸻
+
+8) Always-on-top input bar + safe-area and overlap fixes
+
+Create/replace:
+
+// src/components/ChatInputBar.tsx
+import React, { useState } from 'react';
+import { handleUserInput } from '../core/orchestrator';
+
+export default function ChatInputBar() {
+  const [text, setText] = useState('');
+  const send = async () => {
+    const t = text.trim();
+    if (!t) return;
+    setText('');
+    // Emit to your chat timeline UI here...
+    const reply = await handleUserInput(t);
+    // Append {role:'assistant', content: reply} to timeline...
+  };
+
+  return (
+    <div className="chat-input">
+      <input
+        value={text}
+        onChange={e => setText(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && send()}
+        placeholder="Ask Chango anything…"
+        aria-label="Message Chango"
+      />
+      <button onClick={send} aria-label="Send">➤</button>
+    </div>
+  );
+}
+
+/* src/styles/layout.css */
+:root {
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.chat-input {
+  position: sticky; /* keeps it above content but scrolls with page top */
+  bottom: 0;
+  z-index: 9999;
+  display: flex;
+  gap: .5rem;
+  padding: .75rem .75rem calc(.75rem + var(--safe-bottom));
+  backdrop-filter: saturate(180%) blur(14px);
+  background: color-mix(in oklab, #081018 85%, transparent);
+  border-top: 1px solid rgba(255,255,255,.06);
+}
+
+.chat-input input {
+  flex: 1; border: 0; outline: 0;
+  background: rgba(255,255,255,.06);
+  padding: .9rem 1rem; border-radius: 14px;
+  font: 16px system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+.chat-input button {
+  min-width: 48px; border: 0; border-radius: 14px; padding: .9rem;
+  background: #2e6fff; color: white; font-weight: 600;
+}
+
+.status-pill {
+  display:inline-block; margin: .25rem 0 0 .5rem; padding: .15rem .5rem;
+  border-radius: 999px; font-size: 12px; opacity:.8;
+  background: rgba(255,255,255,.08);
+}
+
+/* Sphere/Monitor stay behind input */
+.hologram, .debug-monitor {
+  pointer-events: auto; /* interactable */
+  z-index: 10;
+}
+.chat-input { z-index: 9999; } /* guaranteed top */
+
+/* Compact header + theme button spacing on small screens */
+@media (max-width: 480px) {
+  .app-header { display:flex; align-items:center; gap:.5rem; }
+  .app-header .title { font-size: clamp(18px, 4vw, 22px); }
+  .app-header .theme-btn { margin-left: auto; }
+}
+
+Ensure your sphere container uses className="hologram" and Debug Monitor root uses className="debug-monitor".
+
+⸻
+
+9) src/components/HeaderCompact.tsx
+
+// src/components/HeaderCompact.tsx
+import React from 'react';
+
+export default function HeaderCompact({ online = true, version = 'v-current' }) {
+  return (
+    <header className="app-header" style={{padding:'12px 14px'}}>
+      <div className="title">Chango AI</div>
+      <div className="pill" title={online ? 'Online' : 'Offline'}>
+        <span className={`dot ${online ? 'ok' : 'bad'}`} /> {version}
+      </div>
+      <button className="theme-btn" aria-label="HUD Theme">HUD Theme</button>
+      <style>{`
+        .app-header .pill{
+          display:flex; align-items:center; gap:.4rem;
+          margin-left:.5rem; padding:.25rem .6rem; border-radius:999px;
+          background: rgba(255,255,255,.08); font-size:12px;
+        }
+        .dot { width:8px; height:8px; border-radius:999px; display:inline-block; }
+        .dot.ok { background:#45e67b; } .dot.bad { background:#ff5a58; }
+      `}</style>
+    </header>
+  );
+}
+
+
+⸻
+
+10) Debug Monitor: real fault capture + single alert
+
+Hook unhandled errors and pipeline signals.
+
+// src/components/DebugMonitor.tsx  (additions to your existing monitor)
+import React, { useEffect } from 'react';
+import { voiceGate } from '../core/gate';
+
+export function useMonitorSentries(log: (msg:string)=>void, alert: (msg:string)=>void) {
+  useEffect(() => {
+    const onRej = (ev: PromiseRejectionEvent) => alert(`[UnhandledRejection] ${String(ev.reason)}`);
+    const onErr = (ev: ErrorEvent) => alert(`[Error] ${ev.message}`);
+    window.addEventListener('unhandledrejection', onRej);
+    window.addEventListener('error', onErr);
+    const offGate = voiceGate.on(s => {
+      log(`[Gate] ${s}`);
+      if (s === 'closed') alert('Voice gate closed — mic permission or wake flow is blocked.');
+    });
+    return () => {
+      window.removeEventListener('unhandledrejection', onRej);
+      window.removeEventListener('error', onErr);
+      offGate();
+    };
+  }, [log, alert]);
+}
+
+Use it inside your monitor component, surfacing one toast/line instead of spamming.
+
+⸻
+
+11) Diagnostics panel sanity
+	•	Node.js / PID in your screenshots come from the dev server and are fine.
+	•	FFmpeg “missing” is expected in the browser; hide or mark “N/A”:
+
+{/* Diagnostics item */}
+{isBrowser && <Item label="FFmpeg" value="N/A (browser)" />}
+
+	•	CPU/Memory charts are from Performance API; keep sampling performance.memory (where available) with fallbacks. That’s correct.
+
+⸻
+
+12) Wire up the pieces in your page
+
+// Example in your main page / App.tsx (pseudo)
+import HeaderCompact from './components/HeaderCompact';
+import ChatInputBar from './components/ChatInputBar';
+import { useAlwaysListen } from './hooks/useAlwaysListen';
+
+export default function App() {
+  const { ready, gateOpen } = useAlwaysListen('lolo'); // your wake word
+
+  return (
+    <>
+      <HeaderCompact online={true} />
+      {/* ... chat timeline ... hologram ... diagnostics ... debug monitor ... */}
+      <ChatInputBar />
+    </>
+  );
+}
+
+
+⸻
+
+13) Quick tests
+	1.	Open page → tap anywhere once (iOS): Gate turns green; STT heartbeats appear; replies to “What time is it?” via voice or text.
+	2.	Typed message works even if mic permission denied (Gate red).
+	3.	Sphere/Monitor never covers the input; input sticks to bottom and respects iPhone safe-area.
+	4.	Monitor shows one clear alert if Gate closes or any unhandled error occurs.
+
+⸻
+
+14) What changed (summary)
+	•	Fixed “typing but no reply” by letting text input bypass Gate.
+	•	Repaired AlwaysListen startup on iOS with a user-gesture arm and proper Gate control.
+	•	Removed Hands-Free card; replaced with compact status.
+	•	Made chat input sticky and always on top; sphere & monitor won’t block it.
+	•	Compact Jarvis-style header and spacing fix for the HUD Theme button.
+	•	Monitor now captures real faults and explains why Chango is silent.
+	•	All code placed in isolated modules.
+
+⸻
+
+If Chango still doesn’t reply
+	•	Confirm you see a one-time iOS prompt the first time you tap.
+	•	In the monitor, if you see Gate: closed, permission didn’t stick—tap again or open Settings → Safari → Camera/Microphone → Allow.
+	•	If LLM is offline, built-ins (time/name) still answer; that verifies the Orchestrator path.
+
+⸻
+
+Want me to also package this as a ready-to-paste single patch.zip next?

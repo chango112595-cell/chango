@@ -1,0 +1,313 @@
+/**
+ * Layout Styles
+ * Sticky input bar, safe-area support, z-index management
+ */
+
+/* Compact Header Styles */
+.header-compact {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  background: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 1000;
+  transition: all 0.3s ease;
+}
+
+.header-compact-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 100%;
+  padding: 0 1rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.header-title {
+  font-size: 1.25rem;
+  font-weight: bold;
+}
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.875rem;
+}
+
+.connection-dot {
+  display: flex;
+  align-items: center;
+}
+
+/* Mobile responsive header */
+@media (max-width: 640px) {
+  .header-compact {
+    height: 44px;
+  }
+  
+  .header-title {
+    font-size: 1rem;
+  }
+  
+  .status-text {
+    display: none;
+  }
+}
+
+/* Chat Input Bar Styles */
+.chat-input-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.95);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 9999; /* Above all other elements */
+  padding: 0.75rem 1rem;
+  padding-bottom: env(safe-area-inset-bottom, 0.75rem);
+  transition: all 0.3s ease;
+}
+
+.chat-input-form {
+  max-width: 768px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 1.5rem;
+  padding: 0.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s ease;
+}
+
+.input-wrapper:focus-within {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.chat-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: white;
+  font-size: 1rem;
+  padding: 0.5rem;
+  min-width: 0;
+}
+
+.chat-input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.chat-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mic-button,
+.submit-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mic-button:hover:not(:disabled),
+.submit-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.05);
+}
+
+.mic-button.listening {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  animation: pulse-red 2s infinite;
+}
+
+.mic-button:disabled,
+.submit-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Safe area padding for mobile */
+.safe-area-padding {
+  height: env(safe-area-inset-bottom, 0);
+  width: 100%;
+}
+
+/* Animations */
+@keyframes pulse-red {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+/* Z-Index Management */
+.debug-overlay {
+  z-index: 99999 !important; /* Debug overlay on top */
+}
+
+.chat-input-bar {
+  z-index: 9999; /* Input bar below debug but above everything else */
+}
+
+.hologram-sphere {
+  z-index: 100; /* Sphere in background */
+}
+
+.status-dock {
+  z-index: 500; /* Status dock mid-level */
+}
+
+.header-compact {
+  z-index: 1000; /* Header above content */
+}
+
+/* Mobile optimizations */
+@media (max-width: 640px) {
+  .chat-input-bar {
+    padding: 0.5rem 0.75rem;
+  }
+  
+  .input-wrapper {
+    padding: 0.125rem;
+  }
+  
+  .chat-input {
+    font-size: 0.875rem;
+    padding: 0.375rem;
+  }
+  
+  .mic-button,
+  .submit-button {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* Tablet optimizations */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .chat-input-bar {
+    padding: 0.75rem 1.5rem;
+  }
+  
+  .chat-input-form {
+    max-width: 600px;
+  }
+}
+
+/* Large screen optimizations */
+@media (min-width: 1025px) {
+  .chat-input-bar {
+    padding: 1rem 2rem;
+  }
+  
+  .input-wrapper {
+    padding: 0.375rem;
+  }
+  
+  .mic-button,
+  .submit-button {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: light) {
+  .chat-input-bar {
+    background: rgba(255, 255, 255, 0.95);
+    border-top-color: rgba(0, 0, 0, 0.1);
+  }
+  
+  .header-compact {
+    background: rgba(255, 255, 255, 0.95);
+    border-bottom-color: rgba(0, 0, 0, 0.1);
+  }
+  
+  .input-wrapper {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: rgba(0, 0, 0, 0.1);
+  }
+  
+  .chat-input {
+    color: black;
+  }
+  
+  .chat-input::placeholder {
+    color: rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Focus management */
+.chat-input-bar:focus-within {
+  transform: translateY(-2px);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.2);
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .chat-input-bar,
+  .header-compact,
+  .input-wrapper,
+  .mic-button,
+  .submit-button {
+    transition: none;
+  }
+  
+  .mic-button.listening {
+    animation: none;
+  }
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+  .chat-input-bar,
+  .header-compact {
+    border-width: 2px;
+  }
+  
+  .input-wrapper {
+    border-width: 2px;
+  }
+  
+  .mic-button,
+  .submit-button {
+    border-width: 2px;
+  }
+}

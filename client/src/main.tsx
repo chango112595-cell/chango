@@ -11,6 +11,20 @@ if (import.meta.env.DEV) {
   import("./autoDiagnostic").then(() => {
     console.log("[Diagnostic] Auto-diagnostic loaded");
   });
+  
+  // Load conversation flow test and verification
+  import("./tests/testConversationFlow").then(() => {
+    console.log("[Tests] Conversation flow test loaded");
+  });
+  
+  import("./tests/verifySetup").then(() => {
+    console.log("[Tests] Setup verification loaded");
+  });
+  
+  // Load and run conversation engine fix
+  import("./tests/fixConversationEngine").then(() => {
+    console.log("[Tests] Conversation engine fix loaded");
+  });
 }
 
 // Start the diagnostic runner and attach notifiers

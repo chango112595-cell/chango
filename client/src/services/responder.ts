@@ -135,13 +135,9 @@ export async function respond(text: string, options: ResponseOptions): Promise<s
     responseType: options.responseType 
   });
   
-  // Emit changoResponse event for the Chat component to display
-  console.log('[Responder] 🚀 Emitting changoResponse event');
-  voiceBus.emit({
-    type: 'changoResponse',
-    text: response
-  });
-  console.log('[Responder] ✅ changoResponse event emitted');
+  // NOTE: changoResponse event is emitted by the conversation engine, not here
+  // This avoids duplicate events
+  console.log('[Responder] ✅ Response generated (changoResponse will be emitted by conversation engine)');
   
   // Speak the response if responseType includes voice
   if (options.responseType === 'voice' || options.responseType === 'both') {

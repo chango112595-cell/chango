@@ -119,12 +119,16 @@ export async function getResponse(text: string): Promise<string> {
  * Main responder function that handles both getting response and logging
  */
 export async function respond(text: string, options: ResponseOptions): Promise<string> {
+  console.log('[Responder] 📥 CALLED with text:', text);
+  console.log('[Responder] 📥 Options:', options);
+  
   debugBus.info('Responder', 'processing', { 
     text: text.substring(0, 50),
     source: options.source 
   });
   
   const response = await getResponse(text);
+  console.log('[Responder] 📤 Generated response:', response);
   
   debugBus.info('Responder', 'response_generated', { 
     length: response.length,
@@ -132,10 +136,12 @@ export async function respond(text: string, options: ResponseOptions): Promise<s
   });
   
   // Emit changoResponse event for the Chat component to display
+  console.log('[Responder] 🚀 Emitting changoResponse event');
   voiceBus.emit({
     type: 'changoResponse',
     text: response
   });
+  console.log('[Responder] ✅ changoResponse event emitted');
   
   // Speak the response if responseType includes voice
   if (options.responseType === 'voice' || options.responseType === 'both') {
@@ -148,6 +154,7 @@ export async function respond(text: string, options: ResponseOptions): Promise<s
     }
   }
   
+  console.log('[Responder] ✅ Respond function completed');
   return response;
 }
 

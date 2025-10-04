@@ -204,10 +204,13 @@ export function route(text: string): string | null {
 
 // Unified response function that sends response through both channels
 async function respond(text: string, typed: boolean = false): Promise<void> {
+  console.log('[ConversationEngine] 📥 respond() called with:', text, 'typed:', typed);
+  
   try {
     console.log('[ConversationEngine] Getting response from responder service for:', text);
     
     // Use the responder service which will handle API calls to backend
+    console.log('[ConversationEngine] Calling responder service...');
     const response = await callResponderService(text, {
       source: typed ? 'text' : 'voice',
       responseType: 'both',  // Get both text and voice responses
@@ -220,11 +223,13 @@ async function respond(text: string, typed: boolean = false): Promise<void> {
       console.log('[ConversationEngine] ✅ Got response from responder:', response);
       
       // Emit response event for UI components to listen to
+      console.log('[ConversationEngine] 🚀 Emitting changoResponse event');
       voiceBus.emit({
         type: 'changoResponse',
         text: response,
         source: 'conversation'
       });
+      console.log('[ConversationEngine] ✅ changoResponse event emitted');
       
       // Log TTS speak to debug bus
       if (FEATURES.DEBUG_BUS) {
@@ -247,6 +252,7 @@ async function respond(text: string, typed: boolean = false): Promise<void> {
       const fallbackResponse = "I'm having trouble processing that. Please try again.";
       
       // Emit response event for UI components
+      console.log('[ConversationEngine] 🚀 Emitting fallback changoResponse event');
       voiceBus.emit({
         type: 'changoResponse',
         text: fallbackResponse,
@@ -257,10 +263,11 @@ async function respond(text: string, typed: boolean = false): Promise<void> {
       console.log('[ConversationEngine] Fallback response sent');
     }
   } catch (error) {
-    console.error('[ConversationEngine] Error getting response:', error);
+    console.error('[ConversationEngine] ❌ Error getting response:', error);
     const errorResponse = "Sorry, I encountered an error. Please try again.";
     
     // Emit error response event
+    console.log('[ConversationEngine] 🚀 Emitting error changoResponse event');
     voiceBus.emit({
       type: 'changoResponse',
       text: errorResponse,
@@ -269,6 +276,8 @@ async function respond(text: string, typed: boolean = false): Promise<void> {
     
     voiceOrchestrator.speak(errorResponse);
   }
+  
+  console.log('[ConversationEngine] ✅ respond() function completed');
 }
 
 // Unified handle function that processes both typed and speech input

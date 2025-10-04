@@ -78,6 +78,33 @@ import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
 import { debugBus } from "@/dev/debugBus";
 
+// Import test scripts in dev mode
+if (import.meta.env.DEV) {
+  import("@/tests/testConversationFlow").then(module => {
+    console.log("[App] Test conversation flow loaded");
+  }).catch(err => {
+    console.log("[App] Failed to load test script:", err);
+  });
+  
+  import("@/tests/debugWakeWord").then(module => {
+    console.log("[App] Debug wake word test loaded");
+  }).catch(err => {
+    console.log("[App] Failed to load debug wake word script:", err);
+  });
+  
+  import("@/tests/manualTest").then(module => {
+    console.log("[App] Manual test loaded");
+  }).catch(err => {
+    console.log("[App] Failed to load manual test script:", err);
+  });
+  
+  import("@/tests/finalTest").then(module => {
+    console.log("[App] Final test loaded");
+  }).catch(err => {
+    console.log("[App] Failed to load final test script:", err);
+  });
+}
+
 function StatusDockWrapper() {
   const { systemOnline, isSpeaking, isMuted, setMuted } = useVoiceBus();
   

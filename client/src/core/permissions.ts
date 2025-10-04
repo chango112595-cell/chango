@@ -96,15 +96,10 @@ export async function ensureMicPermission(): Promise<PermissionStatus> {
       };
     }
     
-    // Check if permission was already denied - don't ask again
-    if (sessionStorage.getItem('mic_permission_denied') === 'true') {
-      debugBus.info('Permissions', 'previously_denied_not_asking', {});
-      return {
-        granted: false,
-        state: 'denied',
-        error: 'Permission previously denied'
-      };
-    }
+    // FIX: When called from user gesture, clear previous denial and always attempt
+    // This allows users to retry after initial denial
+    debugBus.info('Permissions', 'clearing_previous_denial', {});
+    sessionStorage.removeItem('mic_permission_denied');
     
     // Check current status without prompting
     const current = await queryMicPermission();

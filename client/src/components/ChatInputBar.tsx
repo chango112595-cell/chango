@@ -148,6 +148,11 @@ export function ChatInputBar({
   const handleMicClick = async () => {
     debugBus.info('ChatInputBar', 'mic_clicked', { gateOpen });
     
+    // FIX: Clear any previous denial flags when user explicitly clicks mic button
+    // This indicates user intent to enable microphone
+    sessionStorage.removeItem('mic_permission_denied');
+    debugBus.info('ChatInputBar', 'cleared_denial_flags', {});
+    
     if (!gateOpen) {
       // For iOS: Use initializeWithGesture if available, otherwise tryOpenGate
       let opened = false;

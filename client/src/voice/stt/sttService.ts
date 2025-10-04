@@ -35,20 +35,11 @@ class STTService {
   private permissionGranted: boolean = false;
 
   constructor() {
-    // Check for browser support
-    const windowWithSpeech = window as any as WindowWithSpeechRecognition;
-    const SpeechRecognition = windowWithSpeech.SpeechRecognition || windowWithSpeech.webkitSpeechRecognition;
-    
-    if (!SpeechRecognition) {
-      console.error('[STTService] Web Speech API not supported in this browser');
-      throw new Error('Web Speech API not supported');
-    }
-
-    // Create recognition instance
-    this.recognition = new SpeechRecognition();
-    this.setupRecognition();
-    
-    console.log('[STTService] Service initialized');
+    // DISABLED: STTService is no longer used - alwaysListen singleton handles all STT
+    console.log('[STTService] 🔴 DISABLED - STT handled by alwaysListen singleton');
+    // DO NOT create SpeechRecognition instance
+    // DO NOT call setupRecognition()
+    return; // Exit early to prevent any initialization
   }
 
   private setupRecognition(): void {
@@ -198,145 +189,45 @@ class STTService {
   }
 
   /**
-   * Request microphone permissions
+   * Request microphone permissions - DISABLED
    */
   async requestPermissions(): Promise<boolean> {
-    // Check if permission was already denied and stored
-    if (sessionStorage.getItem('mic_permission_denied') === 'true') {
-      console.log('[STTService] 🚫 Permission previously denied, not requesting again');
-      this.permissionGranted = false;
-      return false;
-    }
-    
-    // Check if permission was already granted
-    if (sessionStorage.getItem('mic_permission_granted') === 'true') {
-      console.log('[STTService] ✅ Permission already granted');
-      this.permissionGranted = true;
-      return true;
-    }
-    
-    try {
-      console.log('[STTService] 🎤 Requesting microphone permissions...');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // Stop the stream immediately - we just needed permission
-      stream.getTracks().forEach(track => track.stop());
-      
-      this.permissionGranted = true;
-      sessionStorage.setItem('mic_permission_granted', 'true');
-      sessionStorage.removeItem('mic_permission_denied');
-      
-      console.log('[STTService] ✅ Microphone permission GRANTED! Ready to listen.');
-      console.log('[STTService] 📊 Permission status:', { 
-        permissionGranted: this.permissionGranted, 
-        isEnabled: this.isEnabled,
-        isListening: this.isListening 
-      });
-      
-      return true;
-    } catch (error: any) {
-      console.error('[STTService] ❌ Microphone permission DENIED:', error);
-      this.permissionGranted = false;
-      
-      // Store the denial persistently to avoid retry loops
-      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        sessionStorage.setItem('mic_permission_denied', 'true');
-        sessionStorage.setItem('mic_permission_granted', 'false');
-      }
-      
-      return false;
-    }
+    // DISABLED: STT handled by alwaysListen singleton
+    console.log('[STTService] 🔴 requestPermissions DISABLED - handled by alwaysListen');
+    return true; // Always return true to prevent errors
   }
 
   /**
-   * Start STT service
+   * Start STT service - DISABLED
    */
   async start(): Promise<void> {
-    if (this.isEnabled) {
-      console.log('[STTService] Already enabled');
-      // Make sure we're actually listening
-      if (!this.isListening && !Voice.isSpeaking()) {
-        console.log('[STTService] 🔄 Service enabled but not listening, starting recognition...');
-        this.startRecognition();
-      }
-      return;
-    }
-
-    // Request permissions if not granted
-    if (!this.permissionGranted) {
-      console.log('[STTService] 🎤 Permissions not yet granted, requesting...');
-      const granted = await this.requestPermissions();
-      if (!granted) {
-        throw new Error('Microphone permission denied');
-      }
-    }
-
-    console.log('[STTService] 🚀 Starting STT service');
-    this.isEnabled = true;
-    this.autoRestart = true;
-    
-    // Start recognition if not speaking
-    if (!Voice.isSpeaking()) {
-      console.log('[STTService] 🎧 Starting recognition (not speaking)');
-      this.startRecognition();
-    } else {
-      console.log('[STTService] ⏸️ Delaying recognition start (TTS is speaking)');
-    }
+    // DISABLED: STT handled by alwaysListen singleton
+    console.log('[STTService] 🔴 start() DISABLED - handled by alwaysListen');
+    return; // Exit early
   }
 
   /**
-   * Stop STT service
+   * Stop STT service - DISABLED
    */
   stop(): void {
-    console.log('[STTService] Stopping service');
-    this.isEnabled = false;
-    this.autoRestart = false;
-    this.stopRecognition();
-    this.clearSilenceTimer();
+    console.log('[STTService] 🔴 stop() DISABLED - handled by alwaysListen');
+    return; // Exit early
   }
 
   /**
-   * Start recognition
+   * Start recognition - DISABLED
    */
   private startRecognition(): void {
-    if (this.isListening) {
-      console.log('[STTService] ✅ Already listening');
-      return;
-    }
-
-    try {
-      console.log('[STTService] 🎤 Starting recognition...');
-      this.recognition.start();
-      this.isListening = true;
-      console.log('[STTService] ✅ Recognition start() called successfully');
-    } catch (error: any) {
-      console.error('[STTService] ❌ Failed to start recognition:', error);
-      
-      // Handle the case where recognition is already started
-      if (error.message && error.message.includes('already started')) {
-        console.log('[STTService] ⚠️ Recognition was already started, stopping and restarting');
-        this.stopRecognition();
-        setTimeout(() => this.startRecognition(), 100);
-      }
-    }
+    console.log('[STTService] 🔴 startRecognition() DISABLED - handled by alwaysListen');
+    return; // Exit early
   }
 
   /**
-   * Stop recognition
+   * Stop recognition - DISABLED
    */
   private stopRecognition(): void {
-    if (!this.isListening) {
-      console.log('[STTService] Not currently listening');
-      return;
-    }
-
-    try {
-      console.log('[STTService] Stopping recognition');
-      this.recognition.stop();
-      this.isListening = false;
-    } catch (error) {
-      console.error('[STTService] Failed to stop recognition:', error);
-    }
+    console.log('[STTService] 🔴 stopRecognition() DISABLED - handled by alwaysListen');
+    return; // Exit early
   }
 
   /**
@@ -354,26 +245,19 @@ class STTService {
   }
 
   /**
-   * Pause STT when TTS is speaking
+   * Pause STT when TTS is speaking - DISABLED
    */
   pauseForTTS(): void {
-    console.log('[STTService] Pausing for TTS');
-    this.stopRecognition();
+    console.log('[STTService] 🔴 pauseForTTS() DISABLED - handled by alwaysListen');
+    return; // Exit early
   }
 
   /**
-   * Resume STT after TTS completes
+   * Resume STT after TTS completes - DISABLED
    */
   resumeAfterTTS(): void {
-    console.log('[STTService] Resuming after TTS');
-    if (this.isEnabled && !this.isListening) {
-      // Wait a bit to avoid capturing tail of TTS
-      setTimeout(() => {
-        if (this.isEnabled && !Voice.isSpeaking()) {
-          this.startRecognition();
-        }
-      }, 300);
-    }
+    console.log('[STTService] 🔴 resumeAfterTTS() DISABLED - handled by alwaysListen');
+    return; // Exit early
   }
 
   /**

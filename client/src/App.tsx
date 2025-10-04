@@ -131,14 +131,12 @@ function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWit
         const unsubscribeGate = voiceGate.onStateChange((isOpen) => {
           debugBus.info("App", "gate_state_changed", { isOpen });
           
+          // DISABLED: STT is now handled by alwaysListen singleton
+          // voiceController.startSTT/stopSTT calls removed
           if (isOpen) {
-            // Gate opened, start voice controller if not already
-            voiceController.startSTT().catch(err => {
-              console.error("[App] Failed to start STT after gate open:", err);
-            });
+            console.log("[App] Gate opened - STT handled by alwaysListen singleton");
           } else {
-            // Gate closed, stop STT
-            voiceController.stopSTT();
+            console.log("[App] Gate closed - STT handled by alwaysListen singleton");
           }
         });
         
@@ -151,13 +149,13 @@ function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWit
         });
         
         const unsubscribeListen = coreVoiceBus.on('start_listening', () => {
-          voiceController.startSTT().catch(err => {
-            console.error("[App] Failed to start listening:", err);
-          });
+          // DISABLED: STT is now handled by alwaysListen singleton
+          console.log("[App] start_listening event - STT handled by alwaysListen singleton");
         });
         
         const unsubscribeStop = coreVoiceBus.on('stop_listening', () => {
-          voiceController.stopSTT();
+          // DISABLED: STT is now handled by alwaysListen singleton
+          console.log("[App] stop_listening event - STT handled by alwaysListen singleton");
         });
         
         console.log("[App] Enhanced voice system initialized successfully");

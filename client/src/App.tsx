@@ -1,24 +1,26 @@
-import { useEffect, useState } from 'react';
-import { HolographicSphere } from '@/components/HolographicSphere';
-import { VoiceStatusWidget } from '@/components/VoiceStatusWidget';
+import React, { useState, useEffect } from 'react';
+import HeaderCompact from '@/components/HeaderCompact';
+import ChatInputBar from '@/components/ChatInputBar';
 import { AudioUnlock } from '@/components/AudioUnlock';
-import { ChatInterface } from '@/components/ChatInterface';
-import { DiagnosticsDashboard } from '@/components/DiagnosticsDashboard';
-import { VoiceSecurityUI } from '@/components/VoiceSecurityUI';
 import { useViewportVh } from '@/lib/useViewportVh';
 import { DebugBus } from '@/debug/DebugBus';
 import { VoiceGate } from '@/voice/gate';
+import '@/styles/layout.css';
 
-export default function App() {
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [messages, setMessages] = useState<Array<{id: string; text: string; sender: 'user' | 'chango'}>>([]);
-  
+interface Message {
+  id: string;
+  text: string;
+  sender: 'user' | 'chango';
+}
+
+export default function App(){
+  const [messages, setMessages] = useState<Message[]>([]);
   useViewportVh();
   
   useEffect(() => {
     DebugBus.defineFlags(['STT','TTS','Gate','Orch']);
+    // Enable gate for text checking but don't require mic
     VoiceGate.enable('lolo');
-    
     // Try to start voice if available, but don't block on failure
     import('@/voice/always_listen').then(({ startAlwaysListen }) => {
       startAlwaysListen({ enabled: true, wakeWord: 'lolo' }).catch(() => {
@@ -27,9 +29,9 @@ export default function App() {
     });
   }, []);
 
-  const handleTextSubmit = async (text: string) => {
+  const send = async (text: string) => {
     // Add user message
-    const userMsg = { id: Date.now().toString(), text, sender: 'user' as const };
+    const userMsg: Message = { id: Date.now().toString(), text, sender: 'user' };
     setMessages(prev => [...prev, userMsg]);
     
     // Check wake word
@@ -44,7 +46,7 @@ export default function App() {
     const reply = await sendToLLM(check.cmd);
     
     // Add Chango's response
-    const changoMsg = { id: (Date.now() + 1).toString(), text: reply, sender: 'chango' as const };
+    const changoMsg: Message = { id: (Date.now() + 1).toString(), text: reply, sender: 'chango' };
     setMessages(prev => [...prev, changoMsg]);
     
     // Try TTS but don't fail if unavailable
@@ -57,24 +59,30 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900">
-      <HolographicSphere />
-      <VoiceStatusWidget />
-      <ChatInterface messages={messages} onSubmit={handleTextSubmit} />
-      <VoiceSecurityUI />
+    <div className="app">
+      <HeaderCompact />
+      <div className="chat-container" style={{ flex: 1, overflow: 'auto', padding: '1rem' }}>
+        {messages.map((msg) => (
+          <div
+            key={msg.id}
+            style={{
+              marginBottom: '1rem',
+              padding: '0.5rem 1rem',
+              borderRadius: '8px',
+              backgroundColor: msg.sender === 'user' ? 'rgba(46, 111, 255, 0.2)' : 'rgba(39, 211, 107, 0.2)',
+              alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
+              maxWidth: '70%',
+            }}
+          >
+            <div style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '0.25rem' }}>
+              {msg.sender === 'user' ? 'You' : 'Chango'}
+            </div>
+            <div>{msg.text}</div>
+          </div>
+        ))}
+      </div>
+      <ChatInputBar onSend={send} />
       <AudioUnlock />
-      
-      <button
-        onClick={() => setShowDiagnostics(!showDiagnostics)}
-        className="fixed bottom-4 right-4 p-3 rounded-full bg-blue-600 hover:bg-blue-700 transition-colors z-50"
-        aria-label="Toggle diagnostics"
-      >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-        </svg>
-      </button>
-      
-      {showDiagnostics && <DiagnosticsDashboard onClose={() => setShowDiagnostics(false)} />}
     </div>
   );
 }

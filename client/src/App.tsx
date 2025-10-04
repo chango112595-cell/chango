@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense, lazy } from "react";
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -6,10 +6,21 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SpeechCoordinationProvider } from "@/lib/speechCoordination";
 import { ConversationProvider } from "@/lib/conversationContext";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
-// New imports for hotfix components
-import { HeaderCompact } from "@/components/HeaderCompact";
-import { ChatInputBar } from "@/components/ChatInputBar";
+// Safe imports with fallbacks for hotfix components
+const HeaderCompact = lazy(() => 
+  import("@/components/HeaderCompact").then(m => ({ default: m.HeaderCompact })).catch(() => ({
+    default: () => <div className="p-2 bg-gray-100/10 text-gray-500 text-center">Header unavailable</div>
+  }))
+);
+
+const ChatInputBar = lazy(() => 
+  import("@/components/ChatInputBar").then(m => ({ default: m.ChatInputBar })).catch(() => ({
+    default: () => <div className="fixed bottom-0 w-full p-4 bg-gray-100/10">Chat input unavailable</div>
+  }))
+);
+
 import { useAlwaysListen } from "@/hooks/useAlwaysListen";
 import { voiceGate } from "@/core/gate";
 import { orchestrator } from "@/core/orchestrator";
@@ -23,17 +34,52 @@ import { voiceController } from "@/voice/voiceController";
 import { voiceBus } from "@/voice/voiceBus";
 import { bootstrapChango } from "@/app/bootstrap";
 
-// Original components still needed
-import StatusDock from "@/components/StatusDock";
-import { HeaderBar } from "@/components/HeaderBar";
-import { HologramSphere } from "@/components/HologramSphere";
-import { UiModeSwitch } from "@/components/UiModeSwitch";
+// Safe imports with fallbacks for original components
+const StatusDock = lazy(() => 
+  import("@/components/StatusDock").catch(() => ({
+    default: () => <div className="fixed top-0 w-full p-2 bg-gray-100/10 text-center">Status unavailable</div>
+  }))
+);
+
+const HeaderBar = lazy(() => 
+  import("@/components/HeaderBar").then(m => ({ default: m.HeaderBar })).catch(() => ({
+    default: () => <div className="p-2 bg-gray-100/10 text-center">Header bar unavailable</div>
+  }))
+);
+
+const HologramSphere = lazy(() => 
+  import("@/components/HologramSphere").then(m => ({ default: m.HologramSphere })).catch(() => ({
+    default: () => <div className="p-4 text-center">Hologram unavailable</div>
+  }))
+);
+
+const UiModeSwitch = lazy(() => 
+  import("@/components/UiModeSwitch").then(m => ({ default: m.UiModeSwitch })).catch(() => ({
+    default: () => null
+  }))
+);
+
+const DebugOverlay = lazy(() => 
+  import("@/dev/DebugOverlay").then(m => ({ default: m.DebugOverlay })).catch(() => ({
+    default: () => null
+  }))
+);
+
+const MicrophonePermission = lazy(() => 
+  import("@/components/MicrophonePermission").then(m => ({ default: m.MicrophonePermission })).catch(() => ({
+    default: () => null
+  }))
+);
+
+const AudioUnlock = lazy(() => 
+  import("@/components/AudioUnlock").then(m => ({ default: m.AudioUnlock })).catch(() => ({
+    default: () => null
+  }))
+);
+
 import { UIModeProvider, useUIMode } from "@/contexts/UIModeContext";
 import { useVoiceBus } from "@/voice/useVoiceBus";
 import { FEATURES } from "@/config/featureFlags";
-import { DebugOverlay } from "@/dev/DebugOverlay";
-import { MicrophonePermission } from "@/components/MicrophonePermission";
-import { AudioUnlock } from "@/components/AudioUnlock";
 import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
 import { debugBus } from "@/dev/debugBus";
@@ -87,16 +133,23 @@ function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWit
         return;
       }
       
+      // iOS-specific checks
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS) {
+        console.log("[App] iOS detected, using iOS-specific initialization");
+        debugBus.info("App", "ios_detected", { userAgent: navigator.userAgent });
+      }
+      
       initialized = true;
       console.log("[App] Initializing enhanced voice system...");
-      debugBus.info("App", "voice_init_start", {});
+      debugBus.info("App", "voice_init_start", { isIOS });
       
       try {
         // First bootstrap Chango to initialize VoiceOrchestrator and TTS
         console.log("[App] Bootstrapping Chango for TTS initialization...");
         await bootstrapChango({
           autoStartListening: false,  // Don't auto-start, will be handled by gate
-          enableTTS: true,  // Enable TTS for voice synthesis
+          enableTTS: !isIOS || true,  // Enable TTS even on iOS, but handle failures
           pauseOnHidden: true
         });
         console.log("[App] Bootstrap complete, VoiceOrchestrator should be ready");
@@ -104,8 +157,8 @@ function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWit
         // Then initialize the voice controller with new gate integration
         await voiceController.initialize({
           autoStart: false, // Don't auto-start, wait for gate
-          wakeWordEnabled: true,
-          mode: 'WAKE'
+          wakeWordEnabled: !isIOS, // Disable wake word on iOS due to audio restrictions
+          mode: isIOS ? 'PUSH' : 'WAKE'
         });
         
         // Message routing removed - now handled directly by ChatInputBar for text
@@ -228,42 +281,91 @@ function AppContent() {
   return (
     <>
       {/* Enhanced Voice Initializer with Gate and Orchestrator */}
-      <EnhancedVoiceInitializer 
-        onInitializeWithGesture={(fn) => setInitializeWithGesture(() => fn)}
-      />
+      <ErrorBoundary name="VoiceInitializer" fallback={<div />}>
+        <EnhancedVoiceInitializer 
+          onInitializeWithGesture={(fn) => setInitializeWithGesture(() => fn)}
+        />
+      </ErrorBoundary>
       
       {/* Microphone permission request card */}
-      <MicrophonePermission />
+      <ErrorBoundary name="MicrophonePermission" fallback={null}>
+        <Suspense fallback={null}>
+          <MicrophonePermission />
+        </Suspense>
+      </ErrorBoundary>
       
       {/* Use HeaderCompact as the primary header */}
-      <HeaderCompact />
+      <ErrorBoundary name="HeaderCompact" fallback={<div className="p-2 text-center">Header unavailable</div>}>
+        <Suspense fallback={<div className="p-2 text-center">Loading header...</div>}>
+          <HeaderCompact />
+        </Suspense>
+      </ErrorBoundary>
       
       {/* Conditionally render HeaderBar when mode is "header" (legacy support) */}
-      {mode === "header" && FEATURES.LEGACY_HEADER && <HeaderBar />}
+      {mode === "header" && FEATURES.LEGACY_HEADER && (
+        <ErrorBoundary name="HeaderBar" fallback={null}>
+          <Suspense fallback={null}>
+            <HeaderBar />
+          </Suspense>
+        </ErrorBoundary>
+      )}
       
       {/* Conditionally render HologramSphere when mode is "sphere" */}
-      {mode === "sphere" && <HologramSphere state="idle" />}
+      {mode === "sphere" && (
+        <ErrorBoundary name="HologramSphere" fallback={<div className="p-4 text-center">Hologram unavailable</div>}>
+          <Suspense fallback={<div className="p-4 text-center">Loading hologram...</div>}>
+            <HologramSphere state="idle" />
+          </Suspense>
+        </ErrorBoundary>
+      )}
       
       {/* Always show UiModeSwitch if the feature flag is enabled */}
-      {FEATURES.UI_MODE_TOGGLE && <UiModeSwitch />}
+      {FEATURES.UI_MODE_TOGGLE && (
+        <ErrorBoundary name="UiModeSwitch" fallback={null}>
+          <Suspense fallback={null}>
+            <UiModeSwitch />
+          </Suspense>
+        </ErrorBoundary>
+      )}
       
       {/* Status dock for legacy UI */}
-      {!FEATURES.HANDS_FREE_UI && <StatusDockWrapper />}
+      {!FEATURES.HANDS_FREE_UI && (
+        <ErrorBoundary name="StatusDock" fallback={<div className="fixed top-0 w-full p-2 text-center">Status unavailable</div>}>
+          <Suspense fallback={<div className="fixed top-0 w-full p-2 text-center">Loading status...</div>}>
+            <StatusDockWrapper />
+          </Suspense>
+        </ErrorBoundary>
+      )}
       
       <Toaster />
-      <Router />
+      
+      <ErrorBoundary name="Router" fallback={<div className="p-4 text-center">Navigation error</div>}>
+        <Router />
+      </ErrorBoundary>
       
       {/* Use ChatInputBar instead of AskBar - sticky bottom with better mobile support */}
-      <ChatInputBar 
-        placeholder="Type a message or tap mic to speak..."
-        initializeWithGesture={initializeWithGesture}
-      />
+      <ErrorBoundary name="ChatInputBar" fallback={<div className="fixed bottom-0 w-full p-4 bg-gray-100">Chat input unavailable</div>}>
+        <Suspense fallback={<div className="fixed bottom-0 w-full p-4 bg-gray-100">Loading chat...</div>}>
+          <ChatInputBar 
+            placeholder="Type a message or tap mic to speak..."
+            initializeWithGesture={initializeWithGesture}
+          />
+        </Suspense>
+      </ErrorBoundary>
       
       {/* iOS Audio Unlock button */}
-      <AudioUnlock />
+      <ErrorBoundary name="AudioUnlock" fallback={null}>
+        <Suspense fallback={null}>
+          <AudioUnlock />
+        </Suspense>
+      </ErrorBoundary>
       
       {/* Debug Overlay - shows Gate state and more */}
-      <DebugOverlay />
+      <ErrorBoundary name="DebugOverlay" fallback={null}>
+        <Suspense fallback={null}>
+          <DebugOverlay />
+        </Suspense>
+      </ErrorBoundary>
     </>
   );
 }

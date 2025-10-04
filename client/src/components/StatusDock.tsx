@@ -30,10 +30,10 @@ export default function StatusDock({ systemOnline, speaking, muted, onToggleMute
   const dot = useMemo(() => systemOnline ? "bg-emerald-400" : "bg-rose-500", [systemOnline]);
 
   return (
-    <>
-    <div className="fixed top-3 left-1/2 z-30 -translate-x-1/2">
-      {/* holographic pill */}
-      <div className="relative group">
+    <div>
+      <div className="fixed top-3 left-1/2 z-30 -translate-x-1/2">
+        {/* holographic pill */}
+        <div className="relative group">
         <div className="absolute -inset-0.5 rounded-full blur-md opacity-60 bg-gradient-to-r from-emerald-400/40 via-cyan-400/40 to-indigo-400/40 group-hover:opacity-90 transition" />
         <div className="relative flex items-center gap-4 rounded-full px-5 py-2.5
                         bg-black/40 backdrop-blur-md ring-1 ring-white/10 text-white">
@@ -81,6 +81,6 @@ export default function StatusDock({ systemOnline, speaking, muted, onToggleMute
     
     {/* Settings Modal */}
     <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
-  </>
+  </div>
   );
 }

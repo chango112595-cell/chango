@@ -1,3 +1,27 @@
+/**
+ * Voice Controls Component
+ * ========================
+ * 
+ * @module components/VoiceControls
+ * @description UI controls for voice system management
+ * 
+ * **Responsibilities:**
+ * - Display voice system status (listening, speaking, permission)
+ * - Provide controls to start/stop voice recognition
+ * - Handle permission requests and errors
+ * - Display diagnostic information and recovery options
+ * 
+ * **Module Boundary:**
+ * Pure UI component that delegates to voice system services.
+ * Should not contain voice processing logic, only UI state
+ * and service orchestration.
+ * 
+ * **Dependencies:**
+ * - Voice services: alwaysListen, voiceBus
+ * - Bootstrap functions: permission and status queries
+ * - UI components: Button, Card, Alert from shadcn
+ */
+
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

@@ -1,6 +1,25 @@
 /**
  * Chat Input Bar Component
- * Sticky bottom input with safe-area support for mobile
+ * ========================
+ * 
+ * @module components/ChatInputBar
+ * @description Sticky bottom input with voice and text input capabilities
+ * 
+ * **Responsibilities:**
+ * - Provide unified text/voice input interface
+ * - Handle safe-area insets for mobile devices
+ * - Manage input state and processing feedback
+ * - Route messages to appropriate services
+ * 
+ * **Module Boundary:**
+ * This is a pure UI component that interfaces with core services.
+ * It should not contain business logic, only UI state management
+ * and service delegation.
+ * 
+ * **Dependencies:**
+ * - Core services: gate, orchestrator, responder
+ * - Event buses: debugBus, voiceBus
+ * - UI components: Button from shadcn
  */
 
 import { useState, useRef, useEffect } from 'react';
@@ -11,6 +30,7 @@ import { orchestrator } from '../core/orchestrator';
 import { responder } from '../services/responder';
 import { debugBus } from '../dev/debugBus';
 import { voiceBus } from '../voice/voiceBus';
+import { STORAGE_KEYS } from '../config/system.config';
 
 interface ChatInputBarProps {
   className?: string;

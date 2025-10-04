@@ -4,6 +4,14 @@ Chango AI is a full-stack TypeScript application featuring a React frontend and 
 
 # Recent Updates (October 4, 2025)
 
+## Global Debug Monitor with Self-Healing
+Implemented comprehensive diagnostic system with automatic recovery:
+- **Health Check Registry**: Modular health checks run every 800ms across all subsystems
+- **Auto-Healing**: Automatic fixes for STT idle, TTS stuck, mic permissions, memory pressure
+- **Smart Notifications**: Critical/error events spoken via TTS, warnings shown as toasts
+- **Rate Limiting**: 4-second cooldown per event type to prevent notification spam
+- **Isolated Architecture**: Clean separation under `/diag` folder for easy management
+
 ## Streamlined Voice Security Implementation
 Applied optimized voiceprint and VAD implementation with the following improvements:
 - **Lightweight MFCC Voiceprint**: 13-dimensional mean vectors with cosine similarity matching (threshold 0.70-0.95, default 0.82)

@@ -103,6 +103,24 @@ if (import.meta.env.DEV) {
   }).catch(err => {
     console.log("[App] Failed to load final test script:", err);
   });
+  
+  import("@/tests/comprehensiveWakeWordTest").then(module => {
+    console.log("[App] Comprehensive wake word test loaded");
+  }).catch(err => {
+    console.log("[App] Failed to load comprehensive test:", err);
+  });
+  
+  import("@/tests/runInlineTest").then(module => {
+    console.log("[App] Inline wake word test loaded and running...");
+  }).catch(err => {
+    console.log("[App] Failed to load inline test:", err);
+  });
+  
+  import("@/tests/simpleWakeWordTest").then(module => {
+    console.log("[App] Simple wake word test loaded");
+  }).catch(err => {
+    console.log("[App] Failed to load simple test:", err);
+  });
 }
 
 function StatusDockWrapper() {

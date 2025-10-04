@@ -78,50 +78,50 @@ import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
 import { debugBus } from "@/dev/debugBus";
 
-// Import test scripts in dev mode
-if (import.meta.env.DEV) {
-  import("@/tests/testConversationFlow").then(module => {
-    console.log("[App] Test conversation flow loaded");
-  }).catch(err => {
-    console.log("[App] Failed to load test script:", err);
-  });
+// Import test scripts in dev mode - DISABLED to prevent message accumulation
+// if (import.meta.env.DEV) {
+//   import("@/tests/testConversationFlow").then(module => {
+//     console.log("[App] Test conversation flow loaded");
+//   }).catch(err => {
+//     console.log("[App] Failed to load test script:", err);
+//   });
   
-  import("@/tests/debugWakeWord").then(module => {
-    console.log("[App] Debug wake word test loaded");
-  }).catch(err => {
-    console.log("[App] Failed to load debug wake word script:", err);
-  });
+//   import("@/tests/debugWakeWord").then(module => {
+//     console.log("[App] Debug wake word test loaded");
+//   }).catch(err => {
+//     console.log("[App] Failed to load debug wake word script:", err);
+//   });
   
-  import("@/tests/manualTest").then(module => {
-    console.log("[App] Manual test loaded");
-  }).catch(err => {
-    console.log("[App] Failed to load manual test script:", err);
-  });
+//   import("@/tests/manualTest").then(module => {
+//     console.log("[App] Manual test loaded");
+//   }).catch(err => {
+//     console.log("[App] Failed to load manual test script:", err);
+//   });
   
-  import("@/tests/finalTest").then(module => {
-    console.log("[App] Final test loaded");
-  }).catch(err => {
-    console.log("[App] Failed to load final test script:", err);
-  });
+//   import("@/tests/finalTest").then(module => {
+//     console.log("[App] Final test loaded");
+//   }).catch(err => {
+//     console.log("[App] Failed to load final test script:", err);
+//   });
   
-  import("@/tests/comprehensiveWakeWordTest").then(module => {
-    console.log("[App] Comprehensive wake word test loaded");
-  }).catch(err => {
-    console.log("[App] Failed to load comprehensive test:", err);
-  });
+//   import("@/tests/comprehensiveWakeWordTest").then(module => {
+//     console.log("[App] Comprehensive wake word test loaded");
+//   }).catch(err => {
+//     console.log("[App] Failed to load comprehensive test:", err);
+//   });
   
-  import("@/tests/runInlineTest").then(module => {
-    console.log("[App] Inline wake word test loaded and running...");
-  }).catch(err => {
-    console.log("[App] Failed to load inline test:", err);
-  });
+//   import("@/tests/runInlineTest").then(module => {
+//     console.log("[App] Inline wake word test loaded and running...");
+//   }).catch(err => {
+//     console.log("[App] Failed to load inline test:", err);
+//   });
   
-  import("@/tests/simpleWakeWordTest").then(module => {
-    console.log("[App] Simple wake word test loaded");
-  }).catch(err => {
-    console.log("[App] Failed to load simple test:", err);
-  });
-}
+//   import("@/tests/simpleWakeWordTest").then(module => {
+//     console.log("[App] Simple wake word test loaded");
+//   }).catch(err => {
+//     console.log("[App] Failed to load simple test:", err);
+//   });
+// }
 
 function StatusDockWrapper() {
   const { systemOnline, isSpeaking, isMuted, setMuted } = useVoiceBus();

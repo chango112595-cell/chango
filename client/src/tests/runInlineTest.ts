@@ -119,11 +119,12 @@ export function runInlineWakeWordTest() {
   }
 }
 
-// Auto-run on load
+// Auto-run disabled to prevent message accumulation
 if (import.meta.env.DEV) {
   // Delay to ensure everything is loaded
-  setTimeout(() => {
-    console.log('[InlineTest] Running wake word test...');
-    runInlineWakeWordTest();
-  }, 2000);
+  // setTimeout(() => {
+  //   console.log('[InlineTest] Running wake word test...');
+  //   runInlineWakeWordTest();
+  // }, 2000);
+  console.log('[InlineTest] Wake word test ready. Run manually if needed.');
 }

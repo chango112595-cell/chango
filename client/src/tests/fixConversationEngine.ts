@@ -88,9 +88,9 @@ export async function fixConversationEngine() {
 if (import.meta.env.DEV) {
   (window as any).fixConversationEngine = fixConversationEngine;
   
-  // Auto-run after a short delay
-  setTimeout(() => {
-    console.log('[FixConversationEngine] Running automatic fix...');
-    fixConversationEngine();
-  }, 3000);
+  // Auto-run disabled to prevent message accumulation
+  // setTimeout(() => {
+  //   console.log('[FixConversationEngine] Running automatic fix...');
+  //   fixConversationEngine();
+  // }, 3000);
 }

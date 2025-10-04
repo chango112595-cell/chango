@@ -25,17 +25,17 @@ export async function runPipelineTest() {
   }
 }
 
-// Auto-run on load in dev mode
+// Auto-run disabled to prevent message accumulation
 if (import.meta.env.DEV) {
-  // Wait for everything to initialize
-  setTimeout(() => {
-    console.log('\n🔄 Auto-running pipeline test in 3 seconds...');
-    setTimeout(() => {
-      runPipelineTest().then(results => {
-        console.log('\n✅ Auto-test complete. Results available in window.testResults');
-      });
-    }, 3000);
-  }, 2000);
+  // Auto-run disabled
+  // setTimeout(() => {
+  //   console.log('\n🔄 Auto-running pipeline test in 3 seconds...');
+  //   setTimeout(() => {
+  //     runPipelineTest().then(results => {
+  //       console.log('\n✅ Auto-test complete. Results available in window.testResults');
+  //     });
+  //   }, 3000);
+  // }, 2000);
   
   // Also expose for manual run
   (window as any).runPipelineTest = runPipelineTest;

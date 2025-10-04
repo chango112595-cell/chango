@@ -26,14 +26,18 @@ export function useConversation() {
 }
 
 export function ConversationProvider({ children }: { children: ReactNode }) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      text: "Hey there! I'm Chango, your AI companion. What would you like to explore today?",
-      sender: "chango",
-      timestamp: new Date(),
-    },
-  ]);
+  // Always start with a fresh welcome message on mount to prevent accumulation
+  const [messages, setMessages] = useState<Message[]>(() => {
+    // Create fresh welcome message with unique timestamp
+    return [
+      {
+        id: `welcome-${Date.now()}`,
+        text: "Hey there! I'm Chango, your AI companion. What would you like to explore today?",
+        sender: "chango",
+        timestamp: new Date(),
+      },
+    ];
+  });
 
   const addMessage = (message: Message) => {
     setMessages((prev) => [...prev, message]);

@@ -93,9 +93,9 @@ export function HeaderCompact({ className = '' }: HeaderCompactProps) {
       data-testid="header-compact"
     >
       <div className="header-compact-inner">
-        {/* Logo/Title */}
+        {/* Logo/Title with futuristic glow */}
         <div className="header-title">
-          <span className="text-lg font-bold bg-gradient-to-r from-blue-500 to-purple-500 text-transparent bg-clip-text">
+          <span className="text-lg font-bold bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600 text-transparent bg-clip-text animate-gradient-text">
             Chango AI
           </span>
         </div>

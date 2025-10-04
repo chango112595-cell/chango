@@ -1,22 +1,56 @@
-// client/src/voice/stt.ts
-import { debugBus } from '../dev/debugBus';
-import { responder } from '../services/responder'; // your text → reply
-import { voiceController } from './voiceController'; // for TTS speak
+/**
+ * Speech-to-Text (STT) Module
+ * ===========================
+ * 
+ * @module voice/stt
+ * @description Handles speech recognition using the Web Speech API.
+ * 
+ * **Responsibilities:**
+ * - Manages browser's SpeechRecognition API
+ * - Processes voice input and converts to text
+ * - Filters commands through wake word detection
+ * - Routes recognized text to responder service
+ * 
+ * **Dependencies:**
+ * - debugBus: For logging and debugging
+ * - responder: For generating responses to commands
+ * - voiceController: For text-to-speech output
+ * - system.config: For STT configuration values
+ * 
+ * **Module Boundary:**
+ * This module is a low-level voice input handler. It should not contain
+ * business logic or UI concerns. It only handles the technical aspects
+ * of speech recognition and passes results to higher-level services.
+ */
 
-type STTOpts = { stream: MediaStream };
+import { debugBus } from '../dev/debugBus';
+import { responder } from '../services/responder';
+import { voiceController } from './voiceController';
+import { STT_CONFIG, WAKE_WORD_CONFIG, STORAGE_KEYS } from '../config/system.config';
+
+/** STT initialization options */
+export type STTOpts = { stream: MediaStream };
+
+/** Internal recognizer instance */
 let recognizer: any = null;
 
-const WAKE = (localStorage.getItem('wake_word') || 'lolo').toLowerCase();
+/** Get the configured wake word */
+const WAKE = (localStorage.getItem(STORAGE_KEYS.local.wakeWord) || WAKE_WORD_CONFIG.primary).toLowerCase();
 
-export async function startSTT(opts: STTOpts) {
+/**
+ * Start speech-to-text recognition
+ * @param opts - Options including the media stream
+ * @throws Error if speech recognition is not available
+ */
+export async function startSTT(opts: STTOpts): Promise<void> {
   stopSTT(); // clean old
   const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
   if (!SR) throw new Error('no_speech_recognition');
 
   recognizer = new SR();
-  recognizer.lang = 'en-US';
-  recognizer.continuous = true;
-  recognizer.interimResults = true;
+  recognizer.lang = STT_CONFIG.language;
+  recognizer.continuous = STT_CONFIG.continuous;
+  recognizer.interimResults = STT_CONFIG.interimResults;
 
   recognizer.onresult = async (ev: any) => {
     let finalTxt = '';
@@ -65,7 +99,18 @@ export async function startSTT(opts: STTOpts) {
   }
 }
 
-export function stopSTT() {
+/**
+ * Stop speech-to-text recognition
+ */
+export function stopSTT(): void {
   try { recognizer?.stop(); } catch {}
   recognizer = null;
+}
+
+/**
+ * Check if STT is currently active
+ * @returns True if recognizer exists and is active
+ */
+export function isSTTActive(): boolean {
+  return recognizer !== null;
 }

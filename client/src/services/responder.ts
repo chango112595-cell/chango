@@ -1,21 +1,57 @@
 /**
- * Responder Service
- * Handles message responses with built-in commands and fallbacks
+ * Responder Service Module
+ * ========================
+ * 
+ * @module services/responder
+ * @description Handles message response generation with command processing and AI fallback.
+ * 
+ * **Responsibilities:**
+ * - Process user commands and generate appropriate responses
+ * - Manage built-in command patterns and handlers
+ * - Route complex queries to AI backend services
+ * - Provide fallback responses for unrecognized input
+ * 
+ * **Module Boundary:**
+ * This service is the main response generation layer. It should not
+ * handle voice I/O directly but focus on text processing and response
+ * generation. Voice concerns are handled by the voice modules.
+ * 
+ * **Interface Contract:**
+ * - Input: Text commands/queries with optional metadata
+ * - Output: Text responses ready for display or speech
+ * - Dependencies: Should only depend on core services and config
  */
 
 import { debugBus } from '../dev/debugBus';
 import { voiceBus } from '../core/voice-bus';
 import { voiceGate } from '../core/gate';
+import { NETWORK_CONFIG } from '../config/system.config';
 
-interface ResponseOptions {
+/**
+ * Options for response generation
+ */
+export interface ResponseOptions {
+  /** Source of the input */
   source: 'voice' | 'text' | 'system';
+  
+  /** Desired response type */
   responseType?: 'voice' | 'text' | 'both';
-  metadata?: any;
+  
+  /** Additional metadata for context */
+  metadata?: Record<string, any>;
 }
 
-interface Command {
+/**
+ * Command definition structure
+ */
+export interface Command {
+  /** Pattern to match (RegExp or exact string) */
   pattern: RegExp | string;
+  
+  /** Handler function to generate response */
   handler: (match: RegExpMatchArray | null, text: string) => Promise<string> | string;
+  
+  /** Human-readable description of the command */
   description: string;
 }
 

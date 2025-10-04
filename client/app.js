@@ -54,7 +54,7 @@ async function initMic(){ const stream=await navigator.mediaDevices.getUserMedia
   mediaRecorder.ondataavailable=e=>{ if(e.data.size>0) chunks.push(e.data); };
   mediaRecorder.onstop=async()=>{ try{ const blob=new Blob(chunks,{type:'audio/webm'}); chunks=[];
       const fd=new FormData(); fd.append('audio',blob,'sample.webm'); const name=(document.getElementById('profileName')?.value||'').trim(); if(name) fd.append('name',name);
-      const res=await fetch('/voice_profile/learn',{ method:'POST', body:fd }); const js=await res.json();
+      const res=await fetch('/api/voice_profile/learn',{ method:'POST', body:fd }); const js=await res.json();
       if(!res.ok||!js.ok){ document.getElementById('scanStatus').textContent='analyze error'; return; }
       document.getElementById('scanStatus').textContent=`profile saved: ${js.profile?.id||'(unnamed)'}`; await refreshProfiles();
   }catch(e){ document.getElementById('scanStatus').textContent='upload error'; }};}
@@ -62,13 +62,13 @@ if(el('btnRec')){ el('btnRec').onmousedown=async()=>{ try{ if(!mediaRecorder) aw
 } catch(e){ document.getElementById('scanStatus').textContent='mic error'; }};
   el('btnRec').onmouseup=()=>{ if(mediaRecorder&&recording){ mediaRecorder.stop(); recording=false; document.getElementById('scanStatus').textContent='voice scan: processing...'; }}}
 if(el('btnAnalyze')) el('btnAnalyze').onclick=()=>{ document.getElementById('scanStatus').textContent='analysis requires a fresh recording (hold Record)'; };
-async function refreshProfiles(){ try{ const r=await fetch('/voice_profile/list'); const js=await r.json(); const sel=document.getElementById('selProfiles'); if(!sel) return; sel.innerHTML='';
+async function refreshProfiles(){ try{ const r=await fetch('/api/voice_profile/list'); const js=await r.json(); const sel=document.getElementById('selProfiles'); if(!sel) return; sel.innerHTML='';
     (js.profiles||[]).forEach(p=>{ const o=document.createElement('option'); o.value=p.id; o.textContent=`${p.id} — ${p.summary}`; sel.appendChild(o); });
     document.getElementById('scanStatus').textContent=`profiles: ${js.profiles?.length||0} found`;
   }catch{ document.getElementById('scanStatus').textContent='failed to list profiles'; } }
 if(el('btnRefreshProfiles')) el('btnRefreshProfiles').onclick=refreshProfiles;
 if(el('btnUseProfile')) el('btnUseProfile').onclick=async()=>{ const id=(document.getElementById('selProfiles')||{}).value; if(!id){ document.getElementById('scanStatus').textContent='pick a profile'; return; }
-  try{ const r=await fetch('/voice_profile/get/'+encodeURIComponent(id)); const js=await r.json(); if(!r.ok||!js.ok){ document.getElementById('scanStatus').textContent='failed to fetch profile'; return; }
+  try{ const r=await fetch('/api/voice_profile/get/'+encodeURIComponent(id)); const js=await r.json(); if(!r.ok||!js.ok){ document.getElementById('scanStatus').textContent='failed to fetch profile'; return; }
     const p=js.profile||{}; if(p.mapped){ const ap=document.getElementById('accentProfile'), ai=document.getElementById('accentIntensity');
       if(ap && p.mapped.profile) ap.value=p.mapped.profile; if(ai && typeof p.mapped.intensity==='number') ai.value=p.mapped.intensity;
       document.getElementById('scanStatus').textContent=`using profile: ${p.id}`; } else { document.getElementById('scanStatus').textContent='profile has no mapping'; }

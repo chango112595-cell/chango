@@ -2,6 +2,18 @@
 
 Chango AI is a full-stack TypeScript application featuring a React frontend and Node.js/Express backend with PostgreSQL. It provides advanced voice synthesis and accent emulation capabilities using its proprietary Chango Voice Engine (CVE). Key functionalities include speech synthesis with various accents, custom voice profile creation from recordings, and an interactive holographic interface that delivers curiosity-driven, natural, and personality-driven AI responses. The system also incorporates robust voice security features like voiceprint authentication and advanced voice activity detection (VAD).
 
+# Recent Updates (October 4, 2025)
+
+## Streamlined Voice Security Implementation
+Applied optimized voiceprint and VAD implementation with the following improvements:
+- **Lightweight MFCC Voiceprint**: 13-dimensional mean vectors with cosine similarity matching (threshold 0.70-0.95, default 0.82)
+- **Energy + Spectral Flux VAD**: Real-time speech detection with hysteresis and auto-calibrating thresholds
+- **Barge-in Support**: Automatic TTS interruption when user speaks, with STT resume after barge-in
+- **Auto-idle**: System idles after 1 second of silence to conserve resources
+- **Simplified UI**: Clean enrollment button, match requirement toggle, and threshold slider
+- **Debug Integration**: Full event emissions for monitoring voiceprint enrollment, verification, and VAD states
+- **Local-only Processing**: All voice processing happens on-device with localStorage persistence
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

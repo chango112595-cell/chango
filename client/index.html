@@ -1,98 +1,14 @@
-<!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Chango AI • HUD</title>
-<link rel="stylesheet" href="theme.css">
-<script>const saved=localStorage.getItem('chango_theme')||'classic';document.documentElement.classList.add(saved==='hud'?'theme-hud':'theme-classic');</script>
-</head>
-<body>
-<header>
-  <div><strong>CHANGO AI</strong> • Voice HUD</div>
-  <div class="row">
-    <div class="badge" id="routeBadge">Route: Client</div>
-    <button class="pill" id="themeBtn">Theme</button>
-  </div>
-</header>
-<main>
-  <div class="card">
-    <div class="row">
-      <button class="pill" id="btnEnable">Enable Voice</button>
-      <button class="pill" id="btnTest">Test: "Hello, I'm Chango."</button>
-      <button class="pill" id="btnStop">Stop</button>
-    </div>
-    <p class="small" id="status">status: idle</p>
-  </div>
-
-  <div class="card">
-    <label>Voice Route</label>
-    <div class="row">
-      <button class="pill" data-route="client">Client</button>
-      <button class="pill" data-route="local_neural" disabled title="(reserved)">Local Neural</button>
-      <button class="pill" data-route="elevenlabs" disabled title="(stub)">ElevenLabs</button>
-      <button class="pill" data-route="azure" disabled title="(stub)">Azure</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <label>Accent Emulator</label>
-    <div class="row">
-      <select id="accentProfile">
-        <option value="neutral">Neutral</option>
-        <option value="brit_rp">British (RP)</option>
-        <option value="southern_us">Southern US</option>
-        <option value="spanish_en">Spanish-influenced English</option>
-        <option value="caribbean">Caribbean / Jamaican-influenced</option>
-      </select>
-      <label>Intensity <input id="accentIntensity" type="range" min="0" max="1" step="0.05" value="0.55"></label>
-      <button class="pill" id="btnRepeatWithAccent">Repeat (accent)</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <label>Scan a Voice → Learn Accent</label>
-    <div class="row">
-      <input id="profileName" type="text" placeholder="Profile name" style="min-width:220px;">
-      <button class="pill" id="btnRec">● Record (hold)</button>
-      <button class="pill" id="btnAnalyze">Analyze & Save</button>
-      <button class="pill" id="btnRefreshProfiles">Refresh Profiles</button>
-      <select id="selProfiles" style="min-width:220px;"></select>
-      <button class="pill" id="btnUseProfile">Use Selected Profile</button>
-    </div>
-    <p class="small" id="scanStatus">voice scan: idle</p>
-  </div>
-
-  <div class="card">
-    <div class="row" style="justify-content:space-between">
-      <label>Hologram Sphere</label>
-      <div class="row">
-        <button class="pill" id="holoToggle">Toggle</button>
-        <select id="holoMode">
-          <option value="awakened">Awakened (gold+green)</option>
-          <option value="sentinel">Sentinel (red+gold)</option>
-        </select>
-        <label class="small">Size <input id="holoSize" type="range" min="200" max="560" step="10" value="320"></label>
-        <label class="small">Spin <input id="holoSpeed" type="range" min="0" max="2" step="0.05" value="0.8"></label>
-        <label class="small">Wander <input id="holoWander" type="checkbox" /></label>
-      </div>
-    </div>
-    <div id="holoRoot" class="hidden holo-mode-awakened">
-      <div id="holoWrap">
-        <canvas id="holoCanvas" width="640" height="640"></canvas>
-        <div class="holo-ring"></div>
-        <div class="holo-chip" id="holoChip">CHANGO • ONLINE</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <label>Say something</label>
-    <div class="row">
-      <input id="sayText" type="text" placeholder="Type and press Speak…" style="flex:1;min-width:240px;">
-      <button class="pill" id="btnSpeak">Speak</button>
-    </div>
-  </div>
-</main>
-<script src="app.js"></script>
-<script src="hologram.js"></script>
-<script src="curiosity.js"></script>
-</body></html>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Fira+Code:wght@300..700&family=Geist+Mono:wght@100..900&family=Geist:wght@100..900&family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&family=IBM+Plex+Sans:ital,wght@0,100..700;1,100..700&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Lora:ital,wght@0,400..700;1,400..700&family=Merriweather:ital,opsz,wght@0,18..144,300..900;1,18..144,300..900&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Outfit:wght@100..900&family=Oxanium:wght@200..800&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&family=Roboto+Mono:ital,wght@0,100..700;1,100..700&family=Roboto:ital,wght@0,100..900;1,100..900&family=Source+Code+Pro:ital,wght@0,200..900;1,200..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&family=Space+Grotesk:wght@300..700&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

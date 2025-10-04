@@ -1,0 +1,149 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(222, 84%, 4%);
+  --foreground: hsl(210, 40%, 95%);
+  --card: hsl(222, 84%, 7%);
+  --card-foreground: hsl(210, 40%, 90%);
+  --popover: hsl(222, 84%, 4%);
+  --popover-foreground: hsl(210, 40%, 95%);
+  --primary: hsl(217, 91%, 60%);
+  --primary-foreground: hsl(222, 84%, 4%);
+  --secondary: hsl(217, 32%, 17%);
+  --secondary-foreground: hsl(210, 40%, 98%);
+  --muted: hsl(215, 27%, 16%);
+  --muted-foreground: hsl(217, 10%, 64%);
+  --accent: hsl(188, 88%, 50%);
+  --accent-foreground: hsl(222, 84%, 4%);
+  --destructive: hsl(0, 84%, 60%);
+  --destructive-foreground: hsl(210, 40%, 98%);
+  --border: hsl(217, 32%, 17%);
+  --input: hsl(222, 84%, 5%);
+  --ring: hsl(217, 91%, 60%);
+  --chart-1: hsl(217, 91%, 60%);
+  --chart-2: hsl(159, 100%, 36%);
+  --chart-3: hsl(42, 93%, 56%);
+  --chart-4: hsl(147, 79%, 42%);
+  --chart-5: hsl(341, 75%, 51%);
+  --sidebar: hsl(222, 84%, 7%);
+  --sidebar-foreground: hsl(210, 40%, 90%);
+  --sidebar-primary: hsl(217, 91%, 60%);
+  --sidebar-primary-foreground: hsl(222, 84%, 4%);
+  --sidebar-accent: hsl(215, 27%, 16%);
+  --sidebar-accent-foreground: hsl(210, 40%, 90%);
+  --sidebar-border: hsl(217, 32%, 17%);
+  --sidebar-ring: hsl(217, 91%, 60%);
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: Menlo, monospace;
+  --radius: 12px;
+}
+
+.theme-hud {
+  --background: hsl(222, 84%, 3%);
+  --card: hsl(222, 84%, 6%);
+  --border: hsl(217, 32%, 20%);
+  --accent: hsl(175, 100%, 60%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .status-indicator {
+    @apply w-2 h-2 rounded-full inline-block mr-2;
+  }
+
+  .status-online {
+    @apply bg-green-500;
+  }
+
+  .status-processing {
+    @apply bg-yellow-500 animate-pulse;
+  }
+
+  .status-offline {
+    @apply bg-red-500;
+  }
+
+  .voice-visualizer {
+    @apply h-10 bg-gradient-to-r from-primary via-accent to-primary rounded-md;
+    mask: url("data:image/svg+xml,%3csvg viewBox='0 0 400 40' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M0,20 Q100,5 200,20 T400,20 L400,40 L0,40 Z'/%3e%3c/svg%3e");
+    -webkit-mask: url("data:image/svg+xml,%3csvg viewBox='0 0 400 40' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M0,20 Q100,5 200,20 T400,20 L400,40 L0,40 Z'/%3e%3c/svg%3e");
+    opacity: 0.7;
+    transition: opacity 0.3s ease;
+  }
+
+  .voice-visualizer.active {
+    opacity: 1;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .hologram-canvas {
+    @apply rounded-full relative overflow-hidden;
+  }
+
+  .hologram-awakened {
+    box-shadow: 
+      0 0 30px hsla(62, 100%, 70%, 0.3),
+      0 0 60px hsla(175, 100%, 60%, 0.2);
+  }
+
+  .hologram-sentinel {
+    box-shadow: 
+      0 0 30px hsla(0, 100%, 60%, 0.3),
+      0 0 60px hsla(30, 100%, 60%, 0.2);
+  }
+
+  .particle {
+    @apply absolute w-0.5 h-0.5 rounded-full;
+    background: hsl(var(--accent));
+    animation: particle-float 3s ease-in-out infinite;
+  }
+
+  @keyframes particle-float {
+    0%, 100% { 
+      transform: translateY(0px) rotate(0deg); 
+    }
+    33% { 
+      transform: translateY(-10px) rotate(120deg); 
+    }
+    66% { 
+      transform: translateY(5px) rotate(240deg); 
+    }
+  }
+
+  @keyframes hologram-pulse {
+    0%, 100% { 
+      opacity: 0.8; 
+    }
+    50% { 
+      opacity: 1; 
+    }
+  }
+
+  @keyframes glow {
+    from { 
+      box-shadow: 0 0 20px hsl(var(--accent)); 
+    }
+    to { 
+      box-shadow: 0 0 30px hsl(var(--accent)), 0 0 40px hsl(var(--accent)); 
+    }
+  }
+
+  .holo-glow { position: relative; }
+  .holo-glow::before{
+    content:""; position:absolute; inset:-2px; border-radius:9999px;
+    filter: blur(10px); opacity:.5;
+    background: conic-gradient(from 180deg, #34d39933, #22d3ee33, #6366f133, #34d39933);
+  }
+}

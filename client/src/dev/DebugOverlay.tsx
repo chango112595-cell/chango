@@ -407,20 +407,22 @@ export function DebugOverlay() {
         width: viewport === 'mobile' ? 48 : 56,
         height: viewport === 'mobile' ? 48 : 56,
         borderRadius: '50%',
-        backgroundColor: isVisible ? 'rgba(0, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.8)',
+        backgroundColor: isVisible ? 'rgba(0, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.9)',
         border: '2px solid #00ffff',
         color: '#00ffff',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'pointer',
-        zIndex: 99999,
+        zIndex: 999999,
         transition: 'all 0.3s ease-in-out',
         pointerEvents: 'auto',
-        boxShadow: '0 4px 12px rgba(0, 255, 255, 0.3)',
+        boxShadow: '0 4px 12px rgba(0, 255, 255, 0.4)',
       }}
-      data-testid="debug-toggle-button"
+      data-testid="button-debug-overlay-toggle"
+      className="debug-overlay-toggle"
       aria-label="Toggle debug overlay"
+      title="Toggle Debug Overlay"
     >
       <Bug size={viewport === 'mobile' ? 20 : 24} />
     </button>
@@ -460,13 +462,12 @@ export function DebugOverlay() {
           }}>
             {/* Health Status */}
             <div style={{ 
-              display: 'flex', 
-              flexWrap: 'wrap',
-              gap: viewport === 'mobile' ? 4 : 8,
-              flex: 1,
-              alignItems: 'center',
+              display: 'grid',
+              gridTemplateColumns: viewport === 'mobile' ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
+              gap: viewport === 'mobile' ? 6 : 8,
+              width: '100%',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                 <div style={{
                   width: viewport === 'mobile' ? 8 : 10,
                   height: viewport === 'mobile' ? 8 : 10,
@@ -474,10 +475,13 @@ export function DebugOverlay() {
                   backgroundColor: getHealthColor(health.stt),
                   boxShadow: health.stt === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
                              health.stt === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                  flexShrink: 0,
                 }} data-testid="health-stt" />
-                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>🎤STT</span>
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  🎤STT
+                </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                 <div style={{
                   width: viewport === 'mobile' ? 8 : 10,
                   height: viewport === 'mobile' ? 8 : 10,
@@ -485,10 +489,13 @@ export function DebugOverlay() {
                   backgroundColor: getHealthColor(health.gate),
                   boxShadow: health.gate === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
                              health.gate === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                  flexShrink: 0,
                 }} data-testid="health-gate" />
-                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>🚪Gate</span>
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  🚪Gate
+                </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                 <div style={{
                   width: viewport === 'mobile' ? 8 : 10,
                   height: viewport === 'mobile' ? 8 : 10,
@@ -496,10 +503,13 @@ export function DebugOverlay() {
                   backgroundColor: getHealthColor(health.tts),
                   boxShadow: health.tts === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
                              health.tts === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                  flexShrink: 0,
                 }} data-testid="health-tts" />
-                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>🔊TTS</span>
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  🔊TTS
+                </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                 <div style={{
                   width: viewport === 'mobile' ? 8 : 10,
                   height: viewport === 'mobile' ? 8 : 10,
@@ -507,12 +517,13 @@ export function DebugOverlay() {
                   backgroundColor: getHealthColor(health.voiceprint),
                   boxShadow: health.voiceprint === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
                              health.voiceprint === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                  flexShrink: 0,
                 }} data-testid="health-voiceprint" />
-                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>
-                  🔐VP
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {viewport === 'mobile' ? '🔐VPrint' : '🔐Voiceprint'}
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                 <div style={{
                   width: viewport === 'mobile' ? 8 : 10,
                   height: viewport === 'mobile' ? 8 : 10,
@@ -520,12 +531,13 @@ export function DebugOverlay() {
                   backgroundColor: getHealthColor(health.vad),
                   boxShadow: health.vad === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
                              health.vad === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                  flexShrink: 0,
                 }} data-testid="health-vad" />
-                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   👂VAD
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                 <div style={{
                   width: viewport === 'mobile' ? 8 : 10,
                   height: viewport === 'mobile' ? 8 : 10,
@@ -533,8 +545,11 @@ export function DebugOverlay() {
                   backgroundColor: getHealthColor(health.orchestrator),
                   boxShadow: health.orchestrator === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
                              health.orchestrator === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                  flexShrink: 0,
                 }} data-testid="health-orchestrator" />
-                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>🎭Orch</span>
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {viewport === 'mobile' ? '🎭Orch' : '🎭Orchestrator'}
+                </span>
               </div>
             </div>
             

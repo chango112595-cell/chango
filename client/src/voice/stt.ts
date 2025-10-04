@@ -1,58 +1,43 @@
-/**
- * Speech-to-Text (STT) Module
- * ===========================
- * 
- * @module voice/stt
- * @description Handles speech recognition using the Web Speech API.
- * 
- * **Responsibilities:**
- * - Manages browser's SpeechRecognition API
- * - Processes voice input and converts to text
- * - Filters commands through wake word detection
- * - Routes recognized text to responder service
- * 
- * **Dependencies:**
- * - debugBus: For logging and debugging
- * - responder: For generating responses to commands
- * - voiceController: For text-to-speech output
- * - system.config: For STT configuration values
- * 
- * **Module Boundary:**
- * This module is a low-level voice input handler. It should not contain
- * business logic or UI concerns. It only handles the technical aspects
- * of speech recognition and passes results to higher-level services.
- */
+import { DebugBus } from '../debug/DebugBus';
+import { VoiceGate } from './gate';
+import { speak } from './tts';
+import { sendToLLM } from '../llm/orchestrator';
 
-import { debugBus } from '../dev/debugBus';
-import { responder } from '../services/responder';
-import { voiceController } from './voiceController';
-import { STT_CONFIG, WAKE_WORD_CONFIG, STORAGE_KEYS } from '../config/system.config';
+// Type definitions for Web Speech API
+interface SpeechRecognitionEvent extends Event {
+  readonly resultIndex: number;
+  readonly results: SpeechRecognitionResultList;
+}
 
-/** STT initialization options */
-export type STTOpts = { stream: MediaStream };
+interface SpeechRecognitionResultList {
+  readonly length: number;
+  [index: number]: SpeechRecognitionResult;
+}
 
-/** Internal recognizer instance */
+interface SpeechRecognitionResult {
+  readonly isFinal: boolean;
+  readonly length: number;
+  [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+  readonly transcript: string;
+  readonly confidence: number;
+}
+
 let recognizer: any = null;
 
-/** Get the configured wake word */
-const WAKE = (localStorage.getItem(STORAGE_KEYS.local.wakeWord) || WAKE_WORD_CONFIG.primary).toLowerCase();
-
-/**
- * Start speech-to-text recognition
- * @param opts - Options including the media stream
- * @throws Error if speech recognition is not available
- */
-export async function startSTT(opts: STTOpts): Promise<void> {
-  stopSTT(); // clean old
+export async function startSTT() {
+  stopSTT();
   const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
   if (!SR) throw new Error('no_speech_recognition');
 
   recognizer = new SR();
-  recognizer.lang = STT_CONFIG.language;
-  recognizer.continuous = STT_CONFIG.continuous;
-  recognizer.interimResults = STT_CONFIG.interimResults;
+  recognizer.lang = 'en-US';
+  recognizer.continuous = true;
+  recognizer.interimResults = true;
 
-  recognizer.onresult = async (ev: any) => {
+  recognizer.onresult = async (ev: SpeechRecognitionEvent) => {
     let finalTxt = '';
     for (let i = ev.resultIndex; i < ev.results.length; i++) {
       const r = ev.results[i];
@@ -60,57 +45,42 @@ export async function startSTT(opts: STTOpts): Promise<void> {
     }
     if (!finalTxt) return;
 
-    const raw = finalTxt.trim().toLowerCase();
-    debugBus.info('STT', `heard="${raw}"`);
+    const raw = finalTxt.trim();
+    DebugBus.emit({ tag:'STT', level:'info', msg:`heard="${raw.toLowerCase()}"` });
 
-    // Respond ONLY if addressed (wake word first or "@lolo" in text UI)
-    const wakeIdx = raw.indexOf(WAKE);
-    if (wakeIdx === -1) {
-      debugBus.info('Gate', 'ignored (no wake word)');
+    const check = VoiceGate.check(raw);
+    if (!check.pass) {
+      DebugBus.emit({ tag:'Gate', level:'info', msg:'ignored (no wake word)' });
       return;
     }
-    const command = raw.slice(wakeIdx + WAKE.length).replace(/^[\s,.:;-]+/,'');
-    if (!command) return;
 
-    const reply = await responder.respond(command);
-    debugBus.info('Orch', `reply="${reply?.slice(0,80)}..."`);
-    
-    // Use the existing voice controller to speak
-    if (voiceController) {
-      await voiceController.speak(reply);
-    }
+    const reply = await sendToLLM(check.cmd);
+    DebugBus.emit({ tag:'Orch', level:'ok', msg:`reply="${(reply||'').slice(0,80)}..."` });
+    await speak(reply);
   };
 
   recognizer.onerror = (e:any) => {
-    debugBus.error('STT', e?.error || 'stt_error');
+    DebugBus.emit({ tag:'STT', level:'error', msg: e?.error || 'stt_error' });
   };
-  
   recognizer.onend = () => {
-    debugBus.warn('STT', 'recognizer ended – auto-restart');
+    DebugBus.emit({ tag:'STT', level:'warn', msg:'recognizer ended – auto-restart' });
     try { recognizer?.start(); } catch {}
   };
 
   try {
     recognizer.start();
-    debugBus.info('STT', 'recognizer started');
+    DebugBus.emit({ tag:'STT', level:'ok', msg:'recognizer started' });
   } catch (e:any) {
-    debugBus.error('STT', `start failed: ${e?.message||e}`);
+    DebugBus.emit({ tag:'STT', level:'error', msg:`start failed: ${e?.message||'unknown'}` });
     throw e;
   }
 }
 
-/**
- * Stop speech-to-text recognition
- */
-export function stopSTT(): void {
-  try { recognizer?.stop(); } catch {}
-  recognizer = null;
-}
-
-/**
- * Check if STT is currently active
- * @returns True if recognizer exists and is active
- */
-export function isSTTActive(): boolean {
-  return recognizer !== null;
+export function stopSTT() {
+  if (recognizer) {
+    recognizer.onend = null;
+    try { recognizer.stop(); } catch {}
+    try { recognizer.abort(); } catch {}
+    recognizer = null;
+  }
 }

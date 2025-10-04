@@ -32,6 +32,7 @@ import { useVoiceBus } from "@/voice/useVoiceBus";
 import { FEATURES } from "@/config/featureFlags";
 import { DebugOverlay } from "@/dev/DebugOverlay";
 import { MicrophonePermission } from "@/components/MicrophonePermission";
+import { AudioUnlock } from "@/components/AudioUnlock";
 import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
 import { debugBus } from "@/dev/debugBus";
@@ -247,6 +248,9 @@ function AppContent() {
         placeholder="Type a message or tap mic to speak..."
         initializeWithGesture={initializeWithGesture}
       />
+      
+      {/* iOS Audio Unlock button */}
+      <AudioUnlock />
       
       {/* Debug Overlay - shows Gate state and more */}
       <DebugOverlay />

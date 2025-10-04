@@ -12,10 +12,27 @@ interface HealthStatus {
   stt: 'ok' | 'issue';
   gate: 'ok' | 'issue'; 
   tts: 'ok' | 'issue';
+  voiceprint: 'ok' | 'issue' | 'inactive';
+  vad: 'ok' | 'issue' | 'inactive';
+  orchestrator: 'ok' | 'issue';
   lastSttActivity: number;
   lastGatePass: number;
   lastTtsSpeech: number;
+  lastVoiceprintActivity: number;
+  lastVadActivity: number;
+  lastOrchestratorActivity: number;
   ttsSpeakingStartTime: number | null;
+  // Additional security states
+  voiceprintEnrolled: boolean;
+  voiceprintVerified: boolean;
+  vadMonitoring: boolean;
+  vadSpeechDetected: boolean;
+  vadEnergy: number;
+  vadFlux: number;
+  orchestratorStreamActive: boolean;
+  orchestratorBargeInEnabled: boolean;
+  gateEnabled: boolean;
+  securityThreshold: number;
 }
 
 const STORAGE_KEY = 'debug-overlay-state';
@@ -39,10 +56,26 @@ export function DebugOverlay() {
     stt: 'ok',
     gate: 'ok',
     tts: 'ok',
+    voiceprint: 'inactive',
+    vad: 'inactive',
+    orchestrator: 'ok',
     lastSttActivity: Date.now(),
     lastGatePass: Date.now(),
     lastTtsSpeech: Date.now(),
-    ttsSpeakingStartTime: null
+    lastVoiceprintActivity: Date.now(),
+    lastVadActivity: Date.now(),
+    lastOrchestratorActivity: Date.now(),
+    ttsSpeakingStartTime: null,
+    voiceprintEnrolled: false,
+    voiceprintVerified: false,
+    vadMonitoring: false,
+    vadSpeechDetected: false,
+    vadEnergy: -100,
+    vadFlux: 0,
+    orchestratorStreamActive: false,
+    orchestratorBargeInEnabled: true,
+    gateEnabled: true,
+    securityThreshold: 0.85
   });
   
   // Determine viewport size for responsive design
@@ -157,6 +190,76 @@ export function DebugOverlay() {
             } else if (event.data?.speaking === false) {
               newHealth.ttsSpeakingStartTime = null;
             }
+          } else if (event.message === 'voiceprint_heartbeat') {
+            newHealth.lastVoiceprintActivity = now;
+            newHealth.voiceprint = 'ok';
+          } else if (event.message === 'vad_heartbeat') {
+            newHealth.lastVadActivity = now;
+            newHealth.vad = 'ok';
+          } else if (event.message === 'orchestrator_heartbeat') {
+            newHealth.lastOrchestratorActivity = now;
+            newHealth.orchestrator = 'ok';
+          }
+        }
+        
+        // Voiceprint events
+        if (event.module === 'Voiceprint') {
+          newHealth.lastVoiceprintActivity = now;
+          if (event.message === 'enrolled' || event.message === 'enrollment_success') {
+            newHealth.voiceprintEnrolled = true;
+            newHealth.voiceprint = 'ok';
+          } else if (event.message === 'verification_success') {
+            newHealth.voiceprintVerified = true;
+            newHealth.voiceprint = 'ok';
+          } else if (event.message === 'verification_failed') {
+            newHealth.voiceprintVerified = false;
+            newHealth.voiceprint = 'issue';
+          } else if (event.message === 'threshold_changed' && event.data?.threshold) {
+            newHealth.securityThreshold = event.data.threshold;
+          } else if (event.type === 'error') {
+            newHealth.voiceprint = 'issue';
+          }
+        }
+        
+        // VAD events
+        if (event.module === 'VAD') {
+          newHealth.lastVadActivity = now;
+          if (event.message === 'Started monitoring') {
+            newHealth.vadMonitoring = true;
+            newHealth.vad = 'ok';
+          } else if (event.message === 'Stopped monitoring') {
+            newHealth.vadMonitoring = false;
+            newHealth.vad = 'inactive';
+          } else if (event.message === 'speech_start') {
+            newHealth.vadSpeechDetected = true;
+            newHealth.vad = 'ok';
+          } else if (event.message === 'speech_end') {
+            newHealth.vadSpeechDetected = false;
+            newHealth.vad = 'ok';
+          } else if (event.message === 'energy_update' && event.data) {
+            if (event.data.energy !== undefined) newHealth.vadEnergy = event.data.energy;
+            if (event.data.flux !== undefined) newHealth.vadFlux = event.data.flux;
+          } else if (event.type === 'error') {
+            newHealth.vad = 'issue';
+          }
+        }
+        
+        // VoiceOrchestrator events
+        if (event.module === 'VoiceOrchestrator') {
+          newHealth.lastOrchestratorActivity = now;
+          if (event.message === 'stream_obtained' || event.message === 'Successfully obtained audio stream') {
+            newHealth.orchestratorStreamActive = true;
+            newHealth.orchestrator = 'ok';
+          } else if (event.message === 'Barge-in activated') {
+            newHealth.orchestratorBargeInEnabled = true;
+          } else if (event.message === 'Voice verified' && event.data?.similarity) {
+            newHealth.voiceprintVerified = true;
+            newHealth.voiceprint = 'ok';
+          } else if (event.message === 'Voice verification failed') {
+            newHealth.voiceprintVerified = false;
+            newHealth.voiceprint = 'issue';
+          } else if (event.type === 'error') {
+            newHealth.orchestrator = 'issue';
           }
         }
         
@@ -183,6 +286,21 @@ export function DebugOverlay() {
         // Check TTS health (10s stuck timeout)
         if (prev.ttsSpeakingStartTime && now - prev.ttsSpeakingStartTime > 10000) {
           newHealth.tts = 'issue';
+        }
+        
+        // Check Voiceprint health (30s timeout, only if enrolled)
+        if (prev.voiceprintEnrolled && now - prev.lastVoiceprintActivity > 30000) {
+          newHealth.voiceprint = 'issue';
+        }
+        
+        // Check VAD health (15s timeout, only if monitoring)
+        if (prev.vadMonitoring && now - prev.lastVadActivity > 15000) {
+          newHealth.vad = 'issue';
+        }
+        
+        // Check Orchestrator health (20s timeout)
+        if (now - prev.lastOrchestratorActivity > 20000) {
+          newHealth.orchestrator = 'issue';
         }
         
         return newHealth;
@@ -217,8 +335,13 @@ export function DebugOverlay() {
   };
   
   // Get health dot color
-  const getHealthColor = (status: 'ok' | 'issue') => {
-    return status === 'ok' ? '#00ff00' : '#ff4444';
+  const getHealthColor = (status: 'ok' | 'issue' | 'inactive') => {
+    switch (status) {
+      case 'ok': return '#00ff00';
+      case 'issue': return '#ff4444';
+      case 'inactive': return '#888888';
+      default: return '#888888';
+    }
   };
   
   // Get overlay styles based on viewport
@@ -338,37 +461,78 @@ export function DebugOverlay() {
             {/* Health Status */}
             <div style={{ 
               display: 'flex', 
-              gap: viewport === 'mobile' ? 12 : 20,
+              flexWrap: 'wrap',
+              gap: viewport === 'mobile' ? 8 : 12,
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <div style={{
                   width: viewport === 'mobile' ? 8 : 10,
                   height: viewport === 'mobile' ? 8 : 10,
                   borderRadius: '50%',
                   backgroundColor: getHealthColor(health.stt),
-                  boxShadow: health.stt === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : '0 0 8px rgba(255, 68, 68, 0.5)',
+                  boxShadow: health.stt === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
+                             health.stt === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
                 }} data-testid="health-stt" />
-                <span style={{ fontSize: viewport === 'mobile' ? 10 : 11 }}>STT</span>
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>🎤STT</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <div style={{
                   width: viewport === 'mobile' ? 8 : 10,
                   height: viewport === 'mobile' ? 8 : 10,
                   borderRadius: '50%',
                   backgroundColor: getHealthColor(health.gate),
-                  boxShadow: health.gate === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : '0 0 8px rgba(255, 68, 68, 0.5)',
+                  boxShadow: health.gate === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
+                             health.gate === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
                 }} data-testid="health-gate" />
-                <span style={{ fontSize: viewport === 'mobile' ? 10 : 11 }}>Gate</span>
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>🚪Gate</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <div style={{
                   width: viewport === 'mobile' ? 8 : 10,
                   height: viewport === 'mobile' ? 8 : 10,
                   borderRadius: '50%',
                   backgroundColor: getHealthColor(health.tts),
-                  boxShadow: health.tts === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : '0 0 8px rgba(255, 68, 68, 0.5)',
+                  boxShadow: health.tts === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
+                             health.tts === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
                 }} data-testid="health-tts" />
-                <span style={{ fontSize: viewport === 'mobile' ? 10 : 11 }}>TTS</span>
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>🔊TTS</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{
+                  width: viewport === 'mobile' ? 8 : 10,
+                  height: viewport === 'mobile' ? 8 : 10,
+                  borderRadius: '50%',
+                  backgroundColor: getHealthColor(health.voiceprint),
+                  boxShadow: health.voiceprint === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
+                             health.voiceprint === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                }} data-testid="health-voiceprint" />
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>
+                  🔐VP{health.voiceprintEnrolled ? '✓' : '✗'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{
+                  width: viewport === 'mobile' ? 8 : 10,
+                  height: viewport === 'mobile' ? 8 : 10,
+                  borderRadius: '50%',
+                  backgroundColor: getHealthColor(health.vad),
+                  boxShadow: health.vad === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
+                             health.vad === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                }} data-testid="health-vad" />
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>
+                  📊VAD{health.vadSpeechDetected ? '📢' : ''}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{
+                  width: viewport === 'mobile' ? 8 : 10,
+                  height: viewport === 'mobile' ? 8 : 10,
+                  borderRadius: '50%',
+                  backgroundColor: getHealthColor(health.orchestrator),
+                  boxShadow: health.orchestrator === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
+                             health.orchestrator === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                }} data-testid="health-orchestrator" />
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>🎯Orch</span>
               </div>
             </div>
             

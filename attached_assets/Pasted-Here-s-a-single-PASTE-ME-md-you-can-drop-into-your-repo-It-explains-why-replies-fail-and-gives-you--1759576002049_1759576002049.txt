@@ -1,0 +1,247 @@
+Here’s a single PASTE_ME.md you can drop into your repo. It explains why replies fail and gives you a full, isolated fix bundle (voice, mic permissions, wake-word gate, simple TTS, compact header, sticky chat dock, wiring). Paste files exactly as shown (adjust import paths if your layout differs).
+
+⸻
+
+PASTE_ME.md — Chango AI Full Reply-Fix Bundle (Voice, Mic, UI, Orchestrator)
+
+This bundle stabilizes STT/TTS, fixes iOS mic/AudioContext issues, avoids cancel recursion, and updates the UI (compact header + chat dock that always stays on top). Everything is isolated in its own module.
+
+Why replies fail (common causes)
+	1.	AudioContext suspended (mobile/iOS) → TTS silent until resumed.
+	2.	Mic permission denied/blocked/not requested → STT never receives audio.
+	3.	Recognizer ended silently → STT stops after a while.
+	4.	Gate/wake word filtering text → commands ignored if “lolo …” not present.
+	5.	TTS not invoked (or canceled in a loop).
+	6.	UI overlap hides input or blocks taps.
+	7.	Not HTTPS → media devices unavailable.
+
+⸻
+
+File Map (add these)
+
+client/
+  components/
+    AudioUnlock.tsx
+    ChatInputBar.tsx
+    HeaderCompact.tsx
+  lib/
+    permissions.ts
+    useViewportVh.ts          (optional iOS keyboard fix)
+  styles/
+    layout.css
+  voice/
+    stt.ts
+    tts.ts
+    alwaysListen.ts
+    gate.ts                   (optional gate)
+  debug/
+    DebugBus.ts
+  llm/
+    orchestrator.ts
+
+If your paths differ, just update the imports accordingly.
+
+⸻
+
+1) Debug bus (tiny monitor)
+
+client/debug/DebugBus.ts
+
+type Level = 'ok'|'info'|'warn'|'error';
+type Event = { tag: string; level: Level; msg: string; data?: any; ts?: number };
+
+const flags = new Map<string, boolean>();
+const listeners = new Set<(e: Event) => void>();
+
+export const DebugBus = {
+  on(fn:(e:Event)=>void){ listeners.add(fn); return ()=>listeners.delete(fn); },
+  emit(e: Event){
+    e.ts = e.ts || Date.now();
+    for (const fn of Array.from(listeners)) try{ fn(e); }catch{}
+    const line = `[${new Date(e.ts).toISOString()}] [${e.level}] ${e.tag}: ${e.msg}`;
+    if (e.level==='error') console.error(line, e.data||'');
+    else if (e.level==='warn') console.warn(line, e.data||'');
+    else console.log(line, e.data||'');
+  },
+  defineFlags(names: string[]){ names.forEach(n=>flags.set(n, false)); },
+  flag(name: string, val: boolean){ flags.set(name, val); DebugBus.emit({tag:'FLAG', level:'info', msg:`${name}=${val}`}); },
+  snapshot(){ return Object.fromEntries(flags.entries()); }
+};
+
+
+⸻
+
+2) Mic permissions & AudioContext unlock
+
+client/lib/permissions.ts
+
+export type MicState = 'unknown'|'granted'|'denied'|'blocked'|'prompt';
+
+let audioUnlocked = false;
+
+export async function unlockAudioContext(ctx: AudioContext) {
+  if (ctx.state === 'suspended') await ctx.resume();
+  audioUnlocked = true;
+}
+
+export async function checkMicPermission(): Promise<MicState> {
+  try {
+    // @ts-ignore
+    if (navigator.permissions?.query) {
+      // @ts-ignore
+      const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      if (status.state === 'granted') return 'granted';
+      if (status.state === 'denied')   return 'denied';
+      return 'prompt';
+    }
+  } catch {}
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+    s.getTracks().forEach(t => t.stop());
+    return 'granted';
+  } catch (e:any) {
+    const name = e?.name || '';
+    if (name === 'NotAllowedError' || name === 'SecurityError') return 'denied';
+    if (name === 'NotFoundError') return 'blocked';
+    return 'prompt';
+  }
+}
+
+export async function requestMicStream(): Promise<MediaStream> {
+  return navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1,
+      sampleRate: 44100
+    }
+  });
+}
+
+export function isAudioUnlocked(){ return audioUnlocked; }
+
+client/components/AudioUnlock.tsx
+
+import React from 'react';
+import { ensureAudioUnlocked } from '../voice/alwaysListen';
+
+export function AudioUnlock() {
+  const [ok, setOk] = React.useState<boolean>(() => !!sessionStorage.getItem('audio_unlocked'));
+  if (ok) return null;
+  return (
+    <button
+      onClick={async () => {
+        await ensureAudioUnlocked();
+        sessionStorage.setItem('audio_unlocked','1');
+        setOk(true);
+      }}
+      className="rounded-full px-3 py-1 text-xs bg-emerald-600/20 border border-emerald-500"
+      style={{ position:'fixed', right:12, bottom:88, zIndex:1000 }}
+    >
+      Enable Audio
+    </button>
+  );
+}
+
+(optional) client/lib/useViewportVh.ts
+
+import { useEffect } from 'react';
+export function useViewportVh() {
+  useEffect(() => {
+    const set = () => {
+      const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      document.documentElement.style.setProperty('--vhpx', `${vh}px`);
+    };
+    set();
+    window.addEventListener('resize', set);
+    window.visualViewport?.addEventListener('resize', set);
+    return () => {
+      window.removeEventListener('resize', set);
+      window.visualViewport?.removeEventListener?.('resize', set);
+    };
+  }, []);
+}
+
+
+⸻
+
+3) Voice gate (wake-word)
+
+client/voice/gate.ts
+
+import { DebugBus } from '../debug/DebugBus';
+let enabled = false;
+let wake = 'lolo';
+export const VoiceGate = {
+  enable(word: string){ enabled = true; wake = (word||'lolo').toLowerCase(); DebugBus.flag('Gate', true); },
+  disable(){ enabled = false; DebugBus.flag('Gate', false); },
+  check(txt: string){
+    if (!enabled) return { pass: true, cmd: txt };
+    const raw = (txt||'').toLowerCase();
+    const i = raw.indexOf(wake);
+    if (i === -1) return { pass: false, cmd: '' };
+    const cmd = raw.slice(i + wake.length).replace(/^[\s,.:;-]+/, '');
+    return { pass: !!cmd, cmd };
+  }
+};
+
+
+⸻
+
+4) STT — reliable & “respond only if addressed”
+
+client/voice/stt.ts
+
+import { DebugBus } from '../debug/DebugBus';
+import { VoiceGate } from './gate';
+import { speak } from './tts';
+import { sendToLLM } from '../llm/orchestrator';
+
+let recognizer: SpeechRecognition | null = null;
+
+export async function startSTT() {
+  stopSTT();
+  const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+  if (!SR) throw new Error('no_speech_recognition');
+
+  recognizer = new SR();
+  recognizer.lang = 'en-US';
+  recognizer.continuous = true;
+  recognizer.interimResults = true;
+
+  recognizer.onresult = async (ev: SpeechRecognitionEvent) => {
+    let finalTxt = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) finalTxt += r[0].transcript;
+    }
+    if (!finalTxt) return;
+
+    const raw = finalTxt.trim();
+    DebugBus.emit({ tag:'STT', level:'info', msg:`heard="${raw.toLowerCase()}"` });
+
+    const check = VoiceGate.check(raw);
+    if (!check.pass) {
+      DebugBus.emit({ tag:'Gate', level:'info', msg:'ignored (no wake word)' });
+      return;
+    }
+
+    const reply = await sendToLLM(check.cmd);
+    DebugBus.emit({ tag:'Orch', level:'ok', msg:`reply="${(reply||'').slice(0,80)}..."` });
+    await speak(reply);
+  };
+
+  recognizer.onerror = (e:any) => {
+    DebugBus.emit({ tag:'STT', level:'error', msg: e?.error || 'stt_error' });
+  };
+  recognizer.onend = () => {
+    DebugBus.emit({ tag:'STT', level:'warn', msg:'recognizer ended – auto-restart' });
+    try { recognizer?.start(); } catch {}
+  };
+
+  try {
+    recognizer.start();
+    DebugBus.emit({ tag:'STT', level:'ok', msg:'recognizer started' });
+  } catch (e:any) {
+    DebugBus.emit({ tag:'STT', level:'error', msg:`start failed: ${

@@ -1,0 +1,261 @@
+Got it. Here’s a tight, copy-paste fix set to get the voice system stable again and to make the microphone permission flow bullet-proof (especially on iOS/Safari). It also clears the “AlwaysListen: Permission check failed” you’re seeing in the Debug Monitor.
+
+⸻
+
+1) client/lib/permissions.ts (new – isolated)
+
+// client/lib/permissions.ts
+export type MicState = 'unknown'|'granted'|'denied'|'blocked'|'prompt';
+
+let audioUnlocked = false;
+
+export async function unlockAudioContext(ctx: AudioContext) {
+  if (ctx.state === 'suspended') await ctx.resume();
+  audioUnlocked = true;
+}
+
+export async function checkMicPermission(): Promise<MicState> {
+  // Permissions API is not universal; handle safely
+  try {
+    // @ts-ignore
+    if (navigator.permissions?.query) {
+      // @ts-ignore
+      const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      if (status.state === 'granted') return 'granted';
+      if (status.state === 'denied')   return 'denied';
+      return 'prompt';
+    }
+  } catch {}
+  // Fallback: try a dry getUserMedia with no persistent stream
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+    s.getTracks().forEach(t => t.stop());
+    return 'granted';
+  } catch (e:any) {
+    const msg = (e && e.name) || '';
+    if (msg === 'NotAllowedError' || msg === 'SecurityError') return 'denied';
+    if (msg === 'NotFoundError')  return 'blocked'; // no input device
+    return 'prompt';
+  }
+}
+
+export async function requestMicStream(): Promise<MediaStream> {
+  return navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1,
+      sampleRate: 44100
+    }
+  });
+}
+
+export function isAudioUnlocked() {
+  return audioUnlocked;
+}
+
+
+⸻
+
+2) client/voice/alwaysListen.ts (replace listener bootstrap)
+
+// client/voice/alwaysListen.ts
+import { checkMicPermission, requestMicStream, unlockAudioContext } from '../lib/permissions';
+import { DebugBus } from '../debug/DebugBus'; // your monitor bus
+import { startSTT, stopSTT } from './stt';     // your STT control
+import { VoiceGate } from './gate';            // wake-word gate if used
+
+export type AlwaysCfg = { wakeWord?: string; enabled: boolean };
+
+let running = false;
+let stream: MediaStream | null = null;
+let ctx: AudioContext | null = null;
+
+export async function ensureAudioUnlocked() {
+  if (!ctx) ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  await unlockAudioContext(ctx);
+}
+
+async function acquireMic() {
+  const state = await checkMicPermission();
+  DebugBus.emit({ tag:'AlwaysListen', level:'info', msg:`Permission state: ${state}` });
+
+  if (state === 'denied' || state === 'blocked') {
+    DebugBus.emit({ tag:'Gate', level:'error', msg:'Microphone permission denied/blocked' });
+    throw new Error('mic_denied');
+  }
+  stream = await requestMicStream();
+  DebugBus.emit({ tag:'STT', level:'ok', msg:'Mic stream acquired' });
+  return stream;
+}
+
+export async function startAlwaysListen(cfg: AlwaysCfg) {
+  if (running || !cfg.enabled) return;
+  try {
+    await ensureAudioUnlocked();        // iOS: user gesture required once
+    const s = await acquireMic();       // ask / reuse permission
+    await startSTT({ stream: s });      // your STT module consumes the stream
+
+    // Optional: gate by wake-word
+    if (cfg.wakeWord) VoiceGate.enable(cfg.wakeWord);
+    running = true;
+    DebugBus.flag('STT', true);
+    DebugBus.flag('Gate', !!cfg.wakeWord);
+  } catch (e:any) {
+    running = false;
+    DebugBus.flag('STT', false);
+    DebugBus.flag('Gate', false);
+    DebugBus.emit({ tag:'AlwaysListen', level:'error', msg:`Startup failed: ${e?.message||e}` });
+  }
+}
+
+export async function stopAlwaysListen() {
+  try {
+    VoiceGate.disable?.();
+    await stopSTT();
+  } finally {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    running = false;
+    DebugBus.flag('STT', false);
+    DebugBus.flag('Gate', false);
+  }
+}
+
+
+⸻
+
+3) client/voice/stt.ts (stability + “respond only when addressed”)
+
+// client/voice/stt.ts
+import { DebugBus } from '../debug/DebugBus';
+import { sendToLLM } from '../llm/orchestrator'; // your text → reply
+import { speak } from './tts';
+
+type STTOpts = { stream: MediaStream };
+let recognizer: SpeechRecognition | null = null;
+
+const WAKE = (localStorage.getItem('wake_word') || 'lolo').toLowerCase();
+
+export async function startSTT(opts: STTOpts) {
+  stopSTT(); // clean old
+  const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+  if (!SR) throw new Error('no_speech_recognition');
+
+  recognizer = new SR();
+  recognizer.lang = 'en-US';
+  recognizer.continuous = true;
+  recognizer.interimResults = true;
+
+  recognizer.onresult = async (ev: SpeechRecognitionEvent) => {
+    let finalTxt = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) finalTxt += r[0].transcript;
+    }
+    if (!finalTxt) return;
+
+    const raw = finalTxt.trim().toLowerCase();
+    DebugBus.emit({ tag:'STT', level:'info', msg:`heard="${raw}"` });
+
+    // Respond ONLY if addressed (wake word first or “@lolo” in text UI)
+    const wakeIdx = raw.indexOf(WAKE);
+    if (wakeIdx === -1) {
+      DebugBus.emit({ tag:'Gate', level:'info', msg:'ignored (no wake word)' });
+      return;
+    }
+    const command = raw.slice(wakeIdx + WAKE.length).replace(/^[\s,.:;-]+/,'');
+    if (!command) return;
+
+    const reply = await sendToLLM(command);
+    DebugBus.emit({ tag:'Orch', level:'ok', msg:`reply="${reply?.slice(0,80)}..."` });
+    await speak(reply);
+  };
+
+  recognizer.onerror = (e:any) => {
+    DebugBus.emit({ tag:'STT', level:'error', msg: e?.error || 'stt_error' });
+  };
+  recognizer.onend = () => {
+    DebugBus.emit({ tag:'STT', level:'warn', msg:'recognizer ended – auto-restart' });
+    try { recognizer?.start(); } catch {}
+  };
+
+  try {
+    recognizer.start();
+    DebugBus.emit({ tag:'STT', level:'ok', msg:'recognizer started' });
+  } catch (e:any) {
+    DebugBus.emit({ tag:'STT', level:'error', msg:`start failed: ${e?.message||e}` });
+    throw e;
+  }
+}
+
+export function stopSTT() {
+  try { recognizer?.stop(); } catch {}
+  recognizer = null;
+}
+
+
+⸻
+
+4) UI: one-time audio unlock button for iOS only (top bar or footer)
+
+This prevents “listening but not answering” caused by a suspended AudioContext.
+
+// client/components/AudioUnlock.tsx
+import React from 'react';
+import { ensureAudioUnlocked } from '../voice/alwaysListen';
+
+export function AudioUnlock() {
+  const [ok, setOk] = React.useState<boolean>(() => !!sessionStorage.getItem('audio_unlocked'));
+  if (ok) return null;
+  return (
+    <button
+      onClick={async () => {
+        await ensureAudioUnlocked();
+        sessionStorage.setItem('audio_unlocked','1');
+        setOk(true);
+      }}
+      className="rounded-full px-3 py-1 text-xs bg-emerald-600/20 border border-emerald-500"
+      style={{ position:'fixed', right:12, bottom:88, zIndex:1000 }}
+    >
+      Enable Audio
+    </button>
+  );
+}
+
+Render <AudioUnlock /> once in your root layout.
+
+⸻
+
+5) Hook into your Debug Monitor (noisy → meaningful)
+
+Add these flags so the mini-LEDs flip correctly:
+
+// wherever you init the monitor
+DebugBus.defineFlags(['STT','TTS','VAD','Gate','Orch','VPrint']);
+
+And confirm you call:
+	•	DebugBus.flag('STT', true/false) on recognizer start/stop
+	•	DebugBus.flag('TTS', true) while speaking; false on cancel/end
+	•	DebugBus.emit({tag:'AlwaysListen', level:'error', msg:'Permission check failed'}) only when permission truly fails (after checkMicPermission())
+
+⸻
+
+6) Common reasons it “types but doesn’t reply” (covered by patches)
+	•	AudioContext suspended → fixed by AudioUnlock.
+	•	Mic permission not granted → explicit check + readable errors.
+	•	Wake-word gate discarding phrases → now requires clear “lolo …”.
+	•	Recognizer ended silently → onend auto-restart.
+	•	iOS HTTPS / mixed-content → ensure you’re loading over HTTPS (Replit preview is HTTPS).
+
+⸻
+
+Quick test (takes <60s)
+	1.	Reload, tap Enable Audio once.
+	2.	Say: “lolo what time is it” → should hear reply, STT/TTS LEDs green.
+	3.	Say: “what time is it” (without wake word) → ignored, Gate logs “ignored (no wake word)”.
+	4.	Toggle mic permission off in iOS settings → Debug shows “Microphone permission denied/blocked”.
+
+⸻
+
+If you want, I can also collapse the top bar footprint and lock the bottom chat input above the sphere/monitor (z-index fix + safe area insets) in the next pass.

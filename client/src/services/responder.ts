@@ -205,22 +205,25 @@ export class Responder {
    */
   private async getAIResponse(text: string, options: ResponseOptions): Promise<string | null> {
     try {
-      // Send to backend for AI processing
-      const response = await fetch('/api/chat/completion', {
+      // Send to backend for AI processing - using correct NLP endpoint
+      const response = await fetch('/api/nlp/reply', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          message: text,
-          source: options.source,
-          metadata: options.metadata
+          text: text,
+          context: {
+            source: options.source,
+            ...options.metadata
+          }
         })
       });
       
       if (response.ok) {
         const data = await response.json();
-        return data.response || data.message || null;
+        // Backend returns { ok, reply, confidence, context }
+        return data.reply || null;
       }
       
       debugBus.warn('Responder', 'ai_response_failed', { 

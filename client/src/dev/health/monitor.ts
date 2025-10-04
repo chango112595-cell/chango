@@ -270,6 +270,15 @@ class HealthMonitor {
    */
   private restartStt(): void {
     try {
+      // CRITICAL FIX: Check if device not found - don't try to restart
+      if (sessionStorage.getItem('mic_device_not_found') === 'true') {
+        console.log('[HealthMonitor] Skipping STT restart - no microphone device found');
+        // Reset heartbeat to prevent repeated restart attempts
+        this.state.lastSttHeartbeat = Date.now();
+        this.state.consecutiveSttStuckChecks = 0;
+        return;
+      }
+      
       // Check if microphone permission exists first
       // If no permission, don't try to restart as it will fail
       const hasPermission = (window as any).alwaysListen?.getStatus?.()?.hasPermission;

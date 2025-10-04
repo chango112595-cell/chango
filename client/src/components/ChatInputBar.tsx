@@ -10,6 +10,7 @@ import { voiceGate } from '../core/gate';
 import { orchestrator } from '../core/orchestrator';
 import { responder } from '../services/responder';
 import { debugBus } from '../dev/debugBus';
+import { voiceBus } from '../voice/voiceBus';
 
 interface ChatInputBarProps {
   className?: string;
@@ -60,6 +61,13 @@ export function ChatInputBar({
     try {
       // Clear input immediately for better UX
       setInputText('');
+      
+      // CRITICAL FIX: Emit userTextSubmitted event so Chat component displays the message
+      // This is what the Chat component listens for to add user messages to the DOM
+      voiceBus.emit({
+        type: 'userTextSubmitted',
+        text: text
+      });
       
       // Route through orchestrator
       const decision = await orchestrator.routeMessage({

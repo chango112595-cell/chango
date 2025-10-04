@@ -9,6 +9,7 @@ import { FEATURES } from '../../config/featureFlags';
 import { passGate } from '../listening/gate';
 import { debugBus } from '../../dev/debugBus';
 import { beat } from '../../dev/health/monitor';
+import { respond as callResponderService } from '../../services/responder';
 
 // Intent routing functions
 function getCurrentTime(): string {
@@ -202,48 +203,71 @@ export function route(text: string): string | null {
 }
 
 // Unified response function that sends response through both channels
-async function respond(text: string): Promise<void> {
-  // Generate response using the routing logic
-  const response = route(text);
-  
-  if (response) {
-    console.log('[ConversationEngine] ✅ Generated response:', response);
+async function respond(text: string, typed: boolean = false): Promise<void> {
+  try {
+    console.log('[ConversationEngine] Getting response from responder service for:', text);
     
-    // Emit response event for UI components to listen to
+    // Use the responder service which will handle API calls to backend
+    const response = await callResponderService(text, {
+      source: typed ? 'text' : 'voice',
+      responseType: 'both',  // Get both text and voice responses
+      metadata: {
+        timestamp: new Date().toISOString()
+      }
+    });
+    
+    if (response) {
+      console.log('[ConversationEngine] ✅ Got response from responder:', response);
+      
+      // Emit response event for UI components to listen to
+      voiceBus.emit({
+        type: 'loloResponse',
+        text: response,
+        source: 'conversation'
+      });
+      
+      // Log TTS speak to debug bus
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('TTS', 'speak', { text: response });
+      }
+      
+      // Send TTS heartbeat
+      try {
+        beat('tts', { speaking: true, text: response });
+      } catch (error) {
+        console.error('[ConversationEngine] Error sending TTS heartbeat:', error);
+      }
+      
+      // Note: responder service already handles speaking through voice events
+      // But we'll also ensure it's spoken here for redundancy
+      voiceOrchestrator.speak(response);
+      console.log('[ConversationEngine] Response sent to voice orchestrator');
+    } else {
+      console.log('[ConversationEngine] ⚠️ No response from responder service');
+      const fallbackResponse = "I'm having trouble processing that. Please try again.";
+      
+      // Emit response event for UI components
+      voiceBus.emit({
+        type: 'loloResponse',
+        text: fallbackResponse,
+        source: 'conversation'
+      });
+      
+      voiceOrchestrator.speak(fallbackResponse);
+      console.log('[ConversationEngine] Fallback response sent');
+    }
+  } catch (error) {
+    console.error('[ConversationEngine] Error getting response:', error);
+    const errorResponse = "Sorry, I encountered an error. Please try again.";
+    
+    // Emit error response event
     voiceBus.emit({
       type: 'loloResponse',
-      text: response,
+      text: errorResponse,
       source: 'conversation'
     });
     
-    // Use voiceOrchestrator to speak the response
-    // Log TTS speak to debug bus
-    if (FEATURES.DEBUG_BUS) {
-      debugBus.info('TTS', 'speak', { text: response });
-    }
-    
-    // Send TTS heartbeat
-    try {
-      beat('tts', { speaking: true, text: response });
-    } catch (error) {
-      console.error('[ConversationEngine] Error sending TTS heartbeat:', error);
-    }
-    
-    voiceOrchestrator.speak(response);
-    console.log('[ConversationEngine] Response sent to voice orchestrator');
-  } else {
-    console.log('[ConversationEngine] ⚠️ No specific route matched, using default response');
-    const defaultResponse = "I'm not sure how to respond to that. Could you please rephrase or ask something else?";
-    
-    // Emit response event for UI components
-    voiceBus.emit({
-      type: 'loloResponse',
-      text: defaultResponse,
-      source: 'conversation'
-    });
-    
-    voiceOrchestrator.speak(defaultResponse);
-    console.log('[ConversationEngine] Default response sent to voice orchestrator');
+    voiceOrchestrator.speak(errorResponse);
   }
 }
 
@@ -332,8 +356,8 @@ async function handle(raw: string, typed: boolean = false): Promise<void> {
   const processedText = gateResult.text;
   console.log('[ConversationEngine] Gate allowed, processing:', processedText);
   
-  // Generate and send response
-  await respond(processedText);
+  // Generate and send response - pass typed parameter
+  await respond(processedText, typed);
 }
 
 // Initialize conversation engine with event listeners

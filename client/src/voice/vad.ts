@@ -81,8 +81,9 @@ export class VAD {
     this.prevSpec = spec;
 
     const level = 0.7*energy + 0.3*flux;
-    const thOn  = Math.max(0.002, 2.5*this.avgEnergy);
-    const thOff = Math.max(0.001, 1.3*this.avgEnergy);
+    // Increased thresholds for better noise rejection
+    const thOn  = Math.max(0.003, 3.5*this.avgEnergy); // Increased from 2.5x to 3.5x
+    const thOff = Math.max(0.002, 1.8*this.avgEnergy); // Increased from 1.3x to 1.8x
 
     if(!this.speaking && level > thOn){ 
       this.speaking=true; 

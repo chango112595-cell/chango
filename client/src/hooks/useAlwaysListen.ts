@@ -52,12 +52,23 @@ export function useAlwaysListen(autoStart: boolean = false) {
       const permStatus = await ensureMicPermission();
       
       if (!permStatus.granted) {
+        // CRITICAL FIX: Handle device not found differently from permission denied
+        const errorMessage = permStatus.error || 'Permission denied';
+        const isDeviceNotFound = errorMessage.includes('No microphone device found');
+        
         setState(prev => ({ 
           ...prev, 
           hasPermission: false, 
-          error: 'Permission denied' 
+          error: errorMessage
         }));
-        debugBus.error('AlwaysListen', 'permission_denied', {});
+        
+        if (isDeviceNotFound) {
+          debugBus.error('AlwaysListen', 'device_not_found', {
+            message: 'No microphone device available - text chat only mode'
+          });
+        } else {
+          debugBus.error('AlwaysListen', 'permission_denied', {});
+        }
         return false;
       }
       
@@ -112,6 +123,7 @@ export function useAlwaysListen(autoStart: boolean = false) {
             error: event.error 
           });
           
+          // CRITICAL FIX: Handle different error types properly
           if (event.error === 'not-allowed') {
             closeGate('permission_error');
             setState(prev => ({ 
@@ -119,6 +131,16 @@ export function useAlwaysListen(autoStart: boolean = false) {
               hasPermission: false, 
               error: 'Permission denied' 
             }));
+          } else if (event.error === 'no-speech' || event.error === 'audio-capture') {
+            // Check if this might be a device not found issue
+            if (sessionStorage.getItem('mic_device_not_found') === 'true') {
+              closeGate('device_not_found');
+              setState(prev => ({ 
+                ...prev, 
+                hasPermission: false, 
+                error: 'No microphone device found' 
+              }));
+            }
           }
         };
         

@@ -16,6 +16,16 @@ export interface PermissionStatus {
  */
 export async function queryMicPermission(): Promise<PermissionStatus> {
   try {
+    // CRITICAL FIX: Check if device not found (no mic available)
+    if (sessionStorage.getItem('mic_device_not_found') === 'true') {
+      debugBus.info('Permissions', 'device_not_found_cached', {});
+      return {
+        granted: false,
+        state: 'unknown',
+        error: 'No microphone device found'
+      };
+    }
+    
     // First check if permission was explicitly denied
     if (sessionStorage.getItem('mic_permission_denied') === 'true') {
       debugBus.info('Permissions', 'previously_denied', {});
@@ -76,6 +86,16 @@ export async function ensureMicPermission(): Promise<PermissionStatus> {
   try {
     debugBus.info('Permissions', 'ensure_permission_start', {});
     
+    // CRITICAL FIX: Check if device not found - don't ask again
+    if (sessionStorage.getItem('mic_device_not_found') === 'true') {
+      debugBus.info('Permissions', 'device_not_found_not_asking', {});
+      return {
+        granted: false,
+        state: 'unknown',
+        error: 'No microphone device found'
+      };
+    }
+    
     // Check if permission was already denied - don't ask again
     if (sessionStorage.getItem('mic_permission_denied') === 'true') {
       debugBus.info('Permissions', 'previously_denied_not_asking', {});
@@ -123,7 +143,22 @@ export async function ensureMicPermission(): Promise<PermissionStatus> {
     const errorMessage = String(error);
     let state: 'denied' | 'unknown' = 'unknown';
     
-    if (errorMessage.includes('NotAllowedError') || errorMessage.includes('PermissionDeniedError')) {
+    // CRITICAL FIX: Handle "Device Not Found" error separately
+    if (errorMessage.includes('NotFoundError') || errorMessage.includes('Requested device not found')) {
+      state = 'unknown';
+      // Store device not found state to prevent retry loops
+      sessionStorage.setItem('mic_device_not_found', 'true');
+      sessionStorage.setItem('mic_permission_granted', 'false');
+      debugBus.error('Permissions', 'device_not_found', { 
+        error: errorMessage,
+        message: 'No microphone device available'
+      });
+      return {
+        granted: false,
+        state,
+        error: 'No microphone device found'
+      };
+    } else if (errorMessage.includes('NotAllowedError') || errorMessage.includes('PermissionDeniedError')) {
       state = 'denied';
       // Store denial to prevent retry loops
       sessionStorage.setItem('mic_permission_denied', 'true');

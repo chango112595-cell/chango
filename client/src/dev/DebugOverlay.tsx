@@ -436,7 +436,7 @@ export function DebugOverlay() {
       onClick={() => setIsVisible(!isVisible)}
       style={{
         position: 'fixed',
-        bottom: viewport === 'mobile' ? 20 : 30,
+        bottom: viewport === 'mobile' ? 80 : 90,  // Moved higher to avoid chat input bar
         left: viewport === 'mobile' ? 20 : 30,
         width: viewport === 'mobile' ? 48 : 56,
         height: viewport === 'mobile' ? 48 : 56,
@@ -448,7 +448,7 @@ export function DebugOverlay() {
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'pointer',
-        zIndex: 999999,
+        zIndex: 9998, // Below chat input bar (9999) to prevent covering mute button
         transition: 'all 0.3s ease-in-out',
         pointerEvents: 'auto',
         boxShadow: '0 4px 12px rgba(0, 255, 255, 0.4)',

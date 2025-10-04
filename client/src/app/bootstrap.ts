@@ -26,7 +26,7 @@ let bootstrapInProgress = false;
  * This is the main entry point for initializing the voice assistant
  * Idempotent: safe to call multiple times
  */
-export async function bootstrapLolo(options: BootstrapOptions = {}): Promise<void> {
+export async function bootstrapChango(options: BootstrapOptions = {}): Promise<void> {
   // Ensure idempotency - return early if already bootstrapped or in progress
   if (isBootstrapped) {
     console.log('[Bootstrap] Already bootstrapped, skipping initialization');
@@ -124,10 +124,10 @@ export async function bootstrapLolo(options: BootstrapOptions = {}): Promise<voi
         console.log('[Bootstrap] ✅ Continuous listening started');
         console.log('[Bootstrap] STT listening state:', status.isListening);
         
-        // Announce that Lolo is ready (only on initial bootstrap)
+        // Announce that Chango is ready (only on initial bootstrap)
         if (enableTTS && !isBootstrapped) {
           console.log('[Bootstrap] Speaking welcome message...');
-          voiceBus.emitSpeak("Hello! I'm Lolo, and I'm listening.", 'system');
+          voiceBus.emitSpeak("Hello! I'm Chango, and I'm listening.", 'system');
         }
       } catch (error) {
         console.error('[Bootstrap] Failed to start listening:', error);
@@ -155,7 +155,7 @@ export async function bootstrapLolo(options: BootstrapOptions = {}): Promise<voi
     bootstrapInProgress = false;
 
     // Final status report
-    console.log('[Bootstrap] 🎉 Lolo bootstrap complete!');
+    console.log('[Bootstrap] 🎉 Chango bootstrap complete!');
     console.log('[Bootstrap] === Final System Status ===');
     console.log('[Bootstrap] - TTS:', enableTTS ? 'Enabled' : 'Disabled');
     console.log('[Bootstrap] - STT (Always Listening):', autoStartListening ? 'Active' : 'Manual');

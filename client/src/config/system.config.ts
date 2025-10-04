@@ -83,15 +83,15 @@ export const TTS_CONFIG = {
  */
 export const WAKE_WORD_CONFIG = {
   /** Primary wake word */
-  primary: 'lolo',
+  primary: 'chango',
   
   /** Accepted wake word variations */
   variations: [
-    'lolo',
-    'hey lolo',
-    'ok lolo',
-    'hi lolo',
-    'yo lolo'
+    'chango',
+    'hey chango',
+    'ok chango',
+    'hi chango',
+    'yo chango'
   ],
   
   /** Cooldown after wake word detection (ms) */

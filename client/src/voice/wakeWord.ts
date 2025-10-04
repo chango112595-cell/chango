@@ -1,6 +1,6 @@
 /**
  * Wake Word Detection Module
- * Listens for "lolo" or "hey lolo" to activate the assistant
+ * Listens for "chango" or "hey chango" to activate the assistant
  */
 
 import { voiceBus } from './voiceBus';

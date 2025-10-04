@@ -38,6 +38,6 @@ export {
   passGate,
   
   // Helper functions
-  isAddressedToLolo,
+  isAddressedToChango,
   stripWakeWord,
 } from './listening/gate';

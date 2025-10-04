@@ -3,9 +3,10 @@
  * Implements continuous listening with auto-restart and error recovery
  * Features:
  * - Enhanced permission checks with fallback logic
- * - iOS AudioContext support
- * - Wake word integration
+ * - iOS AudioContext support with better handling
+ * - Wake word integration for Chango
  * - Improved debug monitoring
+ * - iOS-specific retry mechanisms
  */
 
 import { checkMicPermission, requestMicStream, unlockAudioContext } from '../lib/permissions';
@@ -121,6 +122,13 @@ async function acquireMic() {
 
   if (state === 'denied' || state === 'blocked') {
     debugBus.error('Gate', 'Microphone permission denied/blocked');
+    
+    // On iOS, provide more guidance
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (isIOS) {
+      console.warn('[AlwaysListen] iOS detected - permission may need to be granted in Settings');
+    }
+    
     throw new Error('mic_denied');
   }
   stream = await requestMicStream();

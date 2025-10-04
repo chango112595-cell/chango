@@ -9,7 +9,7 @@ import { useSpeechCoordination } from "@/lib/speechCoordination";
 import { useConversation } from "@/lib/conversationContext";
 
 export default function Chat() {
-  const { messages, addUserMessage, addLoloMessage } = useConversation();
+  const { messages, addUserMessage, addChangoMessage } = useConversation();
   // Removed inputValue - input is now handled by the global AskBar
   const [isTyping, setIsTyping] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -40,10 +40,10 @@ export default function Chat() {
   
   // Listen for Lolo responses from the conversation engine
   useEffect(() => {
-    const unsubscribe = voiceBus.on('loloResponse', (event) => {
+    const unsubscribe = voiceBus.on('changoResponse', (event) => {
       if (event.text) {
-        console.log('[Chat] Received Lolo response:', event.text);
-        addLoloMessage(event.text);
+        console.log('[Chat] Received Chango response:', event.text);
+        addChangoMessage(event.text);
         setIsTyping(false);
         
         // Track speaking state
@@ -67,7 +67,7 @@ export default function Chat() {
     return () => {
       unsubscribe();
     };
-  }, [addLoloMessage]);
+  }, [addChangoMessage]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -107,7 +107,7 @@ export default function Chat() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Bot className="w-5 h-5 text-accent" />
-          Chat with Lolo
+          Chat with Chango
         </CardTitle>
       </CardHeader>
       <CardContent className="flex-1 flex flex-col p-0">
@@ -181,7 +181,7 @@ export default function Chat() {
           <div className="border-t border-border px-6 py-3">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-xs text-muted-foreground">Lolo is speaking...</span>
+              <span className="text-xs text-muted-foreground">Chango is speaking...</span>
             </div>
           </div>
         )}

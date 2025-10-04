@@ -606,6 +606,31 @@ class AlwaysListenManager {
         // Audio capture failed - could be muted mic or no device
         console.error('[AlwaysListen] Audio capture failed, checking microphone status...');
         
+        // Increment consecutive failures for audio-capture errors
+        this.consecutiveFailures++;
+        console.log(`[AlwaysListen] Audio-capture error count: ${this.consecutiveFailures}/${this.MAX_CONSECUTIVE_FAILURES}`);
+        
+        // Check if we need to pause for recovery after too many failures
+        if (this.consecutiveFailures >= 5) {
+          console.warn('[AlwaysListen] Too many audio-capture failures, entering recovery pause (30 seconds)');
+          this.isPausedForRecovery = true;
+          this.errorMessage = 'Voice system paused for recovery - will retry in 30 seconds';
+          
+          // Schedule a longer recovery period
+          setTimeout(() => {
+            console.log('[AlwaysListen] Recovery period complete, attempting to restart...');
+            this.isPausedForRecovery = false;
+            this.consecutiveFailures = 0;
+            this.currentRetryDelay = 500; // Reset delay
+            if (this.isEnabled) {
+              this.start();
+            }
+          }, 30000); // 30 second recovery period
+          
+          this.state = 'error';
+          break; // Exit early, don't schedule immediate restart
+        }
+        
         // Check if it's because the source is muted
         if (event.message && event.message.includes('muted')) {
           console.warn('[AlwaysListen] 🔇 Microphone appears to be muted');
@@ -646,17 +671,21 @@ class AlwaysListenManager {
             // Start monitoring for when mic becomes available
             this.startMicrophoneMonitoring();
             
-            // Use exponential backoff
+            // Use exponential backoff with less aggressive growth
             if (this.isEnabled && !this.isPausedForRecovery) {
-              this.scheduleRestart(this.currentRetryDelay);
-              this.currentRetryDelay = Math.min(this.currentRetryDelay * 2, this.MAX_RETRY_DELAY);
+              const nextDelay = Math.min(this.currentRetryDelay * 1.5, this.MAX_RETRY_DELAY);
+              console.log(`[AlwaysListen] Will retry in ${nextDelay}ms`);
+              this.scheduleRestart(nextDelay);
+              this.currentRetryDelay = nextDelay;
             }
           }
         } else {
-          // Other audio capture error - use exponential backoff
+          // Other audio capture error - use exponential backoff with less aggressive growth
           if (this.isEnabled && !this.isPausedForRecovery) {
-            this.scheduleRestart(this.currentRetryDelay);
-            this.currentRetryDelay = Math.min(this.currentRetryDelay * 2, this.MAX_RETRY_DELAY);
+            const nextDelay = Math.min(this.currentRetryDelay * 1.5, this.MAX_RETRY_DELAY);
+            console.log(`[AlwaysListen] Will retry in ${nextDelay}ms`);
+            this.scheduleRestart(nextDelay);
+            this.currentRetryDelay = nextDelay;
           }
         }
         

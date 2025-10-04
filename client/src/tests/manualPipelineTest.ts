@@ -396,13 +396,13 @@ if (import.meta.env.DEV) {
   (window as any).manualPipelineTest = manualPipelineTest;
   console.log('[ManualTest] Ready: await manualPipelineTest()');
   
-  // Auto-run after delay
-  setTimeout(() => {
-    console.log('\n🔄 Running manual pipeline test in 3 seconds...');
-    setTimeout(() => {
-      manualPipelineTest().then(report => {
-        console.log('\n✅ Manual test complete!');
-      });
-    }, 3000);
-  }, 2000);
+  // Auto-run disabled to prevent message accumulation
+  // setTimeout(() => {
+  //   console.log('\n🔄 Running manual pipeline test in 3 seconds...');
+  //   setTimeout(() => {
+  //     manualPipelineTest().then(report => {
+  //       console.log('\n✅ Manual test complete!');
+  //     });
+  //   }, 3000);
+  // }, 2000);
 }

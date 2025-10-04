@@ -16,6 +16,26 @@ export default function Chat() {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   // Removed inputRef - no longer needed
   
+  // Track recent messages to prevent duplicates
+  const recentMessagesRef = useRef<Set<string>>(new Set());
+  const messageCooldownRef = useRef<Map<string, number>>(new Map());
+  
+  // Clean up old cooldown entries periodically to prevent memory leak
+  useEffect(() => {
+    const cleanup = setInterval(() => {
+      const now = Date.now();
+      const oldEntries: string[] = [];
+      messageCooldownRef.current.forEach((timestamp, key) => {
+        if (now - timestamp > 5000) { // Remove entries older than 5 seconds
+          oldEntries.push(key);
+        }
+      });
+      oldEntries.forEach(key => messageCooldownRef.current.delete(key));
+    }, 10000); // Run cleanup every 10 seconds
+    
+    return () => clearInterval(cleanup);
+  }, []);
+  
   // Initialize speech coordination
   const speechCoordination = useSpeechCoordination();
   
@@ -24,12 +44,34 @@ export default function Chat() {
     const unsubscribeUser = voiceBus.on('userTextSubmitted', (event) => {
       if (event.text) {
         console.log('[Chat] Received user text from AskBar:', event.text);
+        
+        // Create message key for deduplication
+        const messageKey = `user_${event.text}_${Date.now()}`;
+        
+        // Check if message was recently added (within 500ms window)
+        const recentKey = `user_${event.text}`;
+        const lastTime = messageCooldownRef.current.get(recentKey) || 0;
+        const now = Date.now();
+        
+        if (now - lastTime < 500) {
+          console.log('[Chat] ⚠️ Duplicate user message detected within cooldown, skipping');
+          return;
+        }
+        
+        messageCooldownRef.current.set(recentKey, now);
+        recentMessagesRef.current.add(messageKey);
+        
         addUserMessage(event.text);
         setIsTyping(true);
         
         // Mark chat as active
         speechCoordination.setChatActive(true);
         speechCoordination.setLastChatActivity(Date.now());
+        
+        // Clean up old keys after 2 seconds
+        setTimeout(() => {
+          recentMessagesRef.current.delete(messageKey);
+        }, 2000);
       }
     });
     
@@ -43,6 +85,23 @@ export default function Chat() {
     const unsubscribe = voiceBus.on('changoResponse', (event) => {
       if (event.text) {
         console.log('[Chat] Received Chango response:', event.text);
+        
+        // Create message key for deduplication
+        const messageKey = `chango_${event.text}_${Date.now()}`;
+        
+        // Check if message was recently added (within 500ms window)
+        const recentKey = `chango_${event.text}`;
+        const lastTime = messageCooldownRef.current.get(recentKey) || 0;
+        const now = Date.now();
+        
+        if (now - lastTime < 500) {
+          console.log('[Chat] ⚠️ Duplicate Chango response detected within cooldown, skipping');
+          return;
+        }
+        
+        messageCooldownRef.current.set(recentKey, now);
+        recentMessagesRef.current.add(messageKey);
+        
         addChangoMessage(event.text);
         setIsTyping(false);
         
@@ -56,6 +115,11 @@ export default function Chat() {
         setTimeout(() => {
           speechCoordination.setChatActive(false);
         }, 5000);
+        
+        // Clean up old keys after 2 seconds
+        setTimeout(() => {
+          recentMessagesRef.current.delete(messageKey);
+        }, 2000);
       }
     });
     

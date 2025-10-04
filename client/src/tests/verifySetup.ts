@@ -121,15 +121,15 @@ export function verifySetup() {
 if (import.meta.env.DEV) {
   (window as any).verifySetup = verifySetup;
   
-  // Run automatically after a short delay to ensure everything is loaded
-  setTimeout(() => {
-    console.log('[VerifySetup] Running automatic verification...');
-    verifySetup().then(result => {
-      if (result) {
-        console.log('[VerifySetup] ✅ Setup verified successfully!');
-      } else {
-        console.error('[VerifySetup] ❌ Setup verification failed!');
-      }
-    });
-  }, 2000);
+  // Auto-run disabled to prevent message accumulation
+  // setTimeout(() => {
+  //   console.log('[VerifySetup] Running automatic verification...');
+  //   verifySetup().then(result => {
+  //     if (result) {
+  //       console.log('[VerifySetup] ✅ Setup verified successfully!');
+  //     } else {
+  //       console.error('[VerifySetup] ❌ Setup verification failed!');
+  //     }
+  //   });
+  // }, 2000);
 }

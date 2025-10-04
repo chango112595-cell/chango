@@ -371,13 +371,31 @@ async function handle(raw: string, typed: boolean = false): Promise<void> {
   await respond(processedText, typed);
 }
 
+// Track if already initialized to prevent duplicate registration
+let isConversationEngineInitialized = false;
+let conversationEngineUnsubscribers: (() => void)[] = [];
+
 // Initialize conversation engine with event listeners
 export function initConversationEngine(): void {
+  // Guard against duplicate initialization
+  if (isConversationEngineInitialized) {
+    console.log('[ConversationEngine] ⚠️ Already initialized, skipping duplicate initialization');
+    return;
+  }
+  
   console.log('[ConversationEngine] 🚀 Initializing conversation engine...');
   console.log('[ConversationEngine] Timestamp:', new Date().toISOString());
   
   // First, set up event listeners
   console.log('[ConversationEngine] Setting up event listeners...');
+  
+  // Track active requests to prevent duplicate processing
+  const activeRequests = new Set<string>();
+  
+  // Helper function to create request ID
+  const createRequestId = (text: string, typed: boolean) => {
+    return `${typed ? 'text' : 'speech'}_${text}_${Date.now()}`;
+  };
   
   // Listen for user speech recognized events
   const unsubscribeSpeech = voiceBus.on('userSpeechRecognized', (event) => {
@@ -385,9 +403,21 @@ export function initConversationEngine(): void {
     console.log('[ConversationEngine] Event details:', JSON.stringify(event));
     
     if (event.text) {
+      const requestId = createRequestId(event.text, false);
+      
+      // Check if already processing this request
+      if (activeRequests.has(requestId)) {
+        console.log('[ConversationEngine] ⚠️ Duplicate request detected, skipping:', requestId);
+        return;
+      }
+      
+      activeRequests.add(requestId);
       console.log('[ConversationEngine] Processing speech input:', event.text);
+      
       // Use unified handle function for speech input (typed=false)
-      handle(event.text, false);
+      handle(event.text, false).finally(() => {
+        activeRequests.delete(requestId);
+      });
     } else {
       console.log('[ConversationEngine] ❌ Received speech event without text!', event);
     }
@@ -399,9 +429,21 @@ export function initConversationEngine(): void {
     console.log('[ConversationEngine] Event details:', JSON.stringify(event));
     
     if (event.text) {
+      const requestId = createRequestId(event.text, true);
+      
+      // Check if already processing this request
+      if (activeRequests.has(requestId)) {
+        console.log('[ConversationEngine] ⚠️ Duplicate request detected, skipping:', requestId);
+        return;
+      }
+      
+      activeRequests.add(requestId);
       console.log('[ConversationEngine] Processing typed input:', event.text);
+      
       // Use unified handle function for typed input (typed=true)
-      handle(event.text, true);
+      handle(event.text, true).finally(() => {
+        activeRequests.delete(requestId);
+      });
     } else {
       console.log('[ConversationEngine] ❌ Received text event without text!', event);
     }
@@ -417,6 +459,14 @@ export function initConversationEngine(): void {
     console.log('[ConversationEngine] Mute state changed to:', event.muted);
   });
   
+  // Store unsubscribe functions for cleanup
+  conversationEngineUnsubscribers = [
+    unsubscribeSpeech,
+    unsubscribeText,
+    unsubscribeCancel,
+    unsubscribeMute
+  ];
+  
   console.log('[ConversationEngine] ✅ Event listeners registered successfully');
   console.log('[ConversationEngine] Registered listeners:', {
     userSpeechRecognized: !!unsubscribeSpeech,
@@ -424,6 +474,9 @@ export function initConversationEngine(): void {
     cancel: !!unsubscribeCancel,
     muteChange: !!unsubscribeMute
   });
+  
+  // Mark as initialized
+  isConversationEngineInitialized = true;
   
   // Expose functions to window for testing in dev mode
   if (import.meta.env.DEV) {
@@ -446,14 +499,20 @@ export function initConversationEngine(): void {
       // Add function to check listeners
       checkListeners: () => {
         const listeners = {
-          userSpeechRecognized: !!unsubscribeSpeech,
-          userTextSubmitted: !!unsubscribeText,
-          cancel: !!unsubscribeCancel,
-          muteChange: !!unsubscribeMute
+          userSpeechRecognized: !!conversationEngineUnsubscribers[0],
+          userTextSubmitted: !!conversationEngineUnsubscribers[1],
+          cancel: !!conversationEngineUnsubscribers[2],
+          muteChange: !!conversationEngineUnsubscribers[3]
         };
         console.log('[ConversationEngine] Current listeners:', listeners);
         return listeners;
-      }
+      },
+      // Add cleanup function
+      cleanup: () => {
+        cleanupConversationEngine();
+      },
+      // Get initialization status
+      isInitialized: () => isConversationEngineInitialized
     };
     
     (window as any).conversationEngine = engineAPI;
@@ -464,6 +523,24 @@ export function initConversationEngine(): void {
   console.log('[ConversationEngine] ✅ Initialization complete!');
   console.log('[ConversationEngine] Ready to process user input via text or speech');
   console.log('[ConversationEngine] Wake word required for speech input: "lolo"');
+}
+
+// Cleanup function to remove all event listeners
+export function cleanupConversationEngine(): void {
+  console.log('[ConversationEngine] 🧹 Cleaning up conversation engine...');
+  
+  // Unsubscribe all event listeners
+  conversationEngineUnsubscribers.forEach(unsubscribe => {
+    if (unsubscribe) unsubscribe();
+  });
+  
+  // Clear the array
+  conversationEngineUnsubscribers = [];
+  
+  // Reset initialization flag
+  isConversationEngineInitialized = false;
+  
+  console.log('[ConversationEngine] ✅ Cleanup complete');
 }
 
 // Export for testing individual functions

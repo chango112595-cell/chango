@@ -5,12 +5,22 @@
 
 import { voiceOrchestrator } from '../voice/tts/orchestrator';
 import { LocalNeuralProvider } from '../voice/tts/providers/localNeural';
+import { moduleRegistry, ModuleType } from '../dev/moduleRegistry';
 
 /**
  * Initialize the TTS system with local provider only
  */
 export async function initTTS(): Promise<void> {
   console.log('[InitTTS] Initializing Text-To-Speech system...');
+  
+  // Register TTS module with the registry
+  moduleRegistry.registerModule({
+    id: 'voice.tts',
+    name: 'Text-To-Speech',
+    type: ModuleType.VOICE,
+    critical: true,
+    dependencies: []
+  });
   
   try {
     // Create and register the local neural provider

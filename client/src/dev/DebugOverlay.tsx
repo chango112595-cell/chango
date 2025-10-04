@@ -6,7 +6,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { debugBus, DebugEvent } from './debugBus';
 import { FEATURES } from '../config/featureFlags';
-import { X, Bug, ChevronUp, ChevronDown } from 'lucide-react';
+import { X, Bug, ChevronUp, ChevronDown, Activity, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { moduleRegistry, ModuleHealth, ModuleStatus, ModuleType, ModuleInstance } from './moduleRegistry';
 
 interface HealthStatus {
   stt: 'ok' | 'issue';
@@ -49,6 +50,9 @@ export function DebugOverlay() {
   }
   
   const [events, setEvents] = useState<DebugEvent[]>([]);
+  const [modules, setModules] = useState<ModuleInstance[]>([]);
+  const [showModules, setShowModules] = useState(false);
+  const [activeModuleType, setActiveModuleType] = useState<ModuleType | 'all'>('all');
   const [isVisible, setIsVisible] = useState<boolean>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     return saved ? JSON.parse(saved).visible ?? false : false;
@@ -352,6 +356,66 @@ export function DebugOverlay() {
     };
   }, [viewport, isExpanded]);
   
+  // Refresh modules periodically
+  useEffect(() => {
+    const refreshModules = () => {
+      const allModules = moduleRegistry.getAllModules();
+      setModules(allModules);
+    };
+    
+    // Initial refresh
+    refreshModules();
+    
+    // Refresh every 2 seconds
+    const moduleInterval = setInterval(refreshModules, 2000);
+    
+    // Subscribe to module discovery
+    const unsubscribe = moduleRegistry.onModuleDiscovered(() => {
+      refreshModules();
+    });
+    
+    return () => {
+      clearInterval(moduleInterval);
+      unsubscribe();
+    };
+  }, []);
+  
+  // Get module health icon
+  const getModuleHealthIcon = (health: ModuleHealth) => {
+    switch (health) {
+      case ModuleHealth.HEALTHY:
+        return <CheckCircle size={14} style={{ color: '#00ff00' }} />;
+      case ModuleHealth.WARNING:
+        return <AlertCircle size={14} style={{ color: '#ffaa00' }} />;
+      case ModuleHealth.CRITICAL:
+        return <XCircle size={14} style={{ color: '#ff4444' }} />;
+      default:
+        return <Activity size={14} style={{ color: '#888888' }} />;
+    }
+  };
+  
+  // Get module status color
+  const getModuleStatusColor = (status: ModuleStatus): string => {
+    switch (status) {
+      case ModuleStatus.ACTIVE:
+        return '#00ff00';
+      case ModuleStatus.READY:
+        return '#00ffff';
+      case ModuleStatus.ERROR:
+        return '#ff4444';
+      case ModuleStatus.DEGRADED:
+        return '#ffaa00';
+      case ModuleStatus.RECOVERING:
+        return '#ffff00';
+      case ModuleStatus.DISABLED:
+        return '#666666';
+      case ModuleStatus.INITIALIZING:
+        return '#00aaff';
+      default:
+        return '#888888';
+    }
+  };
+  
   // Format timestamp for display
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -629,7 +693,52 @@ export function DebugOverlay() {
             </div>
           </div>
           
-          {/* Event Log (only when expanded) */}
+          {/* View toggle buttons */}
+          {isExpanded && (
+            <div style={{
+              display: 'flex',
+              gap: 8,
+              marginTop: 8,
+              marginBottom: 8,
+              borderTop: '1px solid #00ffff44',
+              paddingTop: 8,
+            }}>
+              <button
+                onClick={() => setShowModules(false)}
+                style={{
+                  flex: 1,
+                  padding: '4px 8px',
+                  background: !showModules ? 'rgba(0, 255, 255, 0.2)' : 'transparent',
+                  border: '1px solid #00ffff',
+                  borderRadius: 4,
+                  color: '#00ffff',
+                  fontSize: viewport === 'mobile' ? 10 : 11,
+                  cursor: 'pointer',
+                }}
+                data-testid="debug-view-events"
+              >
+                📜 Events
+              </button>
+              <button
+                onClick={() => setShowModules(true)}
+                style={{
+                  flex: 1,
+                  padding: '4px 8px',
+                  background: showModules ? 'rgba(0, 255, 255, 0.2)' : 'transparent',
+                  border: '1px solid #00ffff',
+                  borderRadius: 4,
+                  color: '#00ffff',
+                  fontSize: viewport === 'mobile' ? 10 : 11,
+                  cursor: 'pointer',
+                }}
+                data-testid="debug-view-modules"
+              >
+                📊 Modules ({modules.filter(m => m.health === ModuleHealth.CRITICAL).length}/{modules.length})
+              </button>
+            </div>
+          )}
+          
+          {/* Content area (Events or Modules) */}
           {isExpanded && (
             <>
               <div style={{ 
@@ -638,38 +747,224 @@ export function DebugOverlay() {
                 overflowX: 'hidden',
                 minHeight: viewport === 'mobile' ? 100 : 200,
               }}>
-                {events.map((event, index) => (
-                  <div
-                    key={`${event.timestamp}-${index}`}
-                    style={{
-                      marginBottom: 4,
+                {!showModules ? (
+                  // Event Log
+                  events.map((event, index) => (
+                    <div
+                      key={`${event.timestamp}-${index}`}
+                      style={{
+                        marginBottom: 4,
+                        fontSize: viewport === 'mobile' ? 9 : 10,
+                        lineHeight: viewport === 'mobile' ? '12px' : '14px',
+                        wordBreak: 'break-word'
+                      }}
+                      data-testid={`debug-event-${index}`}
+                    >
+                      <span style={{ color: '#888' }}>
+                        {formatTime(event.timestamp)}
+                      </span>
+                      {' '}
+                      <span style={{ color: getLevelColor(event.type) }}>
+                        [{event.module}]
+                      </span>
+                      {' '}
+                      <span style={{ color: '#fff' }}>
+                        {event.message}
+                      </span>
+                      {event.data && viewport !== 'mobile' && (
+                        <>
+                          {' '}
+                          <span style={{ color: '#999', fontSize: 9 }}>
+                            {JSON.stringify(event.data).slice(0, 50)}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  // Modules Display
+                  <div>
+                    {/* Module Type Filter */}
+                    <div style={{
+                      display: 'flex',
+                      gap: 4,
+                      marginBottom: 8,
+                      flexWrap: 'wrap',
                       fontSize: viewport === 'mobile' ? 9 : 10,
-                      lineHeight: viewport === 'mobile' ? '12px' : '14px',
-                      wordBreak: 'break-word'
-                    }}
-                    data-testid={`debug-event-${index}`}
-                  >
-                    <span style={{ color: '#888' }}>
-                      {formatTime(event.timestamp)}
-                    </span>
-                    {' '}
-                    <span style={{ color: getLevelColor(event.type) }}>
-                      [{event.module}]
-                    </span>
-                    {' '}
-                    <span style={{ color: '#fff' }}>
-                      {event.message}
-                    </span>
-                    {event.data && viewport !== 'mobile' && (
-                      <>
-                        {' '}
-                        <span style={{ color: '#999', fontSize: 9 }}>
-                          {JSON.stringify(event.data).slice(0, 50)}
-                        </span>
-                      </>
-                    )}
+                    }}>
+                      <button
+                        onClick={() => setActiveModuleType('all')}
+                        style={{
+                          padding: '2px 6px',
+                          background: activeModuleType === 'all' ? 'rgba(0, 255, 255, 0.2)' : 'transparent',
+                          border: '1px solid #00ffff',
+                          borderRadius: 3,
+                          color: '#00ffff',
+                          fontSize: viewport === 'mobile' ? 9 : 10,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        All
+                      </button>
+                      {Object.values(ModuleType).map(type => (
+                        <button
+                          key={type}
+                          onClick={() => setActiveModuleType(type)}
+                          style={{
+                            padding: '2px 6px',
+                            background: activeModuleType === type ? 'rgba(0, 255, 255, 0.2)' : 'transparent',
+                            border: '1px solid #00ffff',
+                            borderRadius: 3,
+                            color: '#00ffff',
+                            fontSize: viewport === 'mobile' ? 9 : 10,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {type.charAt(0).toUpperCase() + type.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                    
+                    {/* Module List */}
+                    <div>
+                      {modules
+                        .filter(m => activeModuleType === 'all' || m.metadata.type === activeModuleType)
+                        .sort((a, b) => {
+                          // Sort by health priority: critical > warning > unknown > healthy
+                          const healthOrder = { 
+                            [ModuleHealth.CRITICAL]: 0,
+                            [ModuleHealth.WARNING]: 1,
+                            [ModuleHealth.UNKNOWN]: 2,
+                            [ModuleHealth.HEALTHY]: 3,
+                          };
+                          return healthOrder[a.health] - healthOrder[b.health];
+                        })
+                        .map(module => (
+                          <div
+                            key={module.metadata.id}
+                            style={{
+                              marginBottom: 8,
+                              padding: '4px 8px',
+                              background: 'rgba(0, 0, 0, 0.4)',
+                              border: `1px solid ${
+                                module.health === ModuleHealth.CRITICAL ? '#ff4444' :
+                                module.health === ModuleHealth.WARNING ? '#ffaa00' :
+                                module.health === ModuleHealth.HEALTHY ? '#00ff00' : '#888888'
+                              }`,
+                              borderRadius: 4,
+                              fontSize: viewport === 'mobile' ? 9 : 10,
+                            }}
+                          >
+                            <div style={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'space-between',
+                              marginBottom: 4,
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                {getModuleHealthIcon(module.health)}
+                                <span style={{ fontWeight: 'bold', color: '#00ffff' }}>
+                                  {module.metadata.name}
+                                </span>
+                              </div>
+                              <span style={{
+                                fontSize: 8,
+                                color: getModuleStatusColor(module.status),
+                                padding: '1px 4px',
+                                border: `1px solid ${getModuleStatusColor(module.status)}`,
+                                borderRadius: 3,
+                              }}>
+                                {module.status}
+                              </span>
+                            </div>
+                            
+                            <div style={{ fontSize: 9, color: '#aaa', marginBottom: 2 }}>
+                              {module.metadata.id} • {module.metadata.type}
+                            </div>
+                            
+                            {/* Module stats */}
+                            <div style={{ 
+                              display: 'flex', 
+                              gap: 8, 
+                              fontSize: 9, 
+                              color: '#888',
+                              marginTop: 4,
+                            }}>
+                              {module.stats.errorCount > 0 && (
+                                <span style={{ color: '#ff4444' }}>
+                                  Errors: {module.stats.errorCount}
+                                </span>
+                              )}
+                              {module.stats.warningCount > 0 && (
+                                <span style={{ color: '#ffaa00' }}>
+                                  Warnings: {module.stats.warningCount}
+                                </span>
+                              )}
+                              {module.metadata.critical && (
+                                <span style={{ color: '#ff00ff' }}>
+                                  CRITICAL
+                                </span>
+                              )}
+                            </div>
+                            
+                            {/* Show last error if any */}
+                            {module.errors.length > 0 && (
+                              <div style={{ 
+                                marginTop: 4, 
+                                fontSize: 9, 
+                                color: '#ff4444',
+                                padding: '2px 4px',
+                                background: 'rgba(255, 68, 68, 0.1)',
+                                borderRadius: 3,
+                              }}>
+                                {module.errors[module.errors.length - 1].message}
+                              </div>
+                            )}
+                            
+                            {/* Dependencies */}
+                            {module.metadata.dependencies && module.metadata.dependencies.length > 0 && (
+                              <div style={{ marginTop: 4, fontSize: 9 }}>
+                                <span style={{ color: '#666' }}>Deps: </span>
+                                {module.metadata.dependencies.map(dep => (
+                                  <span
+                                    key={dep.moduleId}
+                                    style={{ 
+                                      color: dep.status === 'met' ? '#00ff00' : '#ff4444',
+                                      marginRight: 4,
+                                    }}
+                                  >
+                                    {dep.moduleId.split('.').pop()}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                    
+                    {/* Summary Stats */}
+                    <div style={{
+                      marginTop: 8,
+                      padding: '4px 8px',
+                      background: 'rgba(0, 255, 255, 0.1)',
+                      borderRadius: 4,
+                      fontSize: 9,
+                      display: 'flex',
+                      justifyContent: 'space-around',
+                    }}>
+                      <span>Total: {modules.length}</span>
+                      <span style={{ color: '#00ff00' }}>
+                        ✓ {modules.filter(m => m.health === ModuleHealth.HEALTHY).length}
+                      </span>
+                      <span style={{ color: '#ffaa00' }}>
+                        ⚠ {modules.filter(m => m.health === ModuleHealth.WARNING).length}
+                      </span>
+                      <span style={{ color: '#ff4444' }}>
+                        ✗ {modules.filter(m => m.health === ModuleHealth.CRITICAL).length}
+                      </span>
+                    </div>
                   </div>
-                ))}
+                )}
               </div>
               
               {/* Footer */}

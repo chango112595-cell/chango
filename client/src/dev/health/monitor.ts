@@ -1,11 +1,19 @@
 /**
  * Health Monitor with Auto-Heal
  * Monitors system health and automatically heals common issues
+ * Integrated with Module Registry for comprehensive monitoring
  */
 
 import { FEATURES } from '../../config/featureFlags';
 import { debugBus } from '../debugBus';
 import { voiceBus } from '../../voice/voiceBus';
+import { 
+  moduleRegistry,
+  updateModuleStatus,
+  updateModuleHealth,
+  ModuleStatus,
+  ModuleHealth
+} from '../moduleRegistry';
 
 interface HealthState {
   lastSttHeartbeat: number;
@@ -44,7 +52,7 @@ class HealthMonitor {
   private monitorInterval: NodeJS.Timeout | null = null;
   
   /**
-   * Update heartbeat for a specific system
+   * Update heartbeat for a specific system and update module registry
    */
   beat(system: 'stt' | 'gate' | 'tts' | 'orchestrator' | 'voiceprint' | 'vad', data?: any): void {
     try {
@@ -53,6 +61,9 @@ class HealthMonitor {
       switch (system) {
         case 'stt':
           this.state.lastSttHeartbeat = now;
+          // Update module registry
+          updateModuleStatus('voice.stt', ModuleStatus.ACTIVE);
+          updateModuleHealth('voice.stt', ModuleHealth.HEALTHY);
           if (FEATURES.DEBUG_BUS) {
             debugBus.info('Health', 'stt_heartbeat', data);
           }
@@ -60,6 +71,9 @@ class HealthMonitor {
           
         case 'gate':
           this.state.lastGateHeartbeat = now;
+          // Update module registry
+          updateModuleStatus('voice.gate', data?.passed ? ModuleStatus.ACTIVE : ModuleStatus.READY);
+          updateModuleHealth('voice.gate', ModuleHealth.HEALTHY);
           if (FEATURES.DEBUG_BUS) {
             debugBus.info('Health', 'gate_heartbeat', data);
           }
@@ -71,10 +85,14 @@ class HealthMonitor {
           if (data?.speaking === true) {
             this.state.isTtsSpeaking = true;
             this.state.ttsStartTime = now;
+            updateModuleStatus('voice.tts', ModuleStatus.ACTIVE);
           } else if (data?.speaking === false) {
             this.state.isTtsSpeaking = false;
             this.state.ttsStartTime = null;
+            updateModuleStatus('voice.tts', ModuleStatus.READY);
           }
+          // Update module registry
+          updateModuleHealth('voice.tts', ModuleHealth.HEALTHY);
           if (FEATURES.DEBUG_BUS) {
             debugBus.info('Health', 'tts_heartbeat', data);
           }
@@ -82,6 +100,9 @@ class HealthMonitor {
           
         case 'orchestrator':
           this.state.lastOrchestratorHeartbeat = now;
+          // Update module registry
+          updateModuleStatus('core.orchestrator', ModuleStatus.ACTIVE);
+          updateModuleHealth('core.orchestrator', ModuleHealth.HEALTHY);
           if (FEATURES.DEBUG_BUS) {
             debugBus.info('Health', 'orchestrator_heartbeat', data);
           }
@@ -89,6 +110,9 @@ class HealthMonitor {
           
         case 'voiceprint':
           this.state.lastVoiceprintHeartbeat = now;
+          // Update module registry
+          updateModuleStatus('voice.voiceprint', ModuleStatus.ACTIVE);
+          updateModuleHealth('voice.voiceprint', ModuleHealth.HEALTHY);
           if (FEATURES.DEBUG_BUS) {
             debugBus.info('Health', 'voiceprint_heartbeat', data);
           }
@@ -96,6 +120,9 @@ class HealthMonitor {
           
         case 'vad':
           this.state.lastVadHeartbeat = now;
+          // Update module registry
+          updateModuleStatus('voice.vad', ModuleStatus.ACTIVE);
+          updateModuleHealth('voice.vad', ModuleHealth.HEALTHY);
           if (FEATURES.DEBUG_BUS) {
             debugBus.info('Health', 'vad_heartbeat', data);
           }
@@ -201,6 +228,13 @@ class HealthMonitor {
       const sttStuck = sttAge > 12000;
       const sttError = sttStatus.state === 'error';
       const sttPaused = sttStatus.isPausedForRecovery;
+      
+      // Update module registry with STT health
+      if (sttStuck || sttError) {
+        updateModuleHealth('voice.stt', ModuleHealth.CRITICAL, 
+          sttError ? `STT Error: ${sttStatus.errorMessage || 'Unknown error'}` : 'STT appears stuck');
+        updateModuleStatus('voice.stt', sttError ? ModuleStatus.ERROR : ModuleStatus.DEGRADED);
+      }
       
       if (sttStuck || sttError) {
         // Check if we're already paused for recovery

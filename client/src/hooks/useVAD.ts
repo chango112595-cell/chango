@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { VoiceBus } from "@/lib/voiceBus";
 import { Voice } from "@/lib/voiceController";
+import { VAD_CONFIG } from "@/config/system.config";
 
 interface VADConfig {
   minDb: number; // Minimum decibel level to consider as speech
@@ -22,7 +23,7 @@ interface VADCallbacks {
   onLevelUpdate?: (level: number) => void;
 }
 
-export function useVAD(callbacks: VADCallbacks = {}) {
+export function useVAD(callbacks: VADCallbacks = {}, sensitivityLevel: 'LOW' | 'MEDIUM' | 'HIGH' = VAD_CONFIG.defaultLevel) {
   const [state, setState] = useState<VADState>({
     isListening: false,
     isSpeaking: false,
@@ -41,11 +42,12 @@ export function useVAD(callbacks: VADCallbacks = {}) {
   const lastSpeechEndRef = useRef(0);
   const isProcessingRef = useRef(false); // Flag to prevent re-entrant processing
 
-  // VAD configuration
+  // Get VAD configuration based on sensitivity level
+  const sensitivityConfig = VAD_CONFIG.sensitivity[sensitivityLevel];
   const config: VADConfig = {
-    minDb: -45, // Minimum dB level for speech detection
-    minMs: 280, // Minimum speech duration
-    debounceMs: 500 // Debounce after speech ends
+    minDb: sensitivityConfig.minDb,
+    minMs: sensitivityConfig.minDuration,
+    debounceMs: sensitivityConfig.debounceMs
   };
 
   // Analyze audio levels
@@ -99,11 +101,15 @@ export function useVAD(callbacks: VADCallbacks = {}) {
       } else if (now - speechStartTimeRef.current > config.minMs) {
         // Confirmed speech after minimum duration
         
-        // Check if TTS is currently speaking (barge-in detection)
-        if (Voice.isSpeaking()) {
-          // User is interrupting TTS - stop current speech
-          console.log('[VAD] User interrupting TTS - stopping speech (barge-in)');
-          Voice.speaking(false); // This will trigger cooldown and stop TTS
+        // Improved barge-in detection with sustained speech requirement
+        if (VAD_CONFIG.enableBargein && Voice.isSpeaking()) {
+          // Only interrupt if speech has been detected for required duration
+          const speechDuration = now - speechStartTimeRef.current;
+          if (speechDuration >= sensitivityConfig.bargeinDelay) { 
+            // User is interrupting TTS - stop current speech
+            console.log(`[VAD] Barge-in detected after ${sensitivityConfig.bargeinDelay}ms sustained speech - stopping TTS`);
+            Voice.speaking(false); // This will trigger cooldown and stop TTS
+          }
         }
         
         isSpeakingRef.current = true;

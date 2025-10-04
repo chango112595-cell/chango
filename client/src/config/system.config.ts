@@ -109,14 +109,39 @@ export const WAKE_WORD_CONFIG = {
  * Voice Activity Detection (VAD) configuration
  */
 export const VAD_CONFIG = {
-  /** Minimum decibel level to consider as speech */
-  minDb: -45,
+  /** Sensitivity levels for different environments */
+  sensitivity: {
+    LOW: {
+      minDb: -25, // Very low sensitivity, only loud speech
+      minDuration: 600, // Longer duration required
+      debounceMs: 1000, // Longer silence required
+      energyMultiplier: 4.0, // Higher threshold multiplier
+      bargeinDelay: 500 // Longer delay before barge-in
+    },
+    MEDIUM: {
+      minDb: -30, // Balanced sensitivity (default)
+      minDuration: 500, // Moderate duration
+      debounceMs: 800, // Moderate silence
+      energyMultiplier: 3.5, // Moderate threshold
+      bargeinDelay: 400 // Moderate barge-in delay
+    },
+    HIGH: {
+      minDb: -40, // High sensitivity for quiet environments
+      minDuration: 350, // Shorter duration accepted
+      debounceMs: 600, // Shorter silence accepted
+      energyMultiplier: 2.8, // Lower threshold
+      bargeinDelay: 300 // Quick barge-in
+    }
+  },
   
-  /** Minimum duration to consider as valid speech (ms) */
-  minDuration: 280,
+  /** Default sensitivity level */
+  defaultLevel: 'MEDIUM' as 'LOW' | 'MEDIUM' | 'HIGH',
   
-  /** Debounce time after speech ends (ms) */
-  debounceMs: 500,
+  /** Enable/disable barge-in feature */
+  enableBargein: true,
+  
+  /** Minimum confidence for barge-in (0-1) */
+  bargeinConfidence: 0.7,
   
   /** Audio analysis FFT size */
   fftSize: 2048,

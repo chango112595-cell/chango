@@ -1,4 +1,3 @@
-// client/src/lib/permissions.ts
 export type MicState = 'unknown'|'granted'|'denied'|'blocked'|'prompt';
 
 let audioUnlocked = false;
@@ -9,7 +8,6 @@ export async function unlockAudioContext(ctx: AudioContext) {
 }
 
 export async function checkMicPermission(): Promise<MicState> {
-  // Permissions API is not universal; handle safely
   try {
     // @ts-ignore
     if (navigator.permissions?.query) {
@@ -20,15 +18,14 @@ export async function checkMicPermission(): Promise<MicState> {
       return 'prompt';
     }
   } catch {}
-  // Fallback: try a dry getUserMedia with no persistent stream
   try {
     const s = await navigator.mediaDevices.getUserMedia({ audio: true });
     s.getTracks().forEach(t => t.stop());
     return 'granted';
   } catch (e:any) {
-    const msg = (e && e.name) || '';
-    if (msg === 'NotAllowedError' || msg === 'SecurityError') return 'denied';
-    if (msg === 'NotFoundError')  return 'blocked'; // no input device
+    const name = e?.name || '';
+    if (name === 'NotAllowedError' || name === 'SecurityError') return 'denied';
+    if (name === 'NotFoundError') return 'blocked';
     return 'prompt';
   }
 }
@@ -45,6 +42,4 @@ export async function requestMicStream(): Promise<MediaStream> {
   });
 }
 
-export function isAudioUnlocked() {
-  return audioUnlocked;
-}
+export function isAudioUnlocked(){ return audioUnlocked; }

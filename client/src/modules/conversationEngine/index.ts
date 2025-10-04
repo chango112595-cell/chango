@@ -371,11 +371,61 @@ async function handle(raw: string, typed: boolean = false): Promise<void> {
 
 // Initialize conversation engine with event listeners
 export function initConversationEngine(): void {
-  console.log('[ConversationEngine] Initializing...');
+  console.log('[ConversationEngine] 🚀 Initializing conversation engine...');
+  console.log('[ConversationEngine] Timestamp:', new Date().toISOString());
+  
+  // First, set up event listeners
+  console.log('[ConversationEngine] Setting up event listeners...');
+  
+  // Listen for user speech recognized events
+  const unsubscribeSpeech = voiceBus.on('userSpeechRecognized', (event) => {
+    console.log('[ConversationEngine] 🎯 RECEIVED userSpeechRecognized event!');
+    console.log('[ConversationEngine] Event details:', JSON.stringify(event));
+    
+    if (event.text) {
+      console.log('[ConversationEngine] Processing speech input:', event.text);
+      // Use unified handle function for speech input (typed=false)
+      handle(event.text, false);
+    } else {
+      console.log('[ConversationEngine] ❌ Received speech event without text!', event);
+    }
+  });
+  
+  // Listen for user text submitted events  
+  const unsubscribeText = voiceBus.on('userTextSubmitted', (event) => {
+    console.log('[ConversationEngine] 🎯 RECEIVED userTextSubmitted event!');
+    console.log('[ConversationEngine] Event details:', JSON.stringify(event));
+    
+    if (event.text) {
+      console.log('[ConversationEngine] Processing typed input:', event.text);
+      // Use unified handle function for typed input (typed=true)
+      handle(event.text, true);
+    } else {
+      console.log('[ConversationEngine] ❌ Received text event without text!', event);
+    }
+  });
+  
+  // Listen for cancel events
+  const unsubscribeCancel = voiceBus.on('cancel', (event) => {
+    console.log('[ConversationEngine] Speech cancelled by:', event.source);
+  });
+  
+  // Listen for mute changes
+  const unsubscribeMute = voiceBus.on('muteChange', (event) => {
+    console.log('[ConversationEngine] Mute state changed to:', event.muted);
+  });
+  
+  console.log('[ConversationEngine] ✅ Event listeners registered successfully');
+  console.log('[ConversationEngine] Registered listeners:', {
+    userSpeechRecognized: !!unsubscribeSpeech,
+    userTextSubmitted: !!unsubscribeText,
+    cancel: !!unsubscribeCancel,
+    muteChange: !!unsubscribeMute
+  });
   
   // Expose functions to window for testing in dev mode
   if (import.meta.env.DEV) {
-    (window as any).conversationEngine = {
+    const engineAPI = {
       route,
       getCurrentTime,
       getCurrentDate,
@@ -383,47 +433,35 @@ export function initConversationEngine(): void {
       getMoodResponse,
       getSmallTalkResponse,
       handle,
-      respond
+      respond,
+      // Add test function to verify engine is working
+      test: async () => {
+        console.log('[ConversationEngine] Running test...');
+        const testResult = await handle('lolo what time is it', true);
+        console.log('[ConversationEngine] Test complete');
+        return testResult;
+      },
+      // Add function to check listeners
+      checkListeners: () => {
+        const listeners = {
+          userSpeechRecognized: !!unsubscribeSpeech,
+          userTextSubmitted: !!unsubscribeText,
+          cancel: !!unsubscribeCancel,
+          muteChange: !!unsubscribeMute
+        };
+        console.log('[ConversationEngine] Current listeners:', listeners);
+        return listeners;
+      }
     };
-    console.log('[ConversationEngine] Exposed to window.conversationEngine for testing');
+    
+    (window as any).conversationEngine = engineAPI;
+    console.log('[ConversationEngine] ✅ Exposed to window.conversationEngine for testing');
+    console.log('[ConversationEngine] Available functions:', Object.keys(engineAPI));
   }
   
-  // Listen for user speech recognized events
-  voiceBus.on('userSpeechRecognized', (event) => {
-    console.log('[ConversationEngine] 🎯 RECEIVED userSpeechRecognized event!', event);
-    
-    if (event.text) {
-      // Use unified handle function for speech input (typed=false)
-      handle(event.text, false);
-    } else {
-      console.log('[ConversationEngine] ❌ Received event without text!', event);
-    }
-  });
-  
-  // Listen for user text submitted events
-  voiceBus.on('userTextSubmitted', (event) => {
-    console.log('[ConversationEngine] 🎯 RECEIVED userTextSubmitted event!', event);
-    
-    if (event.text) {
-      // Use unified handle function for typed input (typed=true)
-      handle(event.text, true);
-    } else {
-      console.log('[ConversationEngine] ❌ Received event without text!', event);
-    }
-  });
-  
-  // Listen for cancel events
-  voiceBus.on('cancel', (event) => {
-    console.log('[ConversationEngine] Speech cancelled by:', event.source);
-  });
-  
-  // Listen for mute changes
-  voiceBus.on('muteChange', (event) => {
-    console.log('[ConversationEngine] Mute state changed to:', event.muted);
-  });
-  
-  console.log('[ConversationEngine] Initialization complete');
+  console.log('[ConversationEngine] ✅ Initialization complete!');
   console.log('[ConversationEngine] Ready to process user input via text or speech');
+  console.log('[ConversationEngine] Wake word required for speech input: "lolo"');
 }
 
 // Export for testing individual functions

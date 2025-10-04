@@ -1,0 +1,292 @@
+Locked in. Here’s an isolated, drop-in Debug Monitor (global) with self-healing + smart notifications, plus the Task Master updates and the “Core Human Knowledge” plan.
+
+⸻
+
+PASTE-ME — Global Debug Monitor + Self-Healing (Isolated)
+
+1) client/src/diag/diagBus.ts (NEW)
+
+// Central bus for health events (no external deps)
+export type Severity = 'info'|'warn'|'error'|'critical';
+export type Domain = 'voice'|'stt'|'tts'|'wake'|'mic'|'ui'|'perf'|'net'|'core';
+export type HealthEvent = {
+  id: string;               // stable key ('stt.pipeline.idle', etc.)
+  domain: Domain;
+  severity: Severity;
+  msg: string;
+  ts: number;
+  data?: Record<string, unknown>;
+  fixable?: boolean;
+};
+
+type Listener = (e: HealthEvent) => void;
+
+class DiagBus {
+  private ls = new Set<Listener>();
+  on(f:Listener){ this.ls.add(f); return ()=>this.ls.delete(f); }
+  emit(e:HealthEvent){ for(const f of this.ls) f(e); }
+}
+export const diagBus = new DiagBus();
+
+2) client/src/diag/healthRegistry.ts (NEW)
+
+// Modules register passive health checks + optional fixers
+export type CheckResult = {
+  ok: boolean;
+  event?: Omit<import('./diagBus').HealthEvent,'ts'>; // ts filled by runner
+  fix?: () => Promise<boolean>;                       // self-heal action
+};
+
+export type HealthCheck = {
+  name: string;                 // 'stt.pipeline'
+  cadenceMs: number;            // run periodically
+  run: () => Promise<CheckResult> | CheckResult;
+};
+
+const REG: HealthCheck[] = [];
+export function registerHealthCheck(h:HealthCheck){ REG.push(h); }
+export function listHealthChecks(){ return [...REG]; }
+
+3) client/src/diag/runner.ts (NEW)
+
+import { diagBus } from './diagBus';
+import { listHealthChecks } from './healthRegistry';
+
+let timer: number | undefined;
+const lastFire: Record<string, number> = {};
+const RATE_MS = 4000; // rate limit notifications per id
+
+export function startDiagRunner(){
+  if(timer) return;
+  const loop = async () => {
+    const checks = listHealthChecks();
+    for(const c of checks){
+      try{
+        const r = await c.run();
+        if(!r.ok && r.event){
+          const now = Date.now();
+          const last = lastFire[r.event.id] || 0;
+          if(now - last > RATE_MS){
+            lastFire[r.event.id] = now;
+            diagBus.emit({ ...r.event, ts: now });
+            if(r.fix){ // auto-heal only for warn/error/critical with fix
+              const sev = r.event.severity;
+              if(sev !== 'info'){
+                try{
+                  const ok = await r.fix();
+                  diagBus.emit({
+                    id: `${r.event.id}.autoheal`,
+                    domain: r.event.domain,
+                    severity: ok ? 'info' : 'warn',
+                    msg: ok ? `Self-healed: ${r.event.id}` : `Auto-heal failed: ${r.event.id}`,
+                    ts: Date.now(),
+                  });
+                }catch{
+                  diagBus.emit({
+                    id: `${r.event.id}.autoheal.exc`,
+                    domain: r.event.domain, severity: 'warn',
+                    msg: `Auto-heal exception: ${r.event.id}`, ts: Date.now()
+                  });
+                }
+              }
+            }
+          }
+        }
+      }catch{
+        diagBus.emit({ id:`${c.name}.check.exc`, domain:'core', severity:'warn', msg:'Check threw', ts:Date.now() });
+      }
+    }
+    timer = window.setTimeout(loop, 800);
+  };
+  loop();
+}
+
+export function stopDiagRunner(){
+  if(timer){ clearTimeout(timer); timer = undefined; }
+}
+
+4) client/src/diag/notifier.ts (NEW – filters what Chango says)
+
+import { diagBus, HealthEvent } from './diagBus';
+
+type Policy = {
+  speak: (e:HealthEvent) => boolean; // should TTS speak it?
+  toast: (e:HealthEvent) => boolean; // UI toast?
+};
+
+const policy: Policy = {
+  speak: (e) => e.severity === 'critical' || (e.severity==='error' && e.domain!=='ui'),
+  toast: (e) => e.severity !== 'info'
+};
+
+// Plug into your TTS + UI toast safely via adapters
+type Adapters = { speak:(s:string)=>void; toast:(s:string, sev:HealthEvent['severity'])=>void; log:(...a:any[])=>void; };
+export function attachDiagNotifier(ad: Adapters){
+  diagBus.on(e=>{
+    ad.log?.('[Diag]', e.severity, e.domain, e.msg);
+    if(policy.toast(e)) ad.toast?.(e.msg, e.severity);
+    if(policy.speak(e)) ad.speak?.(`Heads up: ${e.msg}`);
+  });
+}
+
+5) Example health checks (isolated, safe shims)
+
+5a) client/src/diag/checks/sttPipeline.ts (NEW)
+
+import { registerHealthCheck } from '../healthRegistry';
+import { voiceBus } from '../../voice/voiceBus';
+
+let lastUserSpeech = Date.now();
+voiceBus.on?.(ev => { if(ev.type==='speech_start') lastUserSpeech = Date.now(); });
+
+registerHealthCheck({
+  name: 'stt.pipeline',
+  cadenceMs: 1000,
+  run: () => {
+    const tooLongSilent = Date.now() - lastUserSpeech > 15000; // 15s
+    if(!tooLongSilent) return { ok: true };
+    return {
+      ok: false,
+      event: { id:'stt.pipeline.idle', domain:'stt', severity:'warn', msg:'STT appears idle for 15s', fixable:true },
+      fix: async () => {
+        try{
+          // ask STT to restart if exposed
+          await (window as any).__chango?.stt?.restart?.();
+          return true;
+        }catch{ return false; }
+      }
+    };
+  }
+});
+
+5b) client/src/diag/checks/ttsStuck.ts (NEW)
+
+import { registerHealthCheck } from '../healthRegistry';
+
+let lastSpeak = 0;
+(window as any).__chango = (window as any).__chango || {};
+(window as any).__chango.ttsSpoke = () => { lastSpeak = Date.now(); };
+
+registerHealthCheck({
+  name: 'tts.stuck',
+  cadenceMs: 1000,
+  run: () => {
+    const speaking = !!window.speechSynthesis?.speaking;
+    if(!speaking) return { ok: true };
+    // if speaking for > 12s continuously, assume stuck
+    if(Date.now() - lastSpeak > 12000){
+      return {
+        ok:false,
+        event:{ id:'tts.stuck.long', domain:'tts', severity:'error', msg:'TTS seems stuck >12s', fixable:true },
+        fix: async () => { try{ window.speechSynthesis?.cancel(); return true; }catch{ return false; } }
+      };
+    }
+    return { ok:true };
+  }
+});
+
+5c) client/src/diag/checks/micPerm.ts (NEW)
+
+import { registerHealthCheck } from '../healthRegistry';
+
+registerHealthCheck({
+  name: 'mic.perm',
+  cadenceMs: 2500,
+  run: async () => {
+    try{
+      const st = await (navigator as any).permissions?.query?.({name:'microphone' as PermissionName});
+      if(st && st.state!=='granted'){
+        return {
+          ok:false,
+          event:{ id:'mic.permission.denied', domain:'mic', severity:'error', msg:'Microphone permission missing', fixable:true },
+          fix: async () => {
+            try{
+              const s = await navigator.mediaDevices.getUserMedia({audio:true});
+              s.getTracks().forEach(t=>t.stop());
+              return true;
+            }catch{ return false; }
+          }
+        };
+      }
+      return { ok:true };
+    }catch{ return { ok:true }; }
+  }
+});
+
+5d) client/src/diag/checks/perfBudget.ts (NEW)
+
+import { registerHealthCheck } from '../healthRegistry';
+
+registerHealthCheck({
+  name: 'perf.budget',
+  cadenceMs: 2000,
+  run: () => {
+    const mem = (performance as any).memory;
+    if(mem && mem.usedJSHeapSize/mem.jsHeapSizeLimit > 0.8){
+      return {
+        ok:false,
+        event:{ id:'perf.heap.high', domain:'perf', severity:'warn', msg:'High memory pressure (>80%)', fixable:true },
+        fix: async () => { try{ await caches?.keys()?.then(keys=>keys.forEach(k=>caches.delete(k))); return true; }catch{ return false; } }
+      };
+    }
+    return { ok:true };
+  }
+});
+
+6) client/src/diag/index.ts (NEW – one-liner boot)
+
+export { startDiagRunner, stopDiagRunner } from './runner';
+export { attachDiagNotifier } from './notifier';
+// Import built-in checks on boot
+import './checks/sttPipeline';
+import './checks/ttsStuck';
+import './checks/micPerm';
+import './checks/perfBudget';
+
+7) Wire-up (minimal, non-invasive)
+	•	App bootstrap (e.g., client/src/main.tsx or root component):
+
+import { startDiagRunner, attachDiagNotifier } from './diag';
+startDiagRunner();
+attachDiagNotifier({
+  speak: (s)=> (window as any).__chango?.tts?.speak?.(s),
+  toast: (s,sev)=> (window as any).__chango?.ui?.toast?.(s, sev),
+  log: console.log
+});
+
+	•	Where TTS actually speaks, call:
+
+(window as any).__chango?.ttsSpoke?.();
+
+right after enqueueing each utterance, to power the stuck-speech check.
+
+All of this is isolated under src/diag/*. Remove it by deleting this folder and the two boot lines.
+
+⸻
+
+Task Master — Updates (saved)
+
+Priority #2: Voice & Responses (Active)
+	•	✅ Responding reliably, wake word fixed, red-gate fixed.
+	•	✅ VAD + barge-in + voice gate (earlier patch).
+	•	🔄 Add Voice Recognition Security (your-voice only). (queued next under Voice)
+
+Priority #3: Global Debug Monitor (This patch)
+	•	✅ Event bus, health registry, runner, notifier.
+	•	✅ Self-healing for STT idle, TTS stuck, mic permission, perf pressure.
+	•	✅ Smart speak/notify filtering (only important things aloud).
+	•	🔄 Expand coverage (net errors, ASR model timeouts, UI render loops).
+
+Priority #4: Core Human Knowledge (Planned)
+	•	Design Core Memory module with:
+	•	Timeline of major human history milestones (compressed, neutral).
+	•	Era/time awareness: year/month/day sync from device.
+	•	Continual adaptation: store summaries in local vector/memory file.
+	•	Will be isolated under src/core/knowledge/* and gated (no web crawl until enabled).
+
+⸻
+
+What to do now
+	1.	Paste these new files/edits.
+	2.	Reload. Open your Debug Console: you’ll see filtered events; only major issues get spoken.
+	3.	Tell me which extra checks you want next (e.g., network retry, ASR model load, wakeword false-positive, CPU 100% loops), and I’ll drop them in as separate tiny, isolated checks.

@@ -1,4 +1,8 @@
 // Lightweight voiceprint: 13-MFCC mean vector + cosine match (local-only)
+import { debugBus } from '../../dev/debugBus';
+import { FEATURES } from '../../config/features';
+import { beat } from '../../dev/health/monitor';
+
 export type Voiceprint = {
   sr: number;
   mfccMean: number[];
@@ -87,19 +91,59 @@ export class VoiceprintEngine {
 
   async enroll(seconds=7): Promise<Voiceprint>{
     if(!this.ctx) await this.start();
+    
+    // Emit enrollment start
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('Voiceprint', 'enrollment_start', { seconds });
+    }
+    beat('voiceprint', { action: 'enrollment_start', seconds });
+    
     this.frames=0; this.mfccAcc.fill(0);
-    const end = performance.now()+seconds*1000;
+    const startTime = performance.now();
+    const end = startTime+seconds*1000;
+    
     while(performance.now()<end){
       const mfcc = this.frameMFCC();
       for(let i=0;i<MFCC_DIM;i++) this.mfccAcc[i]+=mfcc[i];
-      this.frames++; await new Promise(r=>setTimeout(r,30));
+      this.frames++;
+      
+      // Emit enrollment progress every 10 frames
+      if (this.frames % 10 === 0 && FEATURES.DEBUG_BUS) {
+        const progress = ((performance.now() - startTime) / (seconds * 1000)) * 100;
+        debugBus.info('Voiceprint', 'enrollment_progress', { 
+          frames: this.frames, 
+          progress: Math.round(progress) 
+        });
+      }
+      
+      await new Promise(r=>setTimeout(r,30));
     }
+    
     const mean = this.mfccAcc.map(x=> x/Math.max(1,this.frames));
-    return { sr: this.ctx!.sampleRate, mfccMean: mean, frames: this.frames, createdAt: Date.now(), version: 1 };
+    const voiceprint = { sr: this.ctx!.sampleRate, mfccMean: mean, frames: this.frames, createdAt: Date.now(), version: 1 };
+    
+    // Emit enrollment success
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('Voiceprint', 'enrollment_success', { 
+        frames: this.frames,
+        sampleRate: this.ctx!.sampleRate 
+      });
+    }
+    beat('voiceprint', { action: 'enrollment_complete', frames: this.frames });
+    
+    return voiceprint;
   }
 
   similarity(print: Voiceprint): number {
     const mfcc = this.frameMFCC();
-    return cosine(mfcc, print.mfccMean);
+    const score = cosine(mfcc, print.mfccMean);
+    
+    // Emit verification attempt
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('Voiceprint', 'verification_attempt', { score });
+    }
+    beat('voiceprint', { action: 'verify', score });
+    
+    return score;
   }
 }

@@ -1,4 +1,8 @@
 // Energy + spectral flux VAD with hysteresis; emits speech_start / speech_end
+import { debugBus } from '../dev/debugBus';
+import { FEATURES } from '../config/features';
+import { beat } from '../dev/health/monitor';
+
 export type VadEvent = { type:'speech_start'|'speech_end'; level:number };
 type Listener = (e:VadEvent)=>void;
 
@@ -17,16 +21,45 @@ export class VAD {
 
   async start(stream?:MediaStream){
     if(this.ctx) return;
+    
+    // Emit VAD initialization
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('VAD', 'initialization_start', { withStream: !!stream });
+    }
+    beat('vad', { action: 'init_start' });
+    
     this.ctx=new (window.AudioContext || (window as any).webkitAudioContext)();
     const ms = stream ?? await navigator.mediaDevices.getUserMedia({audio:true});
     this.source=this.ctx.createMediaStreamSource(ms);
     this.analyser=this.ctx.createAnalyser();
     this.analyser.fftSize=1024;
     this.source.connect(this.analyser);
+    
+    // Emit VAD start monitoring
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('VAD', 'monitoring_started', { 
+        sampleRate: this.ctx.sampleRate,
+        fftSize: this.analyser.fftSize 
+      });
+    }
+    beat('vad', { action: 'monitoring_started' });
+    
     this.loop();
   }
 
-  stop(){ this.ctx?.close(); this.ctx=undefined; this.analyser=undefined; this.source=undefined; this.speaking=false; }
+  stop(){ 
+    // Emit VAD stop monitoring
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('VAD', 'monitoring_stopped', { wasSpeaking: this.speaking });
+    }
+    beat('vad', { action: 'monitoring_stopped' });
+    
+    this.ctx?.close(); 
+    this.ctx=undefined; 
+    this.analyser=undefined; 
+    this.source=undefined; 
+    this.speaking=false; 
+  }
 
   private async loop(){
     if(!this.analyser) return;
@@ -51,8 +84,38 @@ export class VAD {
     const thOn  = Math.max(0.002, 2.5*this.avgEnergy);
     const thOff = Math.max(0.001, 1.3*this.avgEnergy);
 
-    if(!this.speaking && level > thOn){ this.speaking=true; this.emit({type:'speech_start', level}); }
-    else if(this.speaking && level < thOff){ this.speaking=false; this.emit({type:'speech_end', level}); }
+    if(!this.speaking && level > thOn){ 
+      this.speaking=true; 
+      
+      // Emit speech start with energy/flux data
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('VAD', 'speech_start', { 
+          level, 
+          energy, 
+          flux, 
+          threshold: thOn 
+        });
+      }
+      beat('vad', { action: 'speech_start', level });
+      
+      this.emit({type:'speech_start', level}); 
+    }
+    else if(this.speaking && level < thOff){ 
+      this.speaking=false; 
+      
+      // Emit speech end with energy/flux data
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('VAD', 'speech_end', { 
+          level, 
+          energy, 
+          flux, 
+          threshold: thOff 
+        });
+      }
+      beat('vad', { action: 'speech_end', level });
+      
+      this.emit({type:'speech_end', level}); 
+    }
 
     requestAnimationFrame(()=>this.loop());
   }

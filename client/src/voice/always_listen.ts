@@ -1,18 +1,20 @@
 /**
- * Always Listen Module - Robust STT Engine
+ * Always Listen Module - Robust STT Engine with Enhanced Permission Handling
  * Implements continuous listening with auto-restart and error recovery
  * Features:
- * - Idempotent initialization
- * - Automatic error recovery
- * - Health monitoring integration
- * - Debug bus logging
- * - Graceful handling of all Web Speech API errors
+ * - Enhanced permission checks with fallback logic
+ * - iOS AudioContext support
+ * - Wake word integration
+ * - Improved debug monitoring
  */
 
+import { checkMicPermission, requestMicStream, unlockAudioContext } from '../lib/permissions';
 import { voiceBus } from './voiceBus';
 import { debugBus } from '../dev/debugBus';
 import { FEATURES } from '../config/featureFlags';
 import { beat } from '../dev/health/monitor';
+import { startSTT, stopSTT } from './stt';
+import { voiceGate } from '../core/gate';
 
 // TypeScript declarations for Web Speech API
 interface SpeechRecognitionResult {
@@ -96,7 +98,79 @@ export interface AlwaysListenConfig {
   language?: string;
 }
 
+export type AlwaysCfg = { wakeWord?: string; enabled: boolean };
+
 type RecognitionState = 'idle' | 'starting' | 'listening' | 'stopping' | 'error';
+
+// New enhanced functions for better permission handling
+let stream: MediaStream | null = null;
+let ctx: AudioContext | null = null;
+let running = false;
+
+export async function ensureAudioUnlocked() {
+  if (!ctx) ctx = new ((window as any).AudioContext || (window as any).webkitAudioContext)();
+  await unlockAudioContext(ctx);
+}
+
+async function acquireMic() {
+  const state = await checkMicPermission();
+  debugBus.info('AlwaysListen', `Permission state: ${state}`);
+
+  if (state === 'denied' || state === 'blocked') {
+    debugBus.error('Gate', 'Microphone permission denied/blocked');
+    throw new Error('mic_denied');
+  }
+  stream = await requestMicStream();
+  debugBus.info('STT', 'Mic stream acquired');
+  return stream;
+}
+
+export async function startAlwaysListenNew(cfg: AlwaysCfg) {
+  if (running || !cfg.enabled) return;
+  try {
+    await ensureAudioUnlocked();        // iOS: user gesture required once
+    const s = await acquireMic();       // ask / reuse permission
+    await startSTT({ stream: s });      // your STT module consumes the stream
+
+    // Optional: gate by wake-word
+    if (cfg.wakeWord) voiceGate.open();
+    running = true;
+    
+    // Update debug flags
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('AlwaysListen', 'STT started successfully');
+    }
+    
+    // Send heartbeat
+    beat('stt', { status: 'started', hasPermission: true });
+  } catch (e:any) {
+    running = false;
+    debugBus.error('AlwaysListen', `Startup failed: ${e?.message||e}`);
+    
+    // Send error heartbeat
+    beat('stt', { status: 'error', hasPermission: false });
+  }
+}
+
+export async function stopAlwaysListenNew() {
+  try {
+    voiceGate.close();
+    await stopSTT();
+  } finally {
+    if (stream) { 
+      stream.getTracks().forEach(t => t.stop()); 
+      stream = null; 
+    }
+    running = false;
+    
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('AlwaysListen', 'STT stopped');
+    }
+    
+    // Send stopped heartbeat
+    beat('stt', { status: 'stopped' });
+  }
+}
 
 class AlwaysListenManager {
   private recognition: SpeechRecognition | null = null;
@@ -146,7 +220,7 @@ class AlwaysListenManager {
   }
 
   /**
-   * Check microphone permission and availability
+   * Check microphone permission and availability - Using new permission system
    */
   async checkMicrophonePermission(): Promise<{
     hasPermission: boolean;
@@ -167,117 +241,28 @@ class AlwaysListenManager {
     
     this.lastPermissionCheck = now;
     
-    try {
-      // Check if MediaDevices API is available
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        console.warn('[AlwaysListen] MediaDevices API not available');
-        return {
-          hasPermission: false,
-          microphoneAvailable: false,
-          microphoneMuted: false,
-          errorType: 'api-not-available'
-        };
-      }
-
-      // Try to get microphone stream
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        } 
-      });
-
-      // Check if we got a valid stream
-      const audioTracks = stream.getAudioTracks();
-      
-      if (audioTracks.length === 0) {
-        console.warn('[AlwaysListen] No audio tracks available');
-        stream.getTracks().forEach(track => track.stop());
-        return {
-          hasPermission: false,
-          microphoneAvailable: false,
-          microphoneMuted: false,
-          errorType: 'no-audio-tracks'
-        };
-      }
-
-      // Check track state
-      const track = audioTracks[0];
-      const trackEnabled = track.enabled;
-      const trackMuted = track.muted;
-      const trackReadyState = track.readyState;
-      
-      console.log('[AlwaysListen] Audio track state:', {
-        enabled: trackEnabled,
-        muted: trackMuted,
-        readyState: trackReadyState,
-        label: track.label
-      });
-
-      // Clean up stream
-      stream.getTracks().forEach(track => track.stop());
-
-      // Update state based on track info
-      this.hasPermission = true;
-      this.microphoneAvailable = trackReadyState === 'live';
-      this.microphoneMuted = trackMuted;
-
-      if (trackMuted) {
-        console.warn('[AlwaysListen] Microphone is muted at browser/OS level');
-        if (FEATURES.DEBUG_BUS) {
-          debugBus.warn('AlwaysListen', 'Microphone is muted', { 
-            trackState: { enabled: trackEnabled, muted: trackMuted, readyState: trackReadyState }
-          });
-        }
-      }
-
-      return {
-        hasPermission: true,
-        microphoneAvailable: this.microphoneAvailable,
-        microphoneMuted: this.microphoneMuted
-      };
-
-    } catch (error: any) {
-      console.error('[AlwaysListen] Permission check failed:', error);
-      
-      // Analyze error type
-      let errorType = 'unknown';
-      let hasPermission = false;
-      
-      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        errorType = 'permission-denied';
-        console.error('[AlwaysListen] Microphone permission denied by user');
-      } else if (error.name === 'NotFoundError' || error.name === 'DeviceNotFoundError') {
-        errorType = 'no-microphone';
-        console.error('[AlwaysListen] No microphone device found');
-      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-        errorType = 'device-in-use';
-        console.error('[AlwaysListen] Microphone may be in use by another application');
-      } else if (error.name === 'OverconstrainedError') {
-        errorType = 'constraints-error';
-        console.error('[AlwaysListen] Audio constraints could not be satisfied');
-      }
-      
-      this.hasPermission = hasPermission;
-      this.microphoneAvailable = false;
-      this.microphoneMuted = false;
-      
-      if (FEATURES.DEBUG_BUS) {
-        debugBus.error('AlwaysListen', 'Permission check failed', { 
-          errorName: error.name,
-          errorMessage: error.message,
-          errorType
-        });
-      }
-      
-      return {
-        hasPermission,
-        microphoneAvailable: false,
-        microphoneMuted: false,
-        errorType
-      };
+    // Use new permission system
+    const state = await checkMicPermission();
+    
+    this.hasPermission = state === 'granted';
+    this.microphoneAvailable = state !== 'blocked';
+    this.microphoneMuted = false;
+    
+    let errorType: string | undefined;
+    if (state === 'denied') {
+      errorType = 'permission-denied';
+      debugBus.error('AlwaysListen', 'Microphone permission denied');
+    } else if (state === 'blocked') {
+      errorType = 'no-microphone';
+      debugBus.error('AlwaysListen', 'No microphone device found');
     }
+    
+    return {
+      hasPermission: this.hasPermission,
+      microphoneAvailable: this.microphoneAvailable,
+      microphoneMuted: this.microphoneMuted,
+      errorType
+    };
   }
 
   /**

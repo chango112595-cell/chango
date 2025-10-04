@@ -64,8 +64,8 @@ export function AudioUnlock() {
     }
   };
   
-  // ALWAYS show on iOS/Safari - never hide
-  if (isIOS || isSafari) {
+  // ONLY show on iOS - not Safari on desktop
+  if (isIOS) {
     return (
       <button
         onClick={handleUnlock}
@@ -76,7 +76,7 @@ export function AudioUnlock() {
           zIndex: 99999  // Very high z-index
         }}
       >
-        Enable Audio {attempts > 0 && `(${attempts})`}
+        Enable Audio{isIOS ? ' (iOS)' : ''}
       </button>
     );
   }

@@ -4,6 +4,8 @@
  */
 
 import { debugBus } from '../dev/debugBus';
+import { voiceBus } from '../voice/voiceBus';
+import { voiceOrchestrator } from '../voice/tts/orchestrator';
 
 export interface ResponseOptions {
   source: 'voice' | 'text' | 'system';
@@ -128,6 +130,23 @@ export async function respond(text: string, options: ResponseOptions): Promise<s
     length: response.length,
     responseType: options.responseType 
   });
+  
+  // Emit changoResponse event for the Chat component to display
+  voiceBus.emit({
+    type: 'changoResponse',
+    text: response
+  });
+  
+  // Speak the response if responseType includes voice
+  if (options.responseType === 'voice' || options.responseType === 'both') {
+    try {
+      console.log('[Responder] Triggering TTS for response:', response.substring(0, 50));
+      await voiceOrchestrator.speak(response);
+    } catch (error) {
+      console.error('[Responder] Failed to speak response:', error);
+      debugBus.error('Responder', 'tts_error', { error: String(error) });
+    }
+  }
   
   return response;
 }

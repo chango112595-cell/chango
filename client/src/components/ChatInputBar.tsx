@@ -4,7 +4,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Mic, MicOff, Loader2 } from 'lucide-react';
+import { Send, Mic, MicOff, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { voiceGate } from '../core/gate';
 import { orchestrator } from '../core/orchestrator';
@@ -19,6 +19,9 @@ interface ChatInputBarProps {
   initializeWithGesture?: (() => Promise<boolean>) | null;
 }
 
+// LocalStorage key for bar visibility
+const CHAT_BAR_VISIBLE_KEY = 'chango-chat-bar-visible';
+
 export function ChatInputBar({ 
   className = '',
   placeholder = 'Type a message or tap mic to speak...',
@@ -29,8 +32,20 @@ export function ChatInputBar({
   const [isProcessing, setIsProcessing] = useState(false);
   const [gateOpen, setGateOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  
+  // Initialize visibility from localStorage (default to true/visible)
+  const [isBarVisible, setIsBarVisible] = useState(() => {
+    const stored = localStorage.getItem(CHAT_BAR_VISIBLE_KEY);
+    return stored === null ? true : stored === 'true';
+  });
+  
   const inputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  
+  // Persist visibility state to localStorage
+  useEffect(() => {
+    localStorage.setItem(CHAT_BAR_VISIBLE_KEY, String(isBarVisible));
+  }, [isBarVisible]);
   
   // Monitor gate status
   useEffect(() => {
@@ -47,6 +62,12 @@ export function ChatInputBar({
     
     return unsubscribe;
   }, []);
+  
+  // Handle toggle button click
+  const handleToggleBar = () => {
+    setIsBarVisible(prev => !prev);
+    debugBus.info('ChatInputBar', 'visibility_toggled', { isVisible: !isBarVisible });
+  };
   
   // Handle text submission
   const handleSubmit = async (e?: React.FormEvent) => {
@@ -155,66 +176,86 @@ export function ChatInputBar({
   };
   
   return (
-    <div className={`chat-input-bar ${className}`} data-testid="chat-input-bar">
-      <form 
-        ref={formRef}
-        onSubmit={handleSubmit}
-        className="chat-input-form"
+    <div className={`chat-input-bar-container ${className}`} data-testid="chat-input-bar">
+      {/* Toggle button - always visible */}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={handleToggleBar}
+        className="chat-toggle-button"
+        data-testid="button-toggle-chat"
+        aria-label={isBarVisible ? "Hide chat input" : "Show chat input"}
       >
-        <div className="input-wrapper">
-          {/* Mic Button */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={handleMicClick}
-            disabled={isProcessing}
-            className={`mic-button ${isListening ? 'listening' : ''}`}
-            data-testid="button-mic"
-          >
-            {isListening ? (
-              <Mic className="w-5 h-5 text-red-500 animate-pulse" />
-            ) : (
-              <MicOff className="w-5 h-5 text-gray-500" />
-            )}
-          </Button>
-          
-          {/* Text Input */}
-          <input
-            ref={inputRef}
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            disabled={isProcessing}
-            className="chat-input"
-            data-testid="input-chat"
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck="false"
-          />
-          
-          {/* Submit Button */}
-          <Button
-            type="submit"
-            variant="ghost"
-            size="icon"
-            disabled={!inputText.trim() || isProcessing}
-            className="submit-button"
-            data-testid="button-submit"
-          >
-            {isProcessing ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <Send className="w-5 h-5" />
-            )}
-          </Button>
-        </div>
-      </form>
+        {isBarVisible ? (
+          <ChevronDown className="w-5 h-5" />
+        ) : (
+          <ChevronUp className="w-5 h-5" />
+        )}
+      </Button>
       
-      {/* Safe area padding for mobile */}
-      <div className="safe-area-padding" />
+      {/* Chat input bar with sliding animation */}
+      <div className={`chat-input-bar ${isBarVisible ? 'visible' : 'hidden'}`}>
+        <form 
+          ref={formRef}
+          onSubmit={handleSubmit}
+          className="chat-input-form"
+        >
+          <div className="input-wrapper">
+            {/* Mic Button */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={handleMicClick}
+              disabled={isProcessing}
+              className={`mic-button ${isListening ? 'listening' : ''}`}
+              data-testid="button-mic"
+            >
+              {isListening ? (
+                <Mic className="w-5 h-5 text-red-500 animate-pulse" />
+              ) : (
+                <MicOff className="w-5 h-5 text-gray-500" />
+              )}
+            </Button>
+            
+            {/* Text Input */}
+            <input
+              ref={inputRef}
+              type="text"
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder}
+              disabled={isProcessing}
+              className="chat-input"
+              data-testid="input-chat"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
+            />
+            
+            {/* Submit Button */}
+            <Button
+              type="submit"
+              variant="ghost"
+              size="icon"
+              disabled={!inputText.trim() || isProcessing}
+              className="submit-button"
+              data-testid="button-submit"
+            >
+              {isProcessing ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Send className="w-5 h-5" />
+              )}
+            </Button>
+          </div>
+        </form>
+        
+        {/* Safe area padding for mobile */}
+        <div className="safe-area-padding" />
+      </div>
     </div>
   );
 }

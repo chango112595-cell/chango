@@ -15,7 +15,7 @@ import diagnosticsRouter from "./routes/diagnostics";
 import voiceIntelRouter from "./voice/intel.js";
 import { auditRoutes } from "./routes/audit";
 // @ts-ignore - JS module without types
-import registerReply from "./nlp/reply.js";
+import nlpRouter from "./routes/nlp.js";
 dotenv.config(); // Load environment variables
 
 // Initialize OpenAI client with API key from environment variable
@@ -87,11 +87,11 @@ app.use('/api', diagnosticsRouter);
 // Mount Voice Intelligence router under /api path
 app.use('/api', voiceIntelRouter);
 
+// Mount NLP router under /api path
+app.use('/api', nlpRouter);
+
 // Register audit routes
 auditRoutes(app);
-
-// Register NLP reply route at /nlp (not /api/nlp)
-registerReply(app);
 
 // ChatGPT endpoint using OpenAI SDK
 app.post('/chatgpt', async (req: Request, res: Response) => {

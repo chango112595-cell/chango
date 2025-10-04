@@ -171,6 +171,23 @@ class HealthMonitor {
     try {
       const now = Date.now();
       
+      // CRITICAL FIX: Check if mic is unavailable BEFORE any STT checks
+      const micNotFound = sessionStorage.getItem('mic_device_not_found') === 'true';
+      const micDenied = sessionStorage.getItem('mic_permission_denied') === 'true';
+      const micUnavailable = micNotFound || micDenied;
+      
+      if (micUnavailable) {
+        // Skip ALL STT-related checks if mic is unavailable
+        // Update heartbeat to prevent stuck detection
+        this.state.lastSttHeartbeat = now;
+        this.state.consecutiveSttStuckChecks = 0;
+        this.state.sttErrorCount = 0;
+        
+        // Only check non-STT health (TTS, etc.)
+        this.checkNonSttHealth(now);
+        return;
+      }
+      
       // Check STT health (12 second timeout)
       const sttAge = now - this.state.lastSttHeartbeat;
       
@@ -262,6 +279,31 @@ class HealthMonitor {
       }
     } catch (error) {
       console.error('[HealthMonitor] Error checking health:', error);
+    }
+  }
+  
+  /**
+   * Check non-STT health when mic is unavailable
+   */
+  private checkNonSttHealth(now: number): void {
+    // Check TTS health (10 second stuck timeout)
+    if (this.state.isTtsSpeaking && this.state.ttsStartTime) {
+      const ttsDuration = now - this.state.ttsStartTime;
+      if (ttsDuration > 10000) {
+        console.warn('[HealthMonitor] TTS appears stuck, attempting cancel...');
+        this.cancelStuckTts();
+      }
+    }
+    
+    // Log limited health check (no STT data since mic unavailable)
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('Health', 'check_no_mic', {
+        micUnavailable: true,
+        gateAge: now - this.state.lastGateHeartbeat,
+        ttsAge: now - this.state.lastTtsHeartbeat,
+        orchestratorAge: now - this.state.lastOrchestratorHeartbeat,
+        ttsSpeaking: this.state.isTtsSpeaking
+      });
     }
   }
   

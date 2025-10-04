@@ -15,6 +15,7 @@ import { FEATURES } from '../config/featureFlags';
 import { beat } from '../dev/health/monitor';
 import { startSTT, stopSTT } from './stt';
 import { voiceGate } from '../core/gate';
+import { moduleRegistry, ModuleType } from '../dev/moduleRegistry';
 
 // TypeScript declarations for Web Speech API
 interface SpeechRecognitionResult {

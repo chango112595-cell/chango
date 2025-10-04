@@ -10,11 +10,12 @@
 
 import { checkMicPermission, requestMicStream, unlockAudioContext } from '../lib/permissions';
 import { voiceBus } from './voiceBus';
-import { debugBus } from '../dev/debugBus';
+import { DebugBus } from '../debug/DebugBus';
 import { FEATURES } from '../config/featureFlags';
 import { beat } from '../dev/health/monitor';
 import { startSTT, stopSTT } from './stt';
 import { voiceGate } from '../core/gate';
+import { VoiceGate } from './gate';
 import { moduleRegistry, ModuleType } from '../dev/moduleRegistry';
 
 // TypeScript declarations for Web Speech API
@@ -117,14 +118,14 @@ export async function ensureAudioUnlocked() {
 
 async function acquireMic() {
   const state = await checkMicPermission();
-  debugBus.info('AlwaysListen', `Permission state: ${state}`);
+  DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: `Permission state: ${state}` });
 
   if (state === 'denied' || state === 'blocked') {
-    debugBus.error('Gate', 'Microphone permission denied/blocked');
+    DebugBus.emit({ tag: 'Gate', level: 'error', msg: 'Microphone permission denied/blocked' });
     throw new Error('mic_denied');
   }
   stream = await requestMicStream();
-  debugBus.info('STT', 'Mic stream acquired');
+  DebugBus.emit({ tag: 'STT', level: 'info', msg: 'Mic stream acquired' });
   return stream;
 }
 
@@ -141,14 +142,14 @@ export async function startAlwaysListenNew(cfg: AlwaysCfg) {
     
     // Update debug flags
     if (FEATURES.DEBUG_BUS) {
-      debugBus.info('AlwaysListen', 'STT started successfully');
+      DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: 'STT started successfully' });
     }
     
     // Send heartbeat
     beat('stt', { status: 'started', hasPermission: true });
   } catch (e:any) {
     running = false;
-    debugBus.error('AlwaysListen', `Startup failed: ${e?.message||e}`);
+    DebugBus.emit({ tag: 'AlwaysListen', level: 'error', msg: `Startup failed: ${e?.message||e}` });
     
     // Send error heartbeat
     beat('stt', { status: 'error', hasPermission: false });
@@ -167,11 +168,49 @@ export async function stopAlwaysListenNew() {
     running = false;
     
     if (FEATURES.DEBUG_BUS) {
-      debugBus.info('AlwaysListen', 'STT stopped');
+      DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: 'STT stopped' });
     }
     
     // Send stopped heartbeat
     beat('stt', { status: 'stopped' });
+  }
+}
+
+// New function with better error handling for text-only fallback
+export async function startAlwaysListen({ wakeWord = 'lolo', enabled = true } = {}) {
+  if (running || !enabled) return;
+  try {
+    // Don't block on audio unlock failure
+    try {
+      await ensureAudioUnlocked();
+    } catch (e) {
+      DebugBus.emit({ tag:'AlwaysListen', level:'info', msg:'AudioContext unavailable - continuing without voice' });
+    }
+    
+    const state = await checkMicPermission();
+    DebugBus.emit({ tag:'AlwaysListen', level:'info', msg:`Permission state: ${state}` });
+    
+    if (state === 'denied' || state === 'blocked') {
+      // Don't throw, just log and continue without voice
+      DebugBus.emit({ tag:'AlwaysListen', level:'info', msg:'Mic unavailable - text input still works' });
+      VoiceGate.enable(wakeWord); // Still enable gate for text
+      return;
+    }
+    
+    const s = await requestMicStream();
+    s.getTracks().forEach(t => t.stop());
+    VoiceGate.enable(wakeWord);
+    await startSTT();
+    running = true;
+    DebugBus.flag('STT', true);
+    DebugBus.flag('Gate', true);
+  } catch (e:any) {
+    running = false;
+    DebugBus.flag('STT', false);
+    // Still enable gate for text even if voice fails
+    VoiceGate.enable(wakeWord);
+    DebugBus.flag('Gate', true);
+    DebugBus.emit({ tag:'AlwaysListen', level:'info', msg:`Voice unavailable: ${e?.message||e} - text input still works` });
   }
 }
 
@@ -254,10 +293,10 @@ class AlwaysListenManager {
     let errorType: string | undefined;
     if (state === 'denied') {
       errorType = 'permission-denied';
-      debugBus.error('AlwaysListen', 'Microphone permission denied');
+      DebugBus.emit({ tag: 'AlwaysListen', level: 'error', msg: 'Microphone permission denied' });
     } else if (state === 'blocked') {
       errorType = 'no-microphone';
-      debugBus.error('AlwaysListen', 'No microphone device found');
+      DebugBus.emit({ tag: 'AlwaysListen', level: 'error', msg: 'No microphone device found' });
     }
     
     return {
@@ -282,10 +321,10 @@ class AlwaysListenManager {
     
     // Log to debug bus
     if (FEATURES.DEBUG_BUS) {
-      debugBus.info('AlwaysListen', 'Initializing', { 
+      DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: 'Initializing', data: { 
         config: this.config,
         state: this.state 
-      });
+      }});
     }
     
     // Check for browser support
@@ -294,7 +333,7 @@ class AlwaysListenManager {
       const error = 'Speech recognition not supported in this browser';
       console.error('[AlwaysListen]', error);
       if (FEATURES.DEBUG_BUS) {
-        debugBus.error('AlwaysListen', error);
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'error', msg: String(error) });
       }
       throw new Error(error);
     }
@@ -314,12 +353,12 @@ class AlwaysListenManager {
       console.log('[AlwaysListen] Initialization complete');
       
       if (FEATURES.DEBUG_BUS) {
-        debugBus.info('AlwaysListen', 'Initialized successfully');
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: 'Initialized successfully' });
       }
     } catch (error) {
       console.error('[AlwaysListen] Failed to initialize:', error);
       if (FEATURES.DEBUG_BUS) {
-        debugBus.error('AlwaysListen', 'Initialization failed', { error });
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'error', msg: 'Initialization failed', data: { error } });
       }
       throw error;
     }
@@ -343,9 +382,9 @@ class AlwaysListenManager {
     console.log('[AlwaysListen] Starting speech recognition...');
     
     if (FEATURES.DEBUG_BUS) {
-      debugBus.info('AlwaysListen', 'Starting', { 
+      DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: 'Starting', data: { 
         previousState: this.state 
-      });
+      }});
     }
 
     this.isEnabled = true;
@@ -362,9 +401,9 @@ class AlwaysListenManager {
     console.log('[AlwaysListen] Stopping continuous listening...');
     
     if (FEATURES.DEBUG_BUS) {
-      debugBus.info('AlwaysListen', 'Stopping', { 
+      DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: 'Stopping', data: { 
         state: this.state 
-      });
+      }});
     }
     
     this.isEnabled = false;
@@ -405,7 +444,7 @@ class AlwaysListenManager {
       beat('stt', { status: 'started' });
       
       if (FEATURES.DEBUG_BUS) {
-        debugBus.info('AlwaysListen', 'Recognition started');
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: 'Recognition started' });
       }
     };
 
@@ -417,10 +456,10 @@ class AlwaysListenManager {
       this.state = 'idle';
       
       if (FEATURES.DEBUG_BUS) {
-        debugBus.info('AlwaysListen', 'Recognition ended', { 
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: 'Recognition ended', data: { 
           wasListening,
           willRestart: this.isEnabled && this.config.autoRestart 
-        });
+        }});
       }
       
       // Auto-restart if enabled
@@ -447,7 +486,7 @@ class AlwaysListenManager {
       beat('stt', { status: 'speech_detected' });
       
       if (FEATURES.DEBUG_BUS) {
-        debugBus.info('AlwaysListen', 'Speech detected');
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: 'Speech detected' });
       }
     };
 
@@ -455,7 +494,7 @@ class AlwaysListenManager {
       console.log('[AlwaysListen] 🤐 Speech ended');
       
       if (FEATURES.DEBUG_BUS) {
-        debugBus.info('AlwaysListen', 'Speech ended');
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: 'Speech ended' });
       }
       
       // Process any pending interim transcript
@@ -542,12 +581,12 @@ class AlwaysListenManager {
     this.errorMessage = event.message || event.error;
     
     if (FEATURES.DEBUG_BUS) {
-      debugBus.warn('AlwaysListen', `Error: ${event.error}`, { 
+      DebugBus.emit({ tag: 'AlwaysListen', level: 'warn', msg: `Error: ${event.error}`, data: { 
         message: event.message,
         errorCount: this.errorCount,
         consecutiveFailures: this.consecutiveFailures,
         retryDelay: this.currentRetryDelay
-      });
+      }});
     }
 
     // Check if we've hit the max consecutive failures
@@ -557,11 +596,11 @@ class AlwaysListenManager {
       this.state = 'error';
       
       if (FEATURES.DEBUG_BUS) {
-        debugBus.error('AlwaysListen', 'STT paused - manual recovery needed', {
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'error', msg: 'STT paused - manual recovery needed', data: {
           consecutiveFailures: this.consecutiveFailures,
           errorMessage: this.errorMessage,
           lastSuccessfulRecognition: new Date(this.lastSuccessfulRecognition).toISOString()
-        });
+        }});
       }
       
       // Don't auto-restart when paused for recovery
@@ -591,7 +630,7 @@ class AlwaysListenManager {
           this.state = 'error';
           
           if (FEATURES.DEBUG_BUS) {
-            debugBus.error('AlwaysListen', 'Permission denied', permissionStatus);
+            DebugBus.emit({ tag: 'AlwaysListen', level: 'error', msg: 'Permission denied', data: permissionStatus });
           }
           
           // Start monitoring for permission changes
@@ -651,10 +690,10 @@ class AlwaysListenManager {
           } else if (micStatus.microphoneMuted) {
             console.warn('[AlwaysListen] 🔇 Microphone is muted at browser/OS level');
             if (FEATURES.DEBUG_BUS) {
-              debugBus.warn('AlwaysListen', 'Microphone muted - waiting 5s before retry', { 
+              DebugBus.emit({ tag: 'AlwaysListen', level: 'warn', msg: 'Microphone muted - waiting 5s before retry', data: { 
                 message: 'Please unmute your microphone to use voice commands',
                 nextRetryIn: this.MUTED_RETRY_DELAY
-              });
+              }});
             }
             // Start monitoring for when mic becomes unmuted
             this.startMicrophoneMonitoring();
@@ -667,9 +706,9 @@ class AlwaysListenManager {
             console.error('[AlwaysListen] No microphone device available');
             this.errorMessage = 'No microphone detected - please connect a microphone';
             if (FEATURES.DEBUG_BUS) {
-              debugBus.error('AlwaysListen', 'No microphone device', { 
+              DebugBus.emit({ tag: 'AlwaysListen', level: 'error', msg: 'No microphone device', data: { 
                 message: 'Please connect a microphone to use voice commands'
-              });
+              }});
             }
             // Start monitoring for when mic becomes available
             this.startMicrophoneMonitoring();
@@ -744,12 +783,12 @@ class AlwaysListenManager {
       console.log('[AlwaysListen] ✓ Successfully emitted to voiceBus');
       
       if (FEATURES.DEBUG_BUS) {
-        debugBus.info('AlwaysListen', `Emitted ${isFinal ? 'final' : 'interim'} transcript`, { text });
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: `Emitted ${isFinal ? 'final' : 'interim'} transcript`, data: { text }});
       }
     } catch (error) {
       console.error('[AlwaysListen] ❌ Failed to emit to voiceBus:', error);
       if (FEATURES.DEBUG_BUS) {
-        debugBus.error('AlwaysListen', 'Failed to emit transcript', { error });
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'error', msg: 'Failed to emit transcript', data: { error }});
       }
     }
   }
@@ -787,7 +826,7 @@ class AlwaysListenManager {
       this.hasPermission = false;
       
       if (FEATURES.DEBUG_BUS) {
-        debugBus.error('AlwaysListen', 'Cannot start - no permission', permissionStatus);
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'error', msg: 'Cannot start - no permission', data: permissionStatus });
       }
       
       // Start monitoring for permission
@@ -798,7 +837,7 @@ class AlwaysListenManager {
     if (permissionStatus.microphoneMuted) {
       console.warn('[AlwaysListen] Warning: Microphone is muted');
       if (FEATURES.DEBUG_BUS) {
-        debugBus.warn('AlwaysListen', 'Starting with muted microphone', permissionStatus);
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'warn', msg: 'Starting with muted microphone', data: permissionStatus });
       }
     }
     
@@ -807,7 +846,7 @@ class AlwaysListenManager {
       this.state = 'error';
       
       if (FEATURES.DEBUG_BUS) {
-        debugBus.error('AlwaysListen', 'Cannot start - no microphone', permissionStatus);
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'error', msg: 'Cannot start - no microphone', data: permissionStatus });
       }
       
       // Start monitoring for microphone
@@ -824,7 +863,7 @@ class AlwaysListenManager {
       console.error('[AlwaysListen] Failed to start recognition:', error);
       
       if (FEATURES.DEBUG_BUS) {
-        debugBus.error('AlwaysListen', 'Start failed', { error: error?.message });
+        DebugBus.emit({ tag: 'AlwaysListen', level: 'error', msg: 'Start failed', data: { error: error?.message }});
       }
       
       // If already started error, try abort then restart
@@ -887,9 +926,9 @@ class AlwaysListenManager {
         this.state = 'error';
         
         if (FEATURES.DEBUG_BUS) {
-          debugBus.error('AlwaysListen', 'Max restart attempts reached', {
+          DebugBus.emit({ tag: 'AlwaysListen', level: 'error', msg: 'Max restart attempts reached', data: {
             attempts: this.restartAttempts
-          });
+          }});
         }
         
         // Reset attempts counter after longer delay
@@ -953,7 +992,7 @@ class AlwaysListenManager {
         this.state = 'idle';
         
         if (FEATURES.DEBUG_BUS) {
-          debugBus.info('AlwaysListen', 'Permission recovered', status);
+          DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: 'Permission recovered', data: status });
         }
         
         // Restart recognition
@@ -994,7 +1033,7 @@ class AlwaysListenManager {
         this.state = 'idle';
         
         if (FEATURES.DEBUG_BUS) {
-          debugBus.info('AlwaysListen', 'Microphone recovered', status);
+          DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: 'Microphone recovered', data: status });
         }
         
         // Restart recognition if enabled
@@ -1008,9 +1047,9 @@ class AlwaysListenManager {
           this.microphoneMuted = true;
           
           if (FEATURES.DEBUG_BUS) {
-            debugBus.warn('AlwaysListen', 'Microphone still muted', { 
+            DebugBus.emit({ tag: 'AlwaysListen', level: 'warn', msg: 'Microphone still muted', data: { 
               message: 'Please unmute your microphone to use voice commands'
-            });
+            }});
           }
         }
       }
@@ -1088,10 +1127,10 @@ class AlwaysListenManager {
     this.state = 'idle';
     
     if (FEATURES.DEBUG_BUS) {
-      debugBus.info('AlwaysListen', 'Force restart initiated', {
+      DebugBus.emit({ tag: 'AlwaysListen', level: 'info', msg: 'Force restart initiated', data: {
         wasEnabled: this.isEnabled,
         hadPermission: this.hasPermission
-      });
+      }});
     }
     
     // Re-enable if it was enabled

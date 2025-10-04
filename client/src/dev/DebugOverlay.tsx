@@ -442,31 +442,57 @@ export function DebugOverlay() {
     }
   };
   
-  // Get overlay styles based on viewport
-  const getOverlayStyles = (): React.CSSProperties => {
+  // Get overlay container styles (fixed positioning wrapper)
+  const getContainerStyles = (): React.CSSProperties => {
+    switch (viewport) {
+      case 'mobile':
+        return {
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 99999,
+          pointerEvents: 'none',
+        };
+      case 'tablet':
+        return {
+          position: 'fixed',
+          bottom: 20,
+          left: 20,
+          zIndex: 99999,
+          pointerEvents: 'none',
+        };
+      default:
+        return {
+          position: 'fixed',
+          bottom: 20,
+          left: 20,
+          zIndex: 99999,
+          pointerEvents: 'none',
+        };
+    }
+  };
+  
+  // Get control panel styles (tabs at bottom)
+  const getControlPanelStyles = (): React.CSSProperties => {
     const baseStyles: React.CSSProperties = {
-      position: 'fixed',
-      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      backgroundColor: 'rgba(0, 0, 0, 0.9)',
       border: '2px solid #00ffff',
       borderRadius: 8,
       fontFamily: 'monospace',
       color: '#00ffff',
-      zIndex: 99999,
       display: 'flex',
       flexDirection: 'column',
-      transition: 'all 0.3s ease-in-out',
       pointerEvents: 'auto',
+      position: 'relative',
+      transition: 'all 0.3s ease-in-out',
     };
     
     switch (viewport) {
       case 'mobile':
         return {
           ...baseStyles,
-          bottom: 0,
-          left: 0,
-          right: 0,
-          width: '100%',
-          maxHeight: isExpanded ? '30vh' : 'auto',
+          width: '100vw',
           fontSize: 10,
           padding: 8,
           borderRadius: '8px 8px 0 0',
@@ -474,22 +500,71 @@ export function DebugOverlay() {
       case 'tablet':
         return {
           ...baseStyles,
-          bottom: 20,
-          left: 20,
           width: 350,
-          maxHeight: isExpanded ? 400 : 'auto',
           fontSize: 11,
           padding: 10,
         };
       default:
         return {
           ...baseStyles,
-          bottom: 20,
-          left: 20,
           width: 400,
-          maxHeight: isExpanded ? 500 : 'auto',
           fontSize: 11,
           padding: 12,
+        };
+    }
+  };
+  
+  // Get content area styles (slides up above control panel)
+  const getContentStyles = (): React.CSSProperties => {
+    const baseStyles: React.CSSProperties = {
+      position: 'absolute',
+      bottom: '100%',
+      left: 0,
+      right: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.95)',
+      border: '2px solid #00ffff',
+      borderBottom: 'none',
+      fontFamily: 'monospace',
+      color: '#00ffff',
+      display: 'flex',
+      flexDirection: 'column',
+      pointerEvents: 'auto',
+      transform: isExpanded ? 'translateY(0)' : 'translateY(100%)',
+      opacity: isExpanded ? 1 : 0,
+      transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease-in-out',
+      overflow: 'hidden',
+    };
+    
+    switch (viewport) {
+      case 'mobile':
+        return {
+          ...baseStyles,
+          width: '100vw',
+          height: '30vh',
+          fontSize: 10,
+          padding: 8,
+          borderRadius: '8px 8px 0 0',
+          marginBottom: -2, // Overlap border
+        };
+      case 'tablet':
+        return {
+          ...baseStyles,
+          width: 350,
+          height: 400,
+          fontSize: 11,
+          padding: 10,
+          borderRadius: '8px 8px 8px 8px',
+          marginBottom: -2,
+        };
+      default:
+        return {
+          ...baseStyles,
+          width: 400,
+          height: 450,
+          fontSize: 11,
+          padding: 12,
+          borderRadius: '8px 8px 8px 8px',
+          marginBottom: -2,
         };
     }
   };
@@ -533,257 +608,61 @@ export function DebugOverlay() {
   return (
     <>
       <ToggleButton />
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          pointerEvents: 'none',
-          zIndex: 99998,
-        }}
-      >
-        <div
-          style={getOverlayStyles()}
-          data-testid="debug-overlay"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Header with controls */}
-          <div style={{ 
-            display: 'flex', 
-            flexDirection: 'column',
-            gap: 8,
-            marginBottom: 8,
-            paddingBottom: 8,
-            borderBottom: '1px solid #00ffff44'
-          }}>
-            {/* Health Status */}
-            <div style={{ 
-              display: 'grid',
-              gridTemplateColumns: viewport === 'mobile' ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
-              gap: viewport === 'mobile' ? 6 : 8,
-              width: '100%',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                <div style={{
-                  width: viewport === 'mobile' ? 8 : 10,
-                  height: viewport === 'mobile' ? 8 : 10,
-                  borderRadius: '50%',
-                  backgroundColor: getHealthColor(health.stt),
-                  boxShadow: health.stt === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
-                             health.stt === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
-                  flexShrink: 0,
-                }} data-testid="health-stt" />
-                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  🎤STT
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                <div style={{
-                  width: viewport === 'mobile' ? 8 : 10,
-                  height: viewport === 'mobile' ? 8 : 10,
-                  borderRadius: '50%',
-                  backgroundColor: getHealthColor(health.gate),
-                  boxShadow: health.gate === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
-                             health.gate === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
-                  flexShrink: 0,
-                }} data-testid="health-gate" />
-                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  🚪Gate
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                <div style={{
-                  width: viewport === 'mobile' ? 8 : 10,
-                  height: viewport === 'mobile' ? 8 : 10,
-                  borderRadius: '50%',
-                  backgroundColor: getHealthColor(health.tts),
-                  boxShadow: health.tts === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
-                             health.tts === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
-                  flexShrink: 0,
-                }} data-testid="health-tts" />
-                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  🔊TTS
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                <div style={{
-                  width: viewport === 'mobile' ? 8 : 10,
-                  height: viewport === 'mobile' ? 8 : 10,
-                  borderRadius: '50%',
-                  backgroundColor: getHealthColor(health.voiceprint),
-                  boxShadow: health.voiceprint === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
-                             health.voiceprint === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
-                  flexShrink: 0,
-                }} data-testid="health-voiceprint" />
-                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {viewport === 'mobile' ? '🔐VPrint' : '🔐Voiceprint'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                <div style={{
-                  width: viewport === 'mobile' ? 8 : 10,
-                  height: viewport === 'mobile' ? 8 : 10,
-                  borderRadius: '50%',
-                  backgroundColor: getHealthColor(health.vad),
-                  boxShadow: health.vad === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
-                             health.vad === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
-                  flexShrink: 0,
-                }} data-testid="health-vad" />
-                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  👂VAD
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                <div style={{
-                  width: viewport === 'mobile' ? 8 : 10,
-                  height: viewport === 'mobile' ? 8 : 10,
-                  borderRadius: '50%',
-                  backgroundColor: getHealthColor(health.orchestrator),
-                  boxShadow: health.orchestrator === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
-                             health.orchestrator === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
-                  flexShrink: 0,
-                }} data-testid="health-orchestrator" />
-                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {viewport === 'mobile' ? '🎭Orch' : '🎭Orchestrator'}
-                </span>
-              </div>
-            </div>
-            
-            {/* Control buttons */}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#00ffff',
-                  cursor: 'pointer',
-                  padding: 4,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                data-testid="debug-expand-toggle"
-                aria-label={isExpanded ? "Collapse" : "Expand"}
-              >
-                {isExpanded ? 
-                  <ChevronDown size={viewport === 'mobile' ? 16 : 18} /> : 
-                  <ChevronUp size={viewport === 'mobile' ? 16 : 18} />
-                }
-              </button>
-              <button
-                onClick={() => setIsVisible(false)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#00ffff',
-                  cursor: 'pointer',
-                  padding: 4,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                data-testid="debug-close"
-                aria-label="Close"
-              >
-                <X size={viewport === 'mobile' ? 16 : 18} />
-              </button>
-            </div>
-          </div>
-          
-          {/* View toggle buttons */}
-          {isExpanded && (
-            <div style={{
-              display: 'flex',
-              gap: 8,
-              marginTop: 8,
-              marginBottom: 8,
-              borderTop: '1px solid #00ffff44',
-              paddingTop: 8,
-            }}>
-              <button
-                onClick={() => setShowModules(false)}
-                style={{
-                  flex: 1,
-                  padding: '4px 8px',
-                  background: !showModules ? 'rgba(0, 255, 255, 0.2)' : 'transparent',
-                  border: '1px solid #00ffff',
-                  borderRadius: 4,
-                  color: '#00ffff',
-                  fontSize: viewport === 'mobile' ? 10 : 11,
-                  cursor: 'pointer',
-                }}
-                data-testid="debug-view-events"
-              >
-                📜 Events
-              </button>
-              <button
-                onClick={() => setShowModules(true)}
-                style={{
-                  flex: 1,
-                  padding: '4px 8px',
-                  background: showModules ? 'rgba(0, 255, 255, 0.2)' : 'transparent',
-                  border: '1px solid #00ffff',
-                  borderRadius: 4,
-                  color: '#00ffff',
-                  fontSize: viewport === 'mobile' ? 10 : 11,
-                  cursor: 'pointer',
-                }}
-                data-testid="debug-view-modules"
-              >
-                📊 Modules ({modules.filter(m => m.health === ModuleHealth.CRITICAL).length}/{modules.length})
-              </button>
-            </div>
-          )}
-          
-          {/* Content area (Events or Modules) */}
-          {isExpanded && (
-            <>
+      <div style={getContainerStyles()}>
+        {/* Content area that slides up (rendered first so it appears behind/above control panel) */}
+        {isVisible && (
+          <div
+            style={getContentStyles()}
+            data-testid="debug-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {isExpanded && (
               <div style={{ 
                 flex: 1,
                 overflowY: 'auto',
                 overflowX: 'hidden',
-                minHeight: viewport === 'mobile' ? 100 : 200,
+                display: 'flex',
+                flexDirection: 'column',
               }}>
                 {!showModules ? (
                   // Event Log
-                  events.map((event, index) => (
-                    <div
-                      key={`${event.timestamp}-${index}`}
-                      style={{
-                        marginBottom: 4,
-                        fontSize: viewport === 'mobile' ? 9 : 10,
-                        lineHeight: viewport === 'mobile' ? '12px' : '14px',
-                        wordBreak: 'break-word'
-                      }}
-                      data-testid={`debug-event-${index}`}
-                    >
-                      <span style={{ color: '#888' }}>
-                        {formatTime(event.timestamp)}
-                      </span>
-                      {' '}
-                      <span style={{ color: getLevelColor(event.type) }}>
-                        [{event.module}]
-                      </span>
-                      {' '}
-                      <span style={{ color: '#fff' }}>
-                        {event.message}
-                      </span>
-                      {event.data && viewport !== 'mobile' && (
-                        <>
-                          {' '}
-                          <span style={{ color: '#999', fontSize: 9 }}>
-                            {JSON.stringify(event.data).slice(0, 50)}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  ))
+                  <div style={{ flex: 1, overflowY: 'auto' }}>
+                    {events.map((event, index) => (
+                      <div
+                        key={`${event.timestamp}-${index}`}
+                        style={{
+                          marginBottom: 4,
+                          fontSize: viewport === 'mobile' ? 9 : 10,
+                          lineHeight: viewport === 'mobile' ? '12px' : '14px',
+                          wordBreak: 'break-word'
+                        }}
+                        data-testid={`debug-event-${index}`}
+                      >
+                        <span style={{ color: '#888' }}>
+                          {formatTime(event.timestamp)}
+                        </span>
+                        {' '}
+                        <span style={{ color: getLevelColor(event.type) }}>
+                          [{event.module}]
+                        </span>
+                        {' '}
+                        <span style={{ color: '#fff' }}>
+                          {event.message}
+                        </span>
+                        {event.data && viewport !== 'mobile' && (
+                          <>
+                            {' '}
+                            <span style={{ color: '#999', fontSize: 9 }}>
+                              {JSON.stringify(event.data).slice(0, 50)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   // Modules Display
-                  <div>
+                  <div style={{ flex: 1, overflowY: 'auto' }}>
                     {/* Module Type Filter */}
                     <div style={{
                       display: 'flex',
@@ -830,7 +709,6 @@ export function DebugOverlay() {
                       {modules
                         .filter(m => activeModuleType === 'all' || m.metadata.type === activeModuleType)
                         .sort((a, b) => {
-                          // Sort by health priority: critical > warning > unknown > healthy
                           const healthOrder = { 
                             [ModuleHealth.CRITICAL]: 0,
                             [ModuleHealth.WARNING]: 1,
@@ -966,21 +844,210 @@ export function DebugOverlay() {
                   </div>
                 )}
               </div>
-              
-              {/* Footer */}
-              <div style={{
-                marginTop: 8,
-                paddingTop: 8,
-                borderTop: '1px solid #00ffff44',
-                fontSize: viewport === 'mobile' ? 8 : 9,
-                color: '#666',
-                textAlign: 'center'
+            )}
+          </div>
+        )}
+        
+        {/* Control Panel (tabs at bottom) */}
+        {isVisible && (
+          <div
+            style={getControlPanelStyles()}
+            data-testid="debug-overlay"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header with health status */}
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column',
+              gap: 8,
+              marginBottom: 8,
+              paddingBottom: 8,
+              borderBottom: '1px solid #00ffff44'
+            }}>
+              {/* Health Status */}
+              <div style={{ 
+                display: 'grid',
+                gridTemplateColumns: viewport === 'mobile' ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
+                gap: viewport === 'mobile' ? 6 : 8,
+                width: '100%',
               }}>
-                Debug Monitor v2.0 | Events: {events.length} | {viewport}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                <div style={{
+                  width: viewport === 'mobile' ? 8 : 10,
+                  height: viewport === 'mobile' ? 8 : 10,
+                  borderRadius: '50%',
+                  backgroundColor: getHealthColor(health.stt),
+                  boxShadow: health.stt === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
+                             health.stt === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                  flexShrink: 0,
+                }} data-testid="health-stt" />
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  🎤STT
+                </span>
               </div>
-            </>
-          )}
-        </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                <div style={{
+                  width: viewport === 'mobile' ? 8 : 10,
+                  height: viewport === 'mobile' ? 8 : 10,
+                  borderRadius: '50%',
+                  backgroundColor: getHealthColor(health.gate),
+                  boxShadow: health.gate === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
+                             health.gate === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                  flexShrink: 0,
+                }} data-testid="health-gate" />
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  🚪Gate
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                <div style={{
+                  width: viewport === 'mobile' ? 8 : 10,
+                  height: viewport === 'mobile' ? 8 : 10,
+                  borderRadius: '50%',
+                  backgroundColor: getHealthColor(health.tts),
+                  boxShadow: health.tts === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
+                             health.tts === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                  flexShrink: 0,
+                }} data-testid="health-tts" />
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  🔊TTS
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                <div style={{
+                  width: viewport === 'mobile' ? 8 : 10,
+                  height: viewport === 'mobile' ? 8 : 10,
+                  borderRadius: '50%',
+                  backgroundColor: getHealthColor(health.voiceprint),
+                  boxShadow: health.voiceprint === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
+                             health.voiceprint === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                  flexShrink: 0,
+                }} data-testid="health-voiceprint" />
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {viewport === 'mobile' ? '🔐VPrint' : '🔐Voiceprint'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                <div style={{
+                  width: viewport === 'mobile' ? 8 : 10,
+                  height: viewport === 'mobile' ? 8 : 10,
+                  borderRadius: '50%',
+                  backgroundColor: getHealthColor(health.vad),
+                  boxShadow: health.vad === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
+                             health.vad === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                  flexShrink: 0,
+                }} data-testid="health-vad" />
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  👂VAD
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                <div style={{
+                  width: viewport === 'mobile' ? 8 : 10,
+                  height: viewport === 'mobile' ? 8 : 10,
+                  borderRadius: '50%',
+                  backgroundColor: getHealthColor(health.orchestrator),
+                  boxShadow: health.orchestrator === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
+                             health.orchestrator === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
+                  flexShrink: 0,
+                }} data-testid="health-orchestrator" />
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {viewport === 'mobile' ? '🎭Orch' : '🎭Orchestrator'}
+                </span>
+              </div>
+            </div>
+            
+            {/* Control buttons */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#00ffff',
+                  cursor: 'pointer',
+                  padding: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                data-testid="debug-expand-toggle"
+                aria-label={isExpanded ? "Collapse" : "Expand"}
+              >
+                {isExpanded ? 
+                  <ChevronDown size={viewport === 'mobile' ? 16 : 18} /> : 
+                  <ChevronUp size={viewport === 'mobile' ? 16 : 18} />
+                }
+              </button>
+              <button
+                onClick={() => setIsVisible(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#00ffff',
+                  cursor: 'pointer',
+                  padding: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                data-testid="debug-close"
+                aria-label="Close"
+              >
+                <X size={viewport === 'mobile' ? 16 : 18} />
+              </button>
+            </div>
+            
+            {/* View toggle buttons - now in control panel */}
+            <div style={{
+              display: 'flex',
+              gap: 8,
+              marginTop: 8,
+            }}>
+              <button
+                  onClick={() => {
+                    setShowModules(false);
+                    setIsExpanded(true);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '6px 12px',
+                    background: !showModules && isExpanded ? 'rgba(0, 255, 255, 0.2)' : 'transparent',
+                    border: '1px solid #00ffff',
+                    borderRadius: 4,
+                    color: '#00ffff',
+                    fontSize: viewport === 'mobile' ? 10 : 11,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease-in-out',
+                  }}
+                  data-testid="debug-view-events"
+                >
+                  📜 Events
+                </button>
+                <button
+                  onClick={() => {
+                    setShowModules(true);
+                    setIsExpanded(true);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '6px 12px',
+                    background: showModules && isExpanded ? 'rgba(0, 255, 255, 0.2)' : 'transparent',
+                    border: '1px solid #00ffff',
+                    borderRadius: 4,
+                    color: '#00ffff',
+                    fontSize: viewport === 'mobile' ? 10 : 11,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease-in-out',
+                  }}
+                  data-testid="debug-view-modules"
+                >
+                  📊 Modules ({modules.filter(m => m.health === ModuleHealth.CRITICAL).length}/{modules.length})
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

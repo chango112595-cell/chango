@@ -1,8 +1,8 @@
 import { DebugBus } from '../debug/DebugBus';
 let enabled = false;
-let wake = 'lolo';
+let wake = 'chango';
 export const VoiceGate = {
-  enable(word: string){ enabled = true; wake = (word||'lolo').toLowerCase(); DebugBus.flag('Gate', true); },
+  enable(word: string){ enabled = true; wake = (word||'chango').toLowerCase(); DebugBus.flag('Gate', true); },
   disable(){ enabled = false; DebugBus.flag('Gate', false); },
   check(txt: string){
     if (!enabled) return { pass: true, cmd: txt };

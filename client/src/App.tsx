@@ -21,7 +21,7 @@ import "@/styles/layout.css";
 // Voice system imports  
 import { voiceController } from "@/voice/voiceController";
 import { voiceBus } from "@/voice/voiceBus";
-import { bootstrapLolo } from "@/app/bootstrap";
+import { bootstrapChango } from "@/app/bootstrap";
 
 // Original components still needed
 import StatusDock from "@/components/StatusDock";
@@ -92,9 +92,9 @@ function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWit
       debugBus.info("App", "voice_init_start", {});
       
       try {
-        // First bootstrap Lolo to initialize VoiceOrchestrator and TTS
-        console.log("[App] Bootstrapping Lolo for TTS initialization...");
-        await bootstrapLolo({
+        // First bootstrap Chango to initialize VoiceOrchestrator and TTS
+        console.log("[App] Bootstrapping Chango for TTS initialization...");
+        await bootstrapChango({
           autoStartListening: false,  // Don't auto-start, will be handled by gate
           enableTTS: true,  // Enable TTS for voice synthesis
           pauseOnHidden: true

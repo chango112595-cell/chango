@@ -30,7 +30,6 @@ export type { ChatInputBarProps } from './ChatInputBar';
 // ===========================================================================
 
 export { default as VoiceControls } from './VoiceControls';
-export { default as MicrophonePermission } from './MicrophonePermission';
 
 // ===========================================================================
 // VISUALIZATION COMPONENTS

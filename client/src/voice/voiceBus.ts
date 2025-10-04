@@ -274,3 +274,9 @@ export const voiceBus = VoiceBusManager.getInstance();
 
 // Export type for external use
 export type { VoiceBusManager };
+
+// Expose to window in dev mode for testing
+if (import.meta.env.DEV) {
+  (window as any).voiceBus = voiceBus;
+  console.log('[VoiceBus] Exposed to window.voiceBus for testing');
+}

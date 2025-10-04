@@ -10,7 +10,7 @@ export type VoiceEventType =
   | 'speak'
   | 'userSpeechRecognized'
   | 'userTextSubmitted'
-  | 'loloResponse'
+  | 'changoResponse'
   | 'cancel'
   | 'muteChange'
   | 'powerChange'

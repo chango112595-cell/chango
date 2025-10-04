@@ -96,7 +96,7 @@ export function HeaderCompact({ className = '' }: HeaderCompactProps) {
         {/* Logo/Title */}
         <div className="header-title">
           <span className="text-lg font-bold bg-gradient-to-r from-blue-500 to-purple-500 text-transparent bg-clip-text">
-            Lolo AI
+            Chango AI
           </span>
         </div>
         

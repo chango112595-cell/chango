@@ -3,15 +3,15 @@
  * Change the WAKE_WORD constant to update the wake word globally
  */
 
-export const WAKE_WORD = "lolo";
+export const WAKE_WORD = "chango";
 
 // Variations that are accepted as wake words
 export const WAKE_WORD_VARIATIONS = [
-  "lolo",
-  "hey lolo", 
-  "ok lolo",
-  "hi lolo",
-  "yo lolo"
+  "chango",
+  "hey chango", 
+  "ok chango",
+  "hi chango",
+  "yo chango"
 ];
 
 // Check if a transcript contains the wake word

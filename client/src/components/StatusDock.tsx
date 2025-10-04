@@ -40,7 +40,7 @@ export default function StatusDock({ systemOnline, speaking, muted, onToggleMute
           {/* ID / name */}
           <div className="flex items-center gap-2">
             <span className={`h-2.5 w-2.5 rounded-full shadow ${dot}`} />
-            <span className="font-semibold tracking-wide">Lolo AI</span>
+            <span className="font-semibold tracking-wide">Chango AI</span>
             <span className="text-xs opacity-70">v-current</span>
           </div>
 

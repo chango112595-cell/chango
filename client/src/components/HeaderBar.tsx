@@ -112,7 +112,7 @@ export function HeaderBar({ className = '' }: HeaderBarProps) {
               
               <div className="flex flex-col">
                 <span className="text-xs font-bold text-cyan-400 tracking-wider">
-                  LOLO AI
+                  CHANGO AI
                 </span>
                 <span className="text-[10px] text-cyan-600/80">
                   JARVIS MODE

@@ -168,11 +168,11 @@ class VoiceControllerModule {
       
       // Check if the transcript STARTS WITH the wake word (not includes)
       const startsWithWakeWord = 
-        lowercaseText.startsWith('lolo') ||
-        lowercaseText.startsWith('hey lolo') ||
-        lowercaseText.startsWith('hi lolo') ||
-        lowercaseText.startsWith('ok lolo') ||
-        lowercaseText.startsWith('yo lolo');
+        lowercaseText.startsWith('chango') ||
+        lowercaseText.startsWith('hey chango') ||
+        lowercaseText.startsWith('hi chango') ||
+        lowercaseText.startsWith('ok chango') ||
+        lowercaseText.startsWith('yo chango');
       
       if (startsWithWakeWord) {
         console.log('[VoiceController] 🎉 Wake word detected at start of speech! Activating...');
@@ -180,16 +180,16 @@ class VoiceControllerModule {
         
         // Extract the command after the wake word for processing
         let command = lowercaseText;
-        if (lowercaseText.startsWith('hey lolo')) {
-          command = lowercaseText.substring('hey lolo'.length).trim();
-        } else if (lowercaseText.startsWith('hi lolo')) {
-          command = lowercaseText.substring('hi lolo'.length).trim();
-        } else if (lowercaseText.startsWith('ok lolo')) {
-          command = lowercaseText.substring('ok lolo'.length).trim();
-        } else if (lowercaseText.startsWith('yo lolo')) {
-          command = lowercaseText.substring('yo lolo'.length).trim();
-        } else if (lowercaseText.startsWith('lolo')) {
-          command = lowercaseText.substring('lolo'.length).trim();
+        if (lowercaseText.startsWith('hey chango')) {
+          command = lowercaseText.substring('hey chango'.length).trim();
+        } else if (lowercaseText.startsWith('hi chango')) {
+          command = lowercaseText.substring('hi chango'.length).trim();
+        } else if (lowercaseText.startsWith('ok chango')) {
+          command = lowercaseText.substring('ok chango'.length).trim();
+        } else if (lowercaseText.startsWith('yo chango')) {
+          command = lowercaseText.substring('yo chango'.length).trim();
+        } else if (lowercaseText.startsWith('chango')) {
+          command = lowercaseText.substring('chango'.length).trim();
         }
         
         // If there's a command after the wake word, emit it for processing

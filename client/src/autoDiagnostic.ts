@@ -51,9 +51,9 @@ export function runAutoDiagnostic() {
     console.log('  ✓ userTextSubmitted event received:', event.text);
   });
   
-  const unsubscribe2 = voiceBus.on('loloResponse', (event) => {
+  const unsubscribe2 = voiceBus.on('changoResponse', (event) => {
     responseReceived = true;
-    console.log('  ✓ loloResponse event received:', event.text);
+    console.log('  ✓ changoResponse event received:', event.text);
   });
   
   // Send test message
@@ -68,7 +68,7 @@ export function runAutoDiagnostic() {
       console.error('❌ CRITICAL: userTextSubmitted event was NOT received');
       console.error('   Problem is in voiceBus.emitUserText() or event emission');
     } else if (!responseReceived) {
-      console.error('❌ CRITICAL: loloResponse was NOT received');
+      console.error('❌ CRITICAL: changoResponse was NOT received');
       console.error('   Problem is in conversation engine processing or response generation');
       console.error('   Check if conversation engine is initialized and listening');
     } else {

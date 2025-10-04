@@ -13,12 +13,12 @@ interface GateResult {
 }
 
 /**
- * Check if the text is directly addressed to Lolo
+ * Check if the text is directly addressed to Chango
  * Uses centralized wake word configuration
  * @param text - The text to check
- * @returns true if the text is addressed to Lolo
+ * @returns true if the text is addressed to Chango
  */
-function isAddressedToLolo(text: string): boolean {
+function isAddressedToChango(text: string): boolean {
   return containsWakeWord(text);
 }
 
@@ -33,7 +33,7 @@ function stripWakeWord(text: string): string {
 }
 
 /**
- * Main gate function that filters input based on whether it's addressed to Lolo
+ * Main gate function that filters input based on whether it's addressed to Chango
  * @param text - The input text to check
  * @param typed - Whether the input was typed (true) or spoken (false)
  * @returns GateResult with allowed status, processed text, and reason
@@ -74,8 +74,8 @@ export function passGate(text: string, typed: boolean = false): GateResult {
     };
   }
   
-  // Check if the speech is addressed to Lolo
-  if (isAddressedToLolo(text)) {
+  // Check if the speech is addressed to Chango
+  if (isAddressedToChango(text)) {
     // Strip the wake word before passing through
     const processedText = stripWakeWord(text);
     
@@ -98,7 +98,7 @@ export function passGate(text: string, typed: boolean = false): GateResult {
   }
   
   // Block unaddressed speech
-  console.log('[Gate] Speech not addressed to Lolo - blocking:', text);
+  console.log('[Gate] Speech not addressed to Chango - blocking:', text);
   return {
     allowed: false,
     text: text,
@@ -107,17 +107,17 @@ export function passGate(text: string, typed: boolean = false): GateResult {
 }
 
 // Export for testing
-export { isAddressedToLolo, stripWakeWord };
+export { isAddressedToChango, stripWakeWord };
 
 // Expose to window in dev mode for testing
 if (import.meta.env.DEV) {
   (window as any).listeningGate = {
     passGate,
-    isAddressedToLolo,
+    isAddressedToChango,
     stripWakeWord,
     testPatterns: (text: string) => {
       console.log('Testing:', text);
-      console.log('Is addressed:', isAddressedToLolo(text));
+      console.log('Is addressed:', isAddressedToChango(text));
       console.log('Stripped text:', stripWakeWord(text));
       console.log('Gate result:', passGate(text, false));
     }

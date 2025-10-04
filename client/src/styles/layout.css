@@ -240,15 +240,19 @@
 
 /* Z-Index Management */
 .debug-overlay {
-  z-index: 99999 !important; /* Debug overlay on top */
+  z-index: 99999 !important; /* Debug overlay panel on top when open */
 }
 
 .chat-input-bar-container {
-  z-index: 9999; /* Input bar container below debug but above everything else */
+  z-index: 10000; /* Input bar container with mute button should be above debug button */
 }
 
 .chat-toggle-button {
-  z-index: 10000; /* Toggle button above the bar */
+  z-index: 10001; /* Toggle button above the bar */
+}
+
+.mic-button {
+  z-index: 10002; /* Mute button specifically above other elements */
 }
 
 .hologram-sphere {

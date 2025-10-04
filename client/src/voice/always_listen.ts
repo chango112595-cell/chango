@@ -110,7 +110,9 @@ let running = false;
 
 export async function ensureAudioUnlocked() {
   if (!ctx) ctx = new ((window as any).AudioContext || (window as any).webkitAudioContext)();
-  await unlockAudioContext(ctx);
+  if (ctx) {
+    await unlockAudioContext(ctx);
+  }
 }
 
 async function acquireMic() {
@@ -131,7 +133,7 @@ export async function startAlwaysListenNew(cfg: AlwaysCfg) {
   try {
     await ensureAudioUnlocked();        // iOS: user gesture required once
     const s = await acquireMic();       // ask / reuse permission
-    await startSTT({ stream: s });      // your STT module consumes the stream
+    await startSTT();                   // your STT module starts listening
 
     // Optional: gate by wake-word
     if (cfg.wakeWord) voiceGate.open();

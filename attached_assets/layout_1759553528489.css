@@ -1,0 +1,34 @@
+:root { --safe-bottom: env(safe-area-inset-bottom, 0px); }
+
+.chat-input {
+  position: sticky;
+  bottom: 0;
+  z-index: 9999;
+  display: flex;
+  gap: .5rem;
+  padding: .75rem .75rem calc(.75rem + var(--safe-bottom));
+  backdrop-filter: saturate(180%) blur(14px);
+  background: color-mix(in oklab, #081018 85%, transparent);
+  border-top: 1px solid rgba(255,255,255,.06);
+}
+
+.chat-input input {
+  flex: 1; border: 0; outline: 0;
+  background: rgba(255,255,255,.06);
+  padding: .9rem 1rem; border-radius: 14px;
+  font: 16px system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+.chat-input button {
+  min-width: 48px; border: 0; border-radius: 14px; padding: .9rem;
+  background: #2e6fff; color: white; font-weight: 600;
+}
+
+.hologram, .debug-monitor { z-index: 10; }
+.chat-input { z-index: 9999; }
+
+@media (max-width: 480px) {
+  .app-header { display:flex; align-items:center; gap:.5rem; }
+  .app-header .title { font-size: clamp(18px, 4vw, 22px); }
+  .app-header .theme-btn { margin-left: auto; }
+}

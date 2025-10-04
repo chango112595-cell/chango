@@ -3,7 +3,8 @@
  * Coordinates STT and TTS states to prevent feedback loops
  */
 
-import { sttService } from './stt/sttService';
+// DISABLED: sttService no longer used - STT handled by alwaysListen singleton
+// import { sttService } from './stt/sttService';
 import { wakeWordDetector } from './wakeWord';
 import { voiceOrchestrator } from './tts/orchestrator';
 import { voiceBus } from './voiceBus';
@@ -47,54 +48,25 @@ class VoiceControllerModule {
     // Setup event listeners
     this.setupEventListeners();
 
-    // Request microphone permissions
-    try {
-      const permitted = await sttService.requestPermissions();
-      if (!permitted) {
-        console.error('[VoiceController] ❌ Microphone permission denied');
-        throw new Error('Microphone permission required for voice features');
-      }
-      console.log('[VoiceController] ✅ Microphone permission granted');
-    } catch (error) {
-      console.error('[VoiceController] ❌ Failed to get microphone permissions:', error);
-      throw error;
-    }
-
-    // Start STT service
-    if (config?.autoStart !== false) {
-      console.log('[VoiceController] 🎧 Starting STT service...');
-      await this.startSTT();
-      
-      // Force check if Voice thinks it's speaking when it shouldn't be
-      const voiceThinksSpeaking = Voice.isSpeaking();
-      const ttsActuallySpeaking = voiceOrchestrator.isSpeaking();
-      
-      console.log('[VoiceController] 🔍 Speaking check:', {
-        voiceThinksSpeaking,
-        ttsActuallySpeaking,
-        ttsActive: this.ttsActive
-      });
-      
-      // If Voice thinks it's speaking but TTS isn't, clear the flag
-      if (voiceThinksSpeaking && !ttsActuallySpeaking) {
-        console.log('[VoiceController] 🔧 Voice thinks it\'s speaking but TTS is not, clearing flag');
-        this.ttsActive = false;
-        Voice.speaking(false);
-      }
-      
-      // Ensure STT actually starts listening after a short delay
-      setTimeout(() => {
-        console.log('[VoiceController] 🎤 Ensuring STT is listening...');
-        sttService.start().then(() => {
-          console.log('[VoiceController] ✅ STT service started successfully');
-          
-          // Double-check the listening status
-          const status = sttService.getStatus();
-          console.log('[VoiceController] 📊 STT Status:', status);
-        }).catch(err => {
-          console.error('[VoiceController] ❌ Failed to ensure STT is listening:', err);
-        });
-      }, 500);
+    // DISABLED: STT is now handled by alwaysListen singleton in bootstrap.ts
+    // No longer requesting permissions or starting STT here
+    console.log('[VoiceController] 🔴 STT initialization DISABLED - handled by alwaysListen singleton');
+    
+    // Force check if Voice thinks it's speaking when it shouldn't be
+    const voiceThinksSpeaking = Voice.isSpeaking();
+    const ttsActuallySpeaking = voiceOrchestrator.isSpeaking();
+    
+    console.log('[VoiceController] 🔍 Speaking check:', {
+      voiceThinksSpeaking,
+      ttsActuallySpeaking,
+      ttsActive: this.ttsActive
+    });
+    
+    // If Voice thinks it's speaking but TTS isn't, clear the flag
+    if (voiceThinksSpeaking && !ttsActuallySpeaking) {
+      console.log('[VoiceController] 🔧 Voice thinks it\'s speaking but TTS is not, clearing flag');
+      this.ttsActive = false;
+      Voice.speaking(false);
     }
 
     // Enable wake word if requested
@@ -155,13 +127,13 @@ class VoiceControllerModule {
     console.log('[VoiceController] 🔊 TTS event received, actually speaking:', actuallySpeeking);
     
     if (actuallySpeeking) {
-      console.log('[VoiceController] ⏸️ Pausing STT for TTS');
+      console.log('[VoiceController] ⏸️ TTS active - STT handled by alwaysListen singleton');
       this.ttsActive = true;
       Voice.speaking(true);
-      sttService.pauseForTTS();
+      // DISABLED: STT pause/resume now handled by alwaysListen singleton
     } else {
       console.log('[VoiceController] ℹ️ TTS event received but not actually speaking (text-only mode)');
-      // Don't set ttsActive or pause STT if not actually speaking
+      // Don't set ttsActive if not actually speaking
     }
   }
 
@@ -175,13 +147,8 @@ class VoiceControllerModule {
     // Notify Voice controller that we're done speaking
     Voice.speaking(false);
     
-    // Resume STT after a short delay
-    setTimeout(() => {
-      if (!this.ttsActive && this.sttEnabled) {
-        console.log('[VoiceController] 🎧 Resuming STT after TTS complete');
-        sttService.resumeAfterTTS();
-      }
-    }, 300);
+    // DISABLED: STT resume now handled by alwaysListen singleton
+    console.log('[VoiceController] 🎧 TTS complete - STT handled by alwaysListen singleton');
   }
 
   /**
@@ -218,31 +185,23 @@ class VoiceControllerModule {
   }
 
   /**
-   * Start STT service
+   * Start STT service - DISABLED
+   * STT is now handled by alwaysListen singleton
    */
   async startSTT(): Promise<void> {
-    if (this.sttEnabled) {
-      console.log('[VoiceController] STT already enabled');
-      return;
-    }
-
-    console.log('[VoiceController] Starting STT service');
-    await sttService.start();
-    this.sttEnabled = true;
+    console.log('[VoiceController] 🔴 startSTT DISABLED - handled by alwaysListen singleton');
+    // DISABLED: STT is now handled by alwaysListen singleton
+    this.sttEnabled = false; // Always false since we're not using sttService
   }
 
   /**
-   * Stop STT service
+   * Stop STT service - DISABLED
+   * STT is now handled by alwaysListen singleton
    */
   stopSTT(): void {
-    if (!this.sttEnabled) {
-      console.log('[VoiceController] STT already disabled');
-      return;
-    }
-
-    console.log('[VoiceController] Stopping STT service');
-    sttService.stop();
-    this.sttEnabled = false;
+    console.log('[VoiceController] 🔴 stopSTT DISABLED - handled by alwaysListen singleton');
+    // DISABLED: STT is now handled by alwaysListen singleton
+    this.sttEnabled = false; // Always false since we're not using sttService
   }
 
   /**
@@ -255,15 +214,12 @@ class VoiceControllerModule {
     // Update Voice controller
     Voice.setMode(mode === 'MUTED' ? 'MUTED' : mode === 'WAKE' ? 'WAKE' : 'ACTIVE');
 
-    // Handle mode-specific actions
+    // Handle mode-specific actions (STT is handled by alwaysListen singleton)
     if (mode === 'MUTED') {
-      this.stopSTT();
+      // DISABLED: STT stop now handled by alwaysListen singleton
       wakeWordDetector.disable();
     } else {
-      this.startSTT().catch(err => {
-        console.error('[VoiceController] Failed to start STT:', err);
-      });
-      
+      // DISABLED: STT start now handled by alwaysListen singleton
       if (mode === 'WAKE' && this.wakeWordEnabled) {
         wakeWordDetector.enable();
       }
@@ -304,16 +260,16 @@ class VoiceControllerModule {
     sttEnabled: boolean;
     ttsActive: boolean;
     wakeWordEnabled: boolean;
-    sttStatus: any;
+    sttStatus: string;
     wakeWordStatus: any;
   } {
     return {
       isInitialized: this.isInitialized,
       mode: this.mode,
-      sttEnabled: this.sttEnabled,
+      sttEnabled: false, // Always false since STT is handled by alwaysListen singleton
       ttsActive: this.ttsActive,
       wakeWordEnabled: this.wakeWordEnabled,
-      sttStatus: sttService.getStatus(),
+      sttStatus: 'Handled by alwaysListen singleton', // Informational message
       wakeWordStatus: wakeWordDetector.getStatus()
     };
   }

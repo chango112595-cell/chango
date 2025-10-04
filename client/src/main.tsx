@@ -45,6 +45,15 @@ if (import.meta.env.DEV) {
   import("./tests/manualPipelineTest").then(() => {
     console.log("[Tests] Manual pipeline test loaded - will auto-run");
   });
+  
+  // Load GlobalMonitor tests
+  import("./tests/testGlobalMonitor").then(() => {
+    console.log("[Tests] GlobalMonitor test suite loaded");
+  });
+  
+  import("./tests/browserGlobalMonitorTest").then(() => {
+    console.log("[Tests] Browser GlobalMonitor test loaded - run with: testGlobalMonitor()");
+  });
 }
 
 // Start the diagnostic runner and attach notifiers

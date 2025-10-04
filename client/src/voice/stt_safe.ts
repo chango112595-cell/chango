@@ -10,7 +10,12 @@ export async function startSTTSafe(){
   const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
   if(!SR) throw new Error('no_speech_recognition');
 
-  rec = new SR(); rec.lang='en-US'; rec.continuous=true; rec.interimResults=true;
+  rec = new SR();
+  if (!rec) throw new Error('Failed to create SpeechRecognition instance');
+  
+  rec.lang='en-US'; 
+  rec.continuous=true; 
+  rec.interimResults=true;
 
   rec.onresult = async (ev: SpeechRecognitionEvent) => {
     let final=''; for(let i=ev.resultIndex;i<ev.results.length;i++){ const r=ev.results[i]; if(r.isFinal) final+=r[0].transcript; }

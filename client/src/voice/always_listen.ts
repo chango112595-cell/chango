@@ -522,6 +522,20 @@ class AlwaysListenManager {
   private async handleError(event: SpeechRecognitionErrorEvent): Promise<void> {
     const now = Date.now();
     
+    // CRITICAL FIX: Check if mic is unavailable before handling errors
+    const micNotFound = sessionStorage.getItem('mic_device_not_found') === 'true';
+    const micDenied = sessionStorage.getItem('mic_permission_denied') === 'true';
+    
+    if (micNotFound || micDenied) {
+      // Don't attempt recovery or log errors when we know mic is unavailable
+      console.log('[AlwaysListen] Mic unavailable (device not found or permission denied), skipping error handling');
+      this.state = 'error';
+      this.isEnabled = false;
+      this.isPausedForRecovery = true;
+      this.clearTimers();
+      return;
+    }
+    
     // Track error rate
     if (now - this.lastErrorTime < 5000) {
       this.errorCount++;
@@ -819,6 +833,18 @@ class AlwaysListenManager {
    * Schedule a restart with debouncing
    */
   private scheduleRestart(delay?: number): void {
+    // CRITICAL FIX: Don't schedule restarts when mic is unavailable
+    const micNotFound = sessionStorage.getItem('mic_device_not_found') === 'true';
+    const micDenied = sessionStorage.getItem('mic_permission_denied') === 'true';
+    
+    if (micNotFound || micDenied) {
+      console.log('[AlwaysListen] Not scheduling restart - mic unavailable');
+      this.state = 'error';
+      this.isEnabled = false;
+      this.clearTimers();
+      return;
+    }
+    
     // Clear existing timer
     if (this.restartTimer) {
       clearTimeout(this.restartTimer);

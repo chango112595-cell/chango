@@ -7,6 +7,7 @@ import { voiceGate } from './gate';
 import { voiceBus } from './voice-bus';
 import { debugBus } from '../dev/debugBus';
 import { ensureMicPermission } from './permissions';
+import { WAKE_WORD, containsWakeWord } from '../config/wakeword';
 
 export interface MessageInput {
   text: string;
@@ -33,17 +34,36 @@ export class VoiceOrchestrator {
       textLength: input.text.length 
     });
     
-    // Text messages ALWAYS route through
+    // Text messages need wake word check
     if (input.source === 'text') {
-      debugBus.info('Orchestrator', 'text_pass_through', { 
-        gateOpen: voiceGate.isGateOpen() 
+      const lowerText = input.text.toLowerCase().trim();
+      const hasWakeWord = lowerText.startsWith(WAKE_WORD.toLowerCase()) || 
+                         lowerText.startsWith(`@${WAKE_WORD.toLowerCase()}`);
+      
+      if (!hasWakeWord) {
+        debugBus.info('Orchestrator', 'text_blocked_no_wake_word', { 
+          text: input.text,
+          wakeWord: WAKE_WORD
+        });
+        
+        return {
+          shouldProcess: false,
+          shouldRespond: false,
+          responseType: 'none',
+          reason: 'missing_wake_word'
+        };
+      }
+      
+      debugBus.info('Orchestrator', 'text_wake_word_detected', { 
+        gateOpen: voiceGate.isGateOpen(),
+        text: input.text
       });
       
       return {
         shouldProcess: true,
         shouldRespond: true,
         responseType: 'text', // Text input gets text response
-        reason: 'text_always_passes'
+        reason: 'wake_word_present'
       };
     }
     

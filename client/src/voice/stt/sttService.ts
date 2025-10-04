@@ -201,6 +201,20 @@ class STTService {
    * Request microphone permissions
    */
   async requestPermissions(): Promise<boolean> {
+    // Check if permission was already denied and stored
+    if (sessionStorage.getItem('mic_permission_denied') === 'true') {
+      console.log('[STTService] 🚫 Permission previously denied, not requesting again');
+      this.permissionGranted = false;
+      return false;
+    }
+    
+    // Check if permission was already granted
+    if (sessionStorage.getItem('mic_permission_granted') === 'true') {
+      console.log('[STTService] ✅ Permission already granted');
+      this.permissionGranted = true;
+      return true;
+    }
+    
     try {
       console.log('[STTService] 🎤 Requesting microphone permissions...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -209,6 +223,9 @@ class STTService {
       stream.getTracks().forEach(track => track.stop());
       
       this.permissionGranted = true;
+      sessionStorage.setItem('mic_permission_granted', 'true');
+      sessionStorage.removeItem('mic_permission_denied');
+      
       console.log('[STTService] ✅ Microphone permission GRANTED! Ready to listen.');
       console.log('[STTService] 📊 Permission status:', { 
         permissionGranted: this.permissionGranted, 
@@ -220,6 +237,13 @@ class STTService {
     } catch (error: any) {
       console.error('[STTService] ❌ Microphone permission DENIED:', error);
       this.permissionGranted = false;
+      
+      // Store the denial persistently to avoid retry loops
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        sessionStorage.setItem('mic_permission_denied', 'true');
+        sessionStorage.setItem('mic_permission_granted', 'false');
+      }
+      
       return false;
     }
   }
@@ -356,10 +380,16 @@ class STTService {
    * Start silence timer
    */
   private startSilenceTimer(): void {
+    // Don't restart on silence if permission is denied
+    if (!this.permissionGranted) {
+      return;
+    }
+    
     this.clearSilenceTimer();
     this.silenceTimer = setTimeout(() => {
       console.log('[STTService] Silence timeout, restarting recognition');
-      if (this.isEnabled && !Voice.isSpeaking()) {
+      // Only restart if permission is still granted
+      if (this.isEnabled && !Voice.isSpeaking() && this.permissionGranted) {
         this.restart();
       }
     }, 3000); // 3 seconds of silence

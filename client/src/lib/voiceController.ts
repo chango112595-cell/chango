@@ -69,97 +69,88 @@ class VoiceController {
   }
 
   private async _initializeListening(): Promise<void> {
-    let retryCount = 0;
-    const maxRetries = 3;
-    
-    while (retryCount < maxRetries) {
-      try {
-        this.log(`Requesting microphone access... (attempt ${retryCount + 1}/${maxRetries})`);
-        
-        // Request microphone with optimized settings
-        // Start with simpler constraints and then try more advanced ones
-        const constraints = retryCount === 0 ? {
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            channelCount: 1,
-            sampleRate: 48000
-          }
-        } : {
-          audio: true // Fallback to simplest constraint
-        };
-        
-        this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-        
-        // Verify stream has audio tracks
-        const audioTracks = this.mediaStream.getAudioTracks();
-        if (audioTracks.length === 0) {
-          throw new Error('No audio tracks in stream');
+    // Only try once - no retry loop that causes permission spam
+    try {
+      this.log(`Requesting microphone access...`);
+      
+      // Request microphone with optimized settings
+      const constraints = {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
         }
-        
-        this.isListeningFlag = true;
-        this.log(`Microphone access granted, stream active with ${audioTracks.length} audio track(s)`);
-        
-        // Set up audio analysis (but make it optional - don't fail if it can't be created)
-        try {
-          if (!this.audioContext) {
-            this.audioContext = new AudioContext();
-            this.analyser = this.audioContext.createAnalyser();
-            this.analyser.fftSize = 2048;
-          }
-          
-          const source = this.audioContext.createMediaStreamSource(this.mediaStream);
-          source.connect(this.analyser!);
-        } catch (audioCtxError) {
-          this.log(`Audio context setup failed (non-critical): ${audioCtxError}`, 'warn');
-          // Continue anyway - the basic stream is working
-        }
-        
-        // Notify listeners
-        this.notifyListeners();
-        
-        // Send audit log
-        await this.audit('LISTENING_STARTED', { mode: this.mode });
-        
-        // Success - exit the retry loop
-        return;
-        
-      } catch (error: any) {
-        retryCount++;
-        this.log(`Failed to start listening (attempt ${retryCount}/${maxRetries}): ${error}`, 'error');
-        
-        // Clean up any partial state
-        if (this.mediaStream) {
-          this.mediaStream.getTracks().forEach(track => track.stop());
-          this.mediaStream = null;
-        }
-        this.isListeningFlag = false;
-        
-        // Check specific error types
-        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-          this.log('Microphone permission denied by user', 'error');
-          this.notifyListeners();
-          throw new Error('Microphone permission denied. Please allow microphone access and try again.');
-        } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-          this.log('No microphone found', 'error');
-          this.notifyListeners();
-          throw new Error('No microphone found. Please connect a microphone and try again.');
-        } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-          this.log('Microphone is in use or blocked', 'warn');
-          // Wait a bit before retrying
-          if (retryCount < maxRetries) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            continue;
-          }
-        }
-        
-        // If we've exhausted retries, throw the error
-        if (retryCount >= maxRetries) {
-          this.notifyListeners();
-          throw error;
-        }
+      };
+      
+      this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      // Verify stream has audio tracks
+      const audioTracks = this.mediaStream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        throw new Error('No audio tracks in stream');
       }
+      
+      this.isListeningFlag = true;
+      this.log(`Microphone access granted, stream active with ${audioTracks.length} audio track(s)`);
+      
+      // Store permission granted state
+      sessionStorage.setItem('mic_permission_granted', 'true');
+      
+      // Set up audio analysis (but make it optional - don't fail if it can't be created)
+      try {
+        if (!this.audioContext) {
+          this.audioContext = new AudioContext();
+          this.analyser = this.audioContext.createAnalyser();
+          this.analyser.fftSize = 2048;
+        }
+        
+        const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+        source.connect(this.analyser!);
+      } catch (audioCtxError) {
+        this.log(`Audio context setup failed (non-critical): ${audioCtxError}`, 'warn');
+        // Continue anyway - the basic stream is working
+      }
+      
+      // Notify listeners
+      this.notifyListeners();
+      
+      // Send audit log
+      await this.audit('LISTENING_STARTED', { mode: this.mode });
+      
+      return;
+      
+    } catch (error: any) {
+      this.log(`Failed to start listening: ${error}`, 'error');
+      
+      // Clean up any partial state
+      if (this.mediaStream) {
+        this.mediaStream.getTracks().forEach(track => track.stop());
+        this.mediaStream = null;
+      }
+      this.isListeningFlag = false;
+      
+      // Store permission denied state
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        sessionStorage.setItem('mic_permission_granted', 'false');
+        sessionStorage.setItem('mic_permission_denied', 'true');
+        this.log('Microphone permission denied by user', 'error');
+        this.notifyListeners();
+        // Don't throw - just return gracefully so text chat still works
+        return;
+      } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+        this.log('No microphone found', 'error');
+        this.notifyListeners();
+        // Don't throw - just return gracefully so text chat still works
+        return;
+      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+        this.log('Microphone is in use or blocked', 'warn');
+        this.notifyListeners();
+        // Don't throw - just return gracefully so text chat still works
+        return;
+      }
+      
+      // For other errors, still don't throw - text chat should work
+      this.notifyListeners();
     }
   }
 

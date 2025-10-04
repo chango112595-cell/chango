@@ -8,6 +8,11 @@ import { startDiagRunner, attachDiagNotifier } from "./diag";
 // Test utilities have been moved to client/tests/ directory
 // They should not be imported in production code
 if (import.meta.env.DEV) {
+  // Expose test modules first
+  import("./tests/exposeTestModules").then(() => {
+    console.log("[Tests] Test modules exposed to window");
+  });
+  
   import("./autoDiagnostic").then(() => {
     console.log("[Diagnostic] Auto-diagnostic loaded");
   });
@@ -24,6 +29,21 @@ if (import.meta.env.DEV) {
   // Load and run conversation engine fix
   import("./tests/fixConversationEngine").then(() => {
     console.log("[Tests] Conversation engine fix loaded");
+  });
+  
+  // Load comprehensive pipeline test
+  import("./tests/comprehensivePipelineTest").then(() => {
+    console.log("[Tests] Comprehensive pipeline test loaded");
+  });
+  
+  // Load pipeline test runner (auto-runs test)
+  import("./tests/runPipelineTest").then(() => {
+    console.log("[Tests] Pipeline test runner loaded - auto-test will start");
+  });
+  
+  // Load manual pipeline test (more comprehensive)
+  import("./tests/manualPipelineTest").then(() => {
+    console.log("[Tests] Manual pipeline test loaded - will auto-run");
   });
 }
 

@@ -162,18 +162,46 @@ class VoiceControllerModule {
       voiceMode: Voice.getMode()
     });
     
-    // In WAKE mode, check for wake word
+    // In WAKE mode, check for wake word AT THE START of speech
     if (this.mode === 'WAKE' && this.wakeWordEnabled) {
-      const lowercaseText = text.toLowerCase();
-      if (lowercaseText.includes('lolo') || 
-          lowercaseText.includes('hey lolo') ||
-          lowercaseText.includes('hi lolo')) {
-        console.log('[VoiceController] 🎉 Wake word detected! Activating...');
+      const lowercaseText = text.toLowerCase().trim();
+      
+      // Check if the transcript STARTS WITH the wake word (not includes)
+      const startsWithWakeWord = 
+        lowercaseText.startsWith('lolo') ||
+        lowercaseText.startsWith('hey lolo') ||
+        lowercaseText.startsWith('hi lolo') ||
+        lowercaseText.startsWith('ok lolo') ||
+        lowercaseText.startsWith('yo lolo');
+      
+      if (startsWithWakeWord) {
+        console.log('[VoiceController] 🎉 Wake word detected at start of speech! Activating...');
         Voice.wakeWordHeard();
+        
+        // Extract the command after the wake word for processing
+        let command = lowercaseText;
+        if (lowercaseText.startsWith('hey lolo')) {
+          command = lowercaseText.substring('hey lolo'.length).trim();
+        } else if (lowercaseText.startsWith('hi lolo')) {
+          command = lowercaseText.substring('hi lolo'.length).trim();
+        } else if (lowercaseText.startsWith('ok lolo')) {
+          command = lowercaseText.substring('ok lolo'.length).trim();
+        } else if (lowercaseText.startsWith('yo lolo')) {
+          command = lowercaseText.substring('yo lolo'.length).trim();
+        } else if (lowercaseText.startsWith('lolo')) {
+          command = lowercaseText.substring('lolo'.length).trim();
+        }
+        
+        // If there's a command after the wake word, emit it for processing
+        if (command) {
+          console.log('[VoiceController] Processing command after wake word:', command);
+          voiceBus.emit({ type: 'userSpeechRecognized', text: command, source: 'stt' });
+        }
+        
         return;
       }
       // Don't process other speech in WAKE mode
-      console.log('[VoiceController] 👂 In WAKE mode, waiting for wake word...');
+      console.log('[VoiceController] 👂 In WAKE mode, waiting for wake word at start of speech...');
       return;
     }
 

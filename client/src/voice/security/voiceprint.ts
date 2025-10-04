@@ -3,6 +3,10 @@
  * Uses 13-MFCC mean vectors for voice signature extraction and cosine similarity matching
  */
 
+import { debugBus } from '../../dev/debugBus';
+import { FEATURES } from '../../config/featureFlags';
+import { healthMonitor } from '../../dev/health/monitor';
+
 export interface VoiceprintData {
   id: string;
   mfccVector: number[];
@@ -35,7 +39,9 @@ function extractMFCCFeatures(audioBuffer: Float32Array, sampleRate: number = 160
   // Handle sample rate properly - don't assume 16kHz
   const validSampleRates = [8000, 11025, 16000, 22050, 32000, 44100, 48000];
   if (!validSampleRates.includes(sampleRate)) {
-    console.warn(`[VoiceprintEngine] Non-standard sample rate: ${sampleRate}, normalizing to nearest standard rate`);
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.warn('Voiceprint', 'Non-standard sample rate', { sampleRate, normalizing: true });
+    }
     // Find nearest valid sample rate
     const nearest = validSampleRates.reduce((prev, curr) => 
       Math.abs(curr - sampleRate) < Math.abs(prev - sampleRate) ? curr : prev
@@ -234,6 +240,18 @@ export class VoiceprintEngine {
    */
   async enroll(audioBuffer: Float32Array, sampleRate: number = 16000): Promise<EnrollmentResult> {
     try {
+      // Emit enrollment start event
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('Voiceprint', 'enrollment_start', { 
+          sampleRate, 
+          bufferSize: audioBuffer.length,
+          duration: audioBuffer.length / sampleRate 
+        });
+      }
+      
+      // Report heartbeat
+      healthMonitor.beat('voiceprint', { action: 'enrolling' });
+      
       // Extract MFCC features
       const mfccVector = extractMFCCFeatures(audioBuffer, sampleRate);
       
@@ -245,12 +263,29 @@ export class VoiceprintEngine {
         sampleCount: audioBuffer.length
       };
       
+      // Emit enrollment success event
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('Voiceprint', 'enrollment_success', { 
+          id: voiceprint.id,
+          vectorDimensions: mfccVector.length,
+          sampleCount: voiceprint.sampleCount
+        });
+      }
+      
+      // Report heartbeat
+      healthMonitor.beat('voiceprint', { action: 'enrolled', id: voiceprint.id });
+      
       return {
         success: true,
         voiceprint
       };
     } catch (error) {
-      console.error('[VoiceprintEngine] Enrollment error:', error);
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.error('Voiceprint', 'enrollment_failure', { 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+      }
+      
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown enrollment error'
@@ -268,19 +303,63 @@ export class VoiceprintEngine {
     sampleRate: number = 16000
   ): Promise<MatchResult> {
     try {
+      // Emit verification start event
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('Voiceprint', 'verification_start', { 
+          voiceprintId: storedVoiceprint.id,
+          threshold,
+          bufferSize: audioBuffer.length 
+        });
+      }
+      
+      // Report heartbeat
+      healthMonitor.beat('voiceprint', { action: 'verifying' });
+      
       // Extract features from input audio
       const inputFeatures = extractMFCCFeatures(audioBuffer, sampleRate);
       
       // Calculate similarity
       const similarity = cosineSimilarity(inputFeatures, storedVoiceprint.mfccVector);
       
+      const match = similarity >= threshold;
+      
+      // Emit verification result event
+      if (FEATURES.DEBUG_BUS) {
+        if (match) {
+          debugBus.info('Voiceprint', 'verification_success', { 
+            voiceprintId: storedVoiceprint.id,
+            similarity,
+            threshold 
+          });
+        } else {
+          debugBus.warn('Voiceprint', 'verification_failed', { 
+            voiceprintId: storedVoiceprint.id,
+            similarity,
+            threshold,
+            delta: threshold - similarity
+          });
+        }
+      }
+      
+      // Report heartbeat with result
+      healthMonitor.beat('voiceprint', { 
+        action: 'verified', 
+        match,
+        similarity 
+      });
+      
       return {
-        match: similarity >= threshold,
+        match,
         similarity,
         threshold
       };
     } catch (error) {
-      console.error('[VoiceprintEngine] Verification error:', error);
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.error('Voiceprint', 'verification_error', { 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+      }
+      
       return {
         match: false,
         similarity: 0,
@@ -298,19 +377,54 @@ export class VoiceprintEngine {
     weight: number = 0.1,
     sampleRate: number = 16000
   ): Promise<VoiceprintData> {
-    // Extract features from new audio
-    const newFeatures = extractMFCCFeatures(newAudioBuffer, sampleRate);
-    
-    // Weighted average with existing voiceprint
-    const updatedVector = existingVoiceprint.mfccVector.map((val, idx) => {
-      return val * (1 - weight) + newFeatures[idx] * weight;
-    });
-    
-    return {
-      ...existingVoiceprint,
-      mfccVector: updatedVector,
-      sampleCount: existingVoiceprint.sampleCount + newAudioBuffer.length
-    };
+    try {
+      // Emit update start event
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('Voiceprint', 'update_start', { 
+          voiceprintId: existingVoiceprint.id,
+          weight,
+          newSamples: newAudioBuffer.length
+        });
+      }
+      
+      // Extract features from new audio
+      const newFeatures = extractMFCCFeatures(newAudioBuffer, sampleRate);
+      
+      // Weighted average with existing voiceprint
+      const updatedVector = existingVoiceprint.mfccVector.map((val, idx) => {
+        return val * (1 - weight) + newFeatures[idx] * weight;
+      });
+      
+      const updatedVoiceprint = {
+        ...existingVoiceprint,
+        mfccVector: updatedVector,
+        sampleCount: existingVoiceprint.sampleCount + newAudioBuffer.length
+      };
+      
+      // Emit update success event
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('Voiceprint', 'update_success', { 
+          voiceprintId: existingVoiceprint.id,
+          totalSamples: updatedVoiceprint.sampleCount,
+          adaptationWeight: weight
+        });
+      }
+      
+      // Report heartbeat
+      healthMonitor.beat('voiceprint', { action: 'updated' });
+      
+      return updatedVoiceprint;
+    } catch (error) {
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.error('Voiceprint', 'update_failure', { 
+          voiceprintId: existingVoiceprint.id,
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+      }
+      
+      // Return original voiceprint on error
+      return existingVoiceprint;
+    }
   }
   
   /**

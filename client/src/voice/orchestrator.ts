@@ -9,7 +9,7 @@ import { voiceprintEngine } from './security/voiceprint';
 import { voiceSecurityStore } from '../state/voiceSecurity';
 import { debugBus } from '../dev/debugBus';
 import { FEATURES } from '../config/featureFlags';
-import { beat } from '../dev/health/monitor';
+import { healthMonitor } from '../dev/health/monitor';
 import { alwaysListen } from './always_listen';
 
 export interface OrchestratorConfig {
@@ -151,7 +151,7 @@ class VoiceOrchestrator {
       console.log('[VoiceOrchestrator] Successfully obtained audio stream');
       
       // Report heartbeat
-      beat('orchestrator', 'stream_obtained');
+      healthMonitor.beat('orchestrator', { action: 'stream_obtained' });
       
       return stream;
     } catch (error: any) {
@@ -292,7 +292,7 @@ class VoiceOrchestrator {
     }
 
     // Report heartbeat
-    beat('orchestrator', 'speech_detected');
+    healthMonitor.beat('orchestrator', { action: 'speech_detected' });
   }
 
   /**
@@ -310,7 +310,7 @@ class VoiceOrchestrator {
     this.startIdleTimer();
 
     // Report heartbeat
-    beat('orchestrator', 'speech_ended');
+    healthMonitor.beat('orchestrator', { action: 'speech_ended' });
   }
 
   /**
@@ -352,7 +352,7 @@ class VoiceOrchestrator {
     // If this was from a barge-in, ensure system isn't stuck muted
     if (wasSpeaking) {
       // Report system ready for input
-      beat('orchestrator', 'ready_for_input');
+      healthMonitor.beat('orchestrator', { action: 'ready_for_input' });
     }
 
     // Start idle timer
@@ -602,7 +602,7 @@ class VoiceOrchestrator {
       }
       
       // Report heartbeat
-      beat('orchestrator', 'auto_idle');
+      healthMonitor.beat('orchestrator', { action: 'auto_idle' });
     }
   }
 

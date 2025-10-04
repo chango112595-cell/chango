@@ -12,6 +12,8 @@ interface HealthState {
   lastGateHeartbeat: number;
   lastTtsHeartbeat: number;
   lastOrchestratorHeartbeat: number;
+  lastVoiceprintHeartbeat: number;
+  lastVadHeartbeat: number;
   ttsStartTime: number | null;
   isTtsSpeaking: boolean;
   isMonitoring: boolean;
@@ -26,6 +28,8 @@ class HealthMonitor {
     lastGateHeartbeat: Date.now(),
     lastTtsHeartbeat: Date.now(),
     lastOrchestratorHeartbeat: Date.now(),
+    lastVoiceprintHeartbeat: Date.now(),
+    lastVadHeartbeat: Date.now(),
     ttsStartTime: null,
     isTtsSpeaking: false,
     isMonitoring: false,
@@ -42,7 +46,7 @@ class HealthMonitor {
   /**
    * Update heartbeat for a specific system
    */
-  beat(system: 'stt' | 'gate' | 'tts' | 'orchestrator', data?: any): void {
+  beat(system: 'stt' | 'gate' | 'tts' | 'orchestrator' | 'voiceprint' | 'vad', data?: any): void {
     try {
       const now = Date.now();
       
@@ -80,6 +84,20 @@ class HealthMonitor {
           this.state.lastOrchestratorHeartbeat = now;
           if (FEATURES.DEBUG_BUS) {
             debugBus.info('Health', 'orchestrator_heartbeat', data);
+          }
+          break;
+          
+        case 'voiceprint':
+          this.state.lastVoiceprintHeartbeat = now;
+          if (FEATURES.DEBUG_BUS) {
+            debugBus.info('Health', 'voiceprint_heartbeat', data);
+          }
+          break;
+          
+        case 'vad':
+          this.state.lastVadHeartbeat = now;
+          if (FEATURES.DEBUG_BUS) {
+            debugBus.info('Health', 'vad_heartbeat', data);
           }
           break;
       }

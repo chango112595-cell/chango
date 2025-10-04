@@ -169,7 +169,21 @@ export class VoiceActivityDetector {
     
     // Emit events if state changed
     if (previousState !== this.state.isSpeaking) {
-      this.emitEvent(this.state.isSpeaking ? 'speech_start' : 'speech_end');
+      const eventType = this.state.isSpeaking ? 'speech_start' : 'speech_end';
+      this.emitEvent(eventType);
+      
+      // Emit detailed debug event with metrics
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('VAD', eventType, {
+          energy: energy.toFixed(2),
+          flux: spectralFlux.toFixed(4),
+          threshold: {
+            energy: this.config.energyThreshold,
+            flux: this.config.spectralFluxThreshold
+          },
+          duration: this.state.isSpeaking ? 0 : this.state.speechDuration
+        });
+      }
       
       // Emit to voice bus for integration
       if (this.state.isSpeaking) {
@@ -179,7 +193,7 @@ export class VoiceActivityDetector {
       }
     }
     
-    // Emit energy update
+    // Emit energy update with detailed metrics
     this.emitEvent('energy_update');
     
     // Continue monitoring
@@ -297,6 +311,15 @@ export class VoiceActivityDetector {
       state: { ...this.state },
       timestamp: Date.now()
     };
+    
+    // Emit debug event for energy updates with metrics
+    if (type === 'energy_update' && FEATURES.DEBUG_BUS) {
+      debugBus.info('VAD', 'energy_update', {
+        energy: this.state.energy.toFixed(2),
+        flux: this.state.spectralFlux.toFixed(4),
+        speaking: this.state.isSpeaking
+      });
+    }
     
     const eventListeners = this.listeners.get(type);
     if (eventListeners) {

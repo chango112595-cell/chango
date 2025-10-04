@@ -68,19 +68,80 @@
   }
 }
 
-/* Chat Input Bar Styles */
-.chat-input-bar {
+/* Chat Input Bar Container */
+.chat-input-bar-container {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
+  z-index: 9999; /* Above all other elements */
+}
+
+/* Toggle Button - Always Visible */
+.chat-toggle-button {
+  position: absolute;
+  top: -45px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 44px;
+  height: 44px;
+  background: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 10000;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.chat-toggle-button:hover {
+  background: rgba(0, 0, 0, 0.95);
+  border-color: rgba(59, 130, 246, 0.5);
+  transform: translateX(-50%) scale(1.1);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.3);
+}
+
+.chat-toggle-button:active {
+  transform: translateX(-50%) scale(0.95);
+}
+
+.chat-toggle-button svg {
+  transition: transform 0.3s ease;
+}
+
+.chat-toggle-button:hover svg {
+  transform: translateY(2px);
+}
+
+/* Chat Input Bar Styles */
+.chat-input-bar {
+  position: relative;
   background: rgba(0, 0, 0, 0.95);
   backdrop-filter: blur(20px);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
-  z-index: 9999; /* Above all other elements */
   padding: 0.75rem 1rem;
   padding-bottom: env(safe-area-inset-bottom, 0.75rem);
-  transition: all 0.3s ease;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* Hidden state - slides down */
+.chat-input-bar.hidden {
+  transform: translateY(100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Visible state - slides up */
+.chat-input-bar.visible {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .chat-input-form {
@@ -182,8 +243,12 @@
   z-index: 99999 !important; /* Debug overlay on top */
 }
 
-.chat-input-bar {
-  z-index: 9999; /* Input bar below debug but above everything else */
+.chat-input-bar-container {
+  z-index: 9999; /* Input bar container below debug but above everything else */
+}
+
+.chat-toggle-button {
+  z-index: 10000; /* Toggle button above the bar */
 }
 
 .hologram-sphere {
@@ -202,6 +267,12 @@
 @media (max-width: 640px) {
   .chat-input-bar {
     padding: 0.5rem 0.75rem;
+  }
+  
+  .chat-toggle-button {
+    top: -35px;
+    width: 36px;
+    height: 36px;
   }
   
   .input-wrapper {
@@ -275,9 +346,13 @@
 }
 
 /* Focus management */
-.chat-input-bar:focus-within {
-  transform: translateY(-2px);
+.chat-input-bar:focus-within.visible {
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.2);
+}
+
+/* Don't apply transform on focus to avoid conflicting with slide animation */
+.chat-input-bar.hidden:focus-within {
+  transform: translateY(100%);
 }
 
 /* Accessibility */

@@ -356,6 +356,9 @@ class HealthMonitor {
 // Create singleton instance
 const healthMonitor = new HealthMonitor();
 
+// Export the singleton instance
+export { healthMonitor };
+
 // Export functions
 export const beat = healthMonitor.beat.bind(healthMonitor);
 export const startHealthWatch = healthMonitor.startHealthWatch.bind(healthMonitor);

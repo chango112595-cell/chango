@@ -403,7 +403,7 @@ export function DebugOverlay() {
       style={{
         position: 'fixed',
         bottom: viewport === 'mobile' ? 20 : 30,
-        right: viewport === 'mobile' ? 20 : 30,
+        left: viewport === 'mobile' ? 20 : 30,
         width: viewport === 'mobile' ? 48 : 56,
         height: viewport === 'mobile' ? 48 : 56,
         borderRadius: '50%',
@@ -452,8 +452,8 @@ export function DebugOverlay() {
           {/* Header with controls */}
           <div style={{ 
             display: 'flex', 
-            alignItems: 'center',
-            justifyContent: 'space-between',
+            flexDirection: 'column',
+            gap: 8,
             marginBottom: 8,
             paddingBottom: 8,
             borderBottom: '1px solid #00ffff44'
@@ -462,7 +462,9 @@ export function DebugOverlay() {
             <div style={{ 
               display: 'flex', 
               flexWrap: 'wrap',
-              gap: viewport === 'mobile' ? 8 : 12,
+              gap: viewport === 'mobile' ? 4 : 8,
+              flex: 1,
+              alignItems: 'center',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <div style={{
@@ -507,7 +509,7 @@ export function DebugOverlay() {
                              health.voiceprint === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
                 }} data-testid="health-voiceprint" />
                 <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>
-                  🔐VP{health.voiceprintEnrolled ? '✓' : '✗'}
+                  🔐VP
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -520,7 +522,7 @@ export function DebugOverlay() {
                              health.vad === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
                 }} data-testid="health-vad" />
                 <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>
-                  📊VAD{health.vadSpeechDetected ? '📢' : ''}
+                  👂VAD
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -532,12 +534,12 @@ export function DebugOverlay() {
                   boxShadow: health.orchestrator === 'ok' ? '0 0 8px rgba(0, 255, 0, 0.5)' : 
                              health.orchestrator === 'issue' ? '0 0 8px rgba(255, 68, 68, 0.5)' : 'none',
                 }} data-testid="health-orchestrator" />
-                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>🎯Orch</span>
+                <span style={{ fontSize: viewport === 'mobile' ? 9 : 10 }}>🎭Orch</span>
               </div>
             </div>
             
             {/* Control buttons */}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
               <button
                 onClick={() => setIsExpanded(!isExpanded)}
                 style={{

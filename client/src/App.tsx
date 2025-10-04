@@ -65,12 +65,6 @@ const DebugOverlay = lazy(() =>
   }))
 );
 
-const MicrophonePermission = lazy(() => 
-  import("@/components/MicrophonePermission").then(m => ({ default: m.MicrophonePermission })).catch(() => ({
-    default: () => null
-  }))
-);
-
 const AudioUnlock = lazy(() => 
   import("@/components/AudioUnlock").then(m => ({ default: m.AudioUnlock })).catch(() => ({
     default: () => null
@@ -285,13 +279,6 @@ function AppContent() {
         <EnhancedVoiceInitializer 
           onInitializeWithGesture={(fn) => setInitializeWithGesture(() => fn)}
         />
-      </ErrorBoundary>
-      
-      {/* Microphone permission request card */}
-      <ErrorBoundary name="MicrophonePermission" fallback={null}>
-        <Suspense fallback={null}>
-          <MicrophonePermission />
-        </Suspense>
       </ErrorBoundary>
       
       {/* Use HeaderCompact as the primary header */}

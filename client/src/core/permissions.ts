@@ -16,7 +16,25 @@ export interface PermissionStatus {
  */
 export async function queryMicPermission(): Promise<PermissionStatus> {
   try {
-    // Try the Permissions API first (not available in iOS Safari)
+    // First check if permission was explicitly denied
+    if (sessionStorage.getItem('mic_permission_denied') === 'true') {
+      debugBus.info('Permissions', 'previously_denied', {});
+      return {
+        granted: false,
+        state: 'denied'
+      };
+    }
+    
+    // Check if permission was already granted
+    if (sessionStorage.getItem('mic_permission_granted') === 'true') {
+      debugBus.info('Permissions', 'cached_permission', { granted: true });
+      return {
+        granted: true,
+        state: 'granted'
+      };
+    }
+    
+    // Try the Permissions API if available (not available in iOS Safari)
     if ('permissions' in navigator && 'query' in navigator.permissions) {
       try {
         const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
@@ -32,16 +50,6 @@ export async function queryMicPermission(): Promise<PermissionStatus> {
         // Permissions API not supported for microphone (common in Safari)
         console.log('[Permissions] Permissions API not supported for microphone');
       }
-    }
-
-    // Fallback: Check if we already have a stream stored
-    const hasStoredStream = sessionStorage.getItem('mic_permission_granted') === 'true';
-    if (hasStoredStream) {
-      debugBus.info('Permissions', 'cached_permission', { granted: true });
-      return {
-        granted: true,
-        state: 'granted'
-      };
     }
 
     // We can't determine permission without prompting
@@ -68,7 +76,17 @@ export async function ensureMicPermission(): Promise<PermissionStatus> {
   try {
     debugBus.info('Permissions', 'ensure_permission_start', {});
     
-    // First check current status
+    // Check if permission was already denied - don't ask again
+    if (sessionStorage.getItem('mic_permission_denied') === 'true') {
+      debugBus.info('Permissions', 'previously_denied_not_asking', {});
+      return {
+        granted: false,
+        state: 'denied',
+        error: 'Permission previously denied'
+      };
+    }
+    
+    // Check current status without prompting
     const current = await queryMicPermission();
     if (current.granted) {
       debugBus.info('Permissions', 'already_granted', {});
@@ -88,6 +106,7 @@ export async function ensureMicPermission(): Promise<PermissionStatus> {
 
     // Success! Store the permission state
     sessionStorage.setItem('mic_permission_granted', 'true');
+    sessionStorage.removeItem('mic_permission_denied');
     
     // Stop the stream immediately - we just wanted permission
     stream.getTracks().forEach(track => {
@@ -106,6 +125,9 @@ export async function ensureMicPermission(): Promise<PermissionStatus> {
     
     if (errorMessage.includes('NotAllowedError') || errorMessage.includes('PermissionDeniedError')) {
       state = 'denied';
+      // Store denial to prevent retry loops
+      sessionStorage.setItem('mic_permission_denied', 'true');
+      sessionStorage.setItem('mic_permission_granted', 'false');
       debugBus.error('Permissions', 'permission_denied', { error: errorMessage });
     } else {
       debugBus.error('Permissions', 'permission_error', { error: errorMessage });

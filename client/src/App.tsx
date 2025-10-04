@@ -67,7 +67,25 @@ function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWit
   
   // Initialize voice controller and integrate with gate/orchestrator
   useEffect(() => {
+    let initialized = false;
+    let cleanupFns: (() => void)[] = [];
+    
     const initializeVoiceSystem = async () => {
+      // Prevent duplicate initialization
+      if (initialized) {
+        console.log("[App] Voice system already initialized, skipping");
+        return;
+      }
+      
+      // Check if permission was previously denied
+      const permissionDenied = sessionStorage.getItem('mic_permission_denied') === 'true';
+      if (permissionDenied) {
+        console.log("[App] Mic permission previously denied, skipping voice initialization");
+        debugBus.info("App", "voice_init_skipped", { reason: "permission_denied" });
+        return;
+      }
+      
+      initialized = true;
       console.log("[App] Initializing enhanced voice system...");
       debugBus.info("App", "voice_init_start", {});
       
@@ -148,27 +166,30 @@ function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWit
           hasPermission 
         });
         
-        // Cleanup function
-        return () => {
-          unsubscribeSpeech();
-          unsubscribeGate();
-          unsubscribeSpeak();
-          unsubscribeListen();
-          unsubscribeStop();
-          voiceController.destroy();
-        };
+        // Store cleanup functions
+        cleanupFns = [
+          unsubscribeSpeech,
+          unsubscribeGate,
+          unsubscribeSpeak,
+          unsubscribeListen,
+          unsubscribeStop
+        ];
       } catch (error) {
         console.error("[App] Failed to initialize voice system:", error);
         debugBus.error("App", "voice_init_failed", { error: String(error) });
       }
     };
     
-    const cleanup = initializeVoiceSystem();
+    // Initialize the voice system
+    initializeVoiceSystem();
     
+    // Cleanup on unmount
     return () => {
-      cleanup.then(cleanupFn => cleanupFn?.());
+      initialized = false;
+      cleanupFns.forEach(fn => fn());
+      voiceController.destroy();
     };
-  }, []);
+  }, [gateOpen, hasPermission]);
   
   // Log always listen status
   useEffect(() => {

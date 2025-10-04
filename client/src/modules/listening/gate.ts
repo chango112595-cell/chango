@@ -39,12 +39,27 @@ function stripWakeWord(text: string): string {
  * @returns GateResult with allowed status, processed text, and reason
  */
 export function passGate(text: string, typed: boolean = false): GateResult {
-  // Always allow typed input (from Ask bar)
+  // Check typed input for wake word too (from Ask bar)
   if (typed) {
-    console.log('[Gate] Typed input detected - allowing through');
+    const lowerText = text.toLowerCase().trim();
+    const hasWakeWord = lowerText.startsWith(WAKE_WORD.toLowerCase()) || 
+                       lowerText.startsWith(`@${WAKE_WORD.toLowerCase()}`);
+    
+    if (!hasWakeWord) {
+      console.log('[Gate] Typed input blocked - no wake word:', text);
+      return {
+        allowed: false,
+        text: text,
+        reason: "blocked"
+      };
+    }
+    
+    // Wake word found in typed input, process it
+    const processedText = stripWakeWord(text);
+    console.log('[Gate] Typed input with wake word detected - allowing through:', text, '->', processedText);
     return {
       allowed: true,
-      text: text,
+      text: processedText,
       reason: "typed"
     };
   }

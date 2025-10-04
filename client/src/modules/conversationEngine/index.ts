@@ -243,10 +243,10 @@ async function respond(text: string, typed: boolean = false): Promise<void> {
         console.error('[ConversationEngine] Error sending TTS heartbeat:', error);
       }
       
-      // Note: responder service already handles speaking through voice events
-      // But we'll also ensure it's spoken here for redundancy
-      voiceOrchestrator.speak(response);
-      console.log('[ConversationEngine] Response sent to voice orchestrator');
+      // Note: responder service already handles speaking through voiceOrchestrator
+      // Don't call speak again here to avoid duplication
+      // voiceOrchestrator.speak(response); // REMOVED - responder already handles this
+      console.log('[ConversationEngine] Response handled by responder service (including TTS)');
     } else {
       console.log('[ConversationEngine] ⚠️ No response from responder service');
       const fallbackResponse = "I'm having trouble processing that. Please try again.";
@@ -259,6 +259,7 @@ async function respond(text: string, typed: boolean = false): Promise<void> {
         source: 'conversation'
       });
       
+      // Only speak if responder didn't handle it
       voiceOrchestrator.speak(fallbackResponse);
       console.log('[ConversationEngine] Fallback response sent');
     }
@@ -274,6 +275,7 @@ async function respond(text: string, typed: boolean = false): Promise<void> {
       source: 'conversation'
     });
     
+    // Only speak error response directly since responder failed
     voiceOrchestrator.speak(errorResponse);
   }
   

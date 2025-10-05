@@ -149,6 +149,12 @@
 }
 
 /* Hide floating mic FAB */
-.fab-mic, [data-ui="floating-mic"] { 
+.fab-mic, 
+[data-ui="floating-mic"],
+.mic-button,
+[data-testid="button-mic"],
+.chat-input-bar .mic-button,
+button[aria-label*="mic" i],
+button[aria-label*="microphone" i] { 
   display: none !important; 
 }

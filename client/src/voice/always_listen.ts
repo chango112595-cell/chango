@@ -11,6 +11,8 @@
 
 import { checkMicPermission, requestMicStream, unlockAudioContext } from '../lib/permissions';
 import { ensureMicReady } from '../lib/audio/ensureMicReady';
+import { getMicrophonePermission, requestMicrophoneIfNeeded } from '../lib/permissions/microphone';
+import { ensureAudioUnlockedOnce } from '../lib/audio/unlockAudio';
 import { voiceBus } from './voiceBus';
 import { debugBus } from '../dev/debugBus';
 import { FEATURES } from '../config/featureFlags';
@@ -114,6 +116,10 @@ let stream: MediaStream | null = null;
 let ctx: AudioContext | null = null;
 let running = false;
 
+// Idempotent flags to avoid rapid loops
+let starting = false;
+let sttActive = false;
+
 export async function ensureAudioUnlocked() {
   if (!ctx) ctx = new ((window as any).AudioContext || (window as any).webkitAudioContext)();
   if (ctx) {
@@ -142,32 +148,76 @@ async function acquireMic() {
 }
 
 export async function startAlwaysListenNew(cfg: AlwaysCfg) {
-  if (running || !cfg.enabled) return;
+  // Check if already starting or active to avoid duplicates
+  if (starting || sttActive || !cfg.enabled) {
+    debugBus.info('AlwaysListen', `Already starting/active or disabled (starting=${starting}, active=${sttActive}, enabled=${cfg.enabled})`);
+    return;
+  }
+  
+  starting = true; // Set flag to prevent rapid loops
+  
   try {
-    // Use ensureMicReady for robust iOS mic bootstrap
-    // This handles AudioContext resume and mic permission in one call
-    stream = await ensureMicReady();
-    debugBus.info('STT', 'Mic ready via ensureMicReady');
+    // Call ensureAudioUnlockedOnce() for mobile audio
+    ensureAudioUnlockedOnce();
+    debugBus.info('AlwaysListen', 'Audio unlock initiated');
     
-    await startSTT();                   // your STT module starts listening
-
-    // Optional: gate by wake-word
-    if (cfg.wakeWord) voiceGate.open();
-    running = true;
+    // Check microphone permission state
+    const permissionState = await getMicrophonePermission();
+    debugBus.info('AlwaysListen', `Permission state: ${permissionState}`);
     
-    // Update debug flags
-    if (FEATURES.DEBUG_BUS) {
-      debugBus.info('AlwaysListen', 'STT started successfully');
+    // Request permission if needed
+    if (permissionState === 'prompt') {
+      debugBus.info('AlwaysListen', 'Requesting microphone permission...');
+      const granted = await requestMicrophoneIfNeeded();
+      if (!granted) {
+        debugBus.error('AlwaysListen', 'Microphone permission denied by user');
+        starting = false;
+        return;
+      }
+      debugBus.info('AlwaysListen', 'Microphone permission granted');
+    } else if (permissionState === 'denied') {
+      debugBus.error('AlwaysListen', 'Microphone permission is denied');
+      starting = false;
+      return;
+    } else if (permissionState === 'unsupported') {
+      debugBus.warn('AlwaysListen', 'Permission API not supported, attempting to continue');
     }
     
-    // Send heartbeat
-    beat('stt', { status: 'started', hasPermission: true });
+    // Only start STT if permission is granted or unsupported (fallback for older browsers)
+    if (permissionState === 'granted' || permissionState === 'unsupported') {
+      // Use ensureMicReady for robust iOS mic bootstrap
+      // This handles AudioContext resume and mic permission in one call
+      stream = await ensureMicReady();
+      debugBus.info('STT', 'Mic ready via ensureMicReady');
+      
+      await startSTT();                   // your STT module starts listening
+
+      // Optional: gate by wake-word
+      if (cfg.wakeWord) voiceGate.open();
+      
+      // Set appropriate flags
+      running = true;
+      sttActive = true;
+      
+      // Update debug flags
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('AlwaysListen', 'STT started successfully');
+      }
+      
+      // Send heartbeat
+      beat('stt', { status: 'started', hasPermission: true });
+    } else {
+      debugBus.error('AlwaysListen', `Cannot start STT - permission state: ${permissionState}`);
+    }
   } catch (e:any) {
     running = false;
+    sttActive = false;
     debugBus.error('AlwaysListen', `Startup failed: ${e?.message||e}`);
     
     // Send error heartbeat
     beat('stt', { status: 'error', hasPermission: false });
+  } finally {
+    starting = false; // Clear starting flag in all cases
   }
 }
 
@@ -181,6 +231,7 @@ export async function stopAlwaysListenNew() {
       stream = null; 
     }
     running = false;
+    sttActive = false; // Clear the sttActive flag
     
     if (FEATURES.DEBUG_BUS) {
       debugBus.info('AlwaysListen', 'STT stopped');
@@ -189,6 +240,11 @@ export async function stopAlwaysListenNew() {
     // Send stopped heartbeat
     beat('stt', { status: 'stopped' });
   }
+}
+
+// Export function to check if AlwaysListen is active
+export function isAlwaysListenActive(): boolean {
+  return sttActive;
 }
 
 class AlwaysListenManager {

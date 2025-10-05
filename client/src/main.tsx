@@ -69,6 +69,11 @@ if (import.meta.env.DEV) {
   import("./tests/forceBootstrap").then(() => {
     console.log("[Tests] Force bootstrap loaded - ensuring Chango is initialized");
   });
+  
+  // Quick test to verify Chango is working with real commands
+  import("./tests/quickTestChango").then(() => {
+    console.log("[Tests] Quick Chango test loaded - will auto-run real commands");
+  });
 }
 
 // Start the diagnostic runner and attach notifiers

@@ -175,12 +175,16 @@ export function ChatInputBar({
         debugBus.warn('ChatInputBar', 'gate_open_failed', {});
       }
     } else {
-      // Toggle listening state
+      // Gate is already open - just toggle listening state without closing gate
+      // The gate should stay open during voice interactions
       if (isListening) {
-        voiceGate.close('user_toggle');
+        // Stop listening but keep gate open
         setIsListening(false);
+        debugBus.info('ChatInputBar', 'stopped_listening', { gateStillOpen: true });
       } else {
+        // Start listening again
         setIsListening(true);
+        debugBus.info('ChatInputBar', 'resumed_listening', { gateOpen: true });
       }
     }
   };

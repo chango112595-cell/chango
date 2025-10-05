@@ -3,10 +3,10 @@
  * ========================
  * 
  * @module components/ChatInputBar
- * @description Sticky bottom input with text input capabilities
+ * @description Sticky bottom input with voice and text input capabilities
  * 
  * **Responsibilities:**
- * - Provide text input interface
+ * - Provide unified text/voice input interface
  * - Handle safe-area insets for mobile devices
  * - Manage input state and processing feedback
  * - Route messages to appropriate services
@@ -23,8 +23,9 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Send, Mic, MicOff, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { voiceGate } from '../core/gate';
 import { orchestrator } from '../core/orchestrator';
 import { responder } from '../services/responder';
 import { debugBus } from '../dev/debugBus';
@@ -35,6 +36,7 @@ interface ChatInputBarProps {
   className?: string;
   placeholder?: string;
   onSubmit?: (text: string) => void;
+  initializeWithGesture?: (() => Promise<boolean>) | null;
 }
 
 // LocalStorage key for bar visibility
@@ -42,11 +44,14 @@ const CHAT_BAR_VISIBLE_KEY = 'chango-chat-bar-visible';
 
 export function ChatInputBar({ 
   className = '',
-  placeholder = 'Type a message...',
-  onSubmit
+  placeholder = 'Type a message or tap mic to speak...',
+  onSubmit,
+  initializeWithGesture
 }: ChatInputBarProps) {
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [gateOpen, setGateOpen] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   
   // Initialize visibility from localStorage (default to true/visible)
   const [isBarVisible, setIsBarVisible] = useState(() => {
@@ -61,6 +66,22 @@ export function ChatInputBar({
   useEffect(() => {
     localStorage.setItem(CHAT_BAR_VISIBLE_KEY, String(isBarVisible));
   }, [isBarVisible]);
+  
+  // Monitor gate status
+  useEffect(() => {
+    const updateGateStatus = () => {
+      const status = voiceGate.getStatus();
+      setGateOpen(status.isOpen);
+    };
+    
+    updateGateStatus();
+    
+    const unsubscribe = voiceGate.onStateChange(() => {
+      updateGateStatus();
+    });
+    
+    return unsubscribe;
+  }, []);
   
   // Handle toggle button click
   const handleToggleBar = () => {
@@ -123,6 +144,51 @@ export function ChatInputBar({
     }
   };
   
+  // Handle mic button click
+  const handleMicClick = async () => {
+    debugBus.info('ChatInputBar', 'mic_clicked', { gateOpen });
+    
+    // FIX: Clear any previous denial flags when user explicitly clicks mic button
+    // This indicates user intent to enable microphone
+    sessionStorage.removeItem('mic_permission_denied');
+    debugBus.info('ChatInputBar', 'cleared_denial_flags', {});
+    
+    if (!gateOpen) {
+      // For iOS: Use initializeWithGesture if available, otherwise tryOpenGate
+      let opened = false;
+      
+      if (initializeWithGesture) {
+        // iOS Safari needs this for first-time mic permission
+        opened = await initializeWithGesture();
+        debugBus.info('ChatInputBar', 'initialized_with_gesture', { success: opened });
+      }
+      
+      // If initialization didn't work or wasn't available, try opening gate directly
+      if (!opened) {
+        opened = await orchestrator.tryOpenGate();
+      }
+      
+      if (opened) {
+        setIsListening(true);
+        debugBus.info('ChatInputBar', 'gate_opened', {});
+      } else {
+        debugBus.warn('ChatInputBar', 'gate_open_failed', {});
+      }
+    } else {
+      // Gate is already open - just toggle listening state without closing gate
+      // The gate should stay open during voice interactions
+      if (isListening) {
+        // Stop listening but keep gate open
+        setIsListening(false);
+        debugBus.info('ChatInputBar', 'stopped_listening', { gateStillOpen: true });
+      } else {
+        // Start listening again
+        setIsListening(true);
+        debugBus.info('ChatInputBar', 'resumed_listening', { gateOpen: true });
+      }
+    }
+  };
+  
   // Handle keyboard shortcuts
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Enter to submit (without shift)
@@ -165,6 +231,23 @@ export function ChatInputBar({
           className="chat-input-form"
         >
           <div className="input-wrapper">
+            {/* Mic Button */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={handleMicClick}
+              disabled={isProcessing}
+              className={`mic-button ${isListening ? 'listening' : ''}`}
+              data-testid="button-mic"
+            >
+              {isListening ? (
+                <Mic className="w-5 h-5 text-red-500 animate-pulse" />
+              ) : (
+                <MicOff className="w-5 h-5 text-gray-500" />
+              )}
+            </Button>
+            
             {/* Text Input */}
             <input
               ref={inputRef}

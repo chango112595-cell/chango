@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Wifi, WifiOff, Mic, MicOff, AlertCircle } from 'lucide-react';
+import { Wifi, WifiOff, AlertCircle, Circle } from 'lucide-react';
 import { voiceGate } from '../core/gate';
 import { debugBus } from '../dev/debugBus';
 
@@ -73,18 +73,16 @@ export function HeaderCompact({ className = '' }: HeaderCompactProps) {
     if (!hasPermission) {
       return <AlertCircle className="w-4 h-4" />;
     }
-    if (gateOpen) {
-      return <Mic className="w-4 h-4" />;
-    }
-    return <MicOff className="w-4 h-4" />;
+    // Use a simple circle instead of mic icons
+    return <Circle className="w-4 h-4" />;
   };
   
   // Get status text
   const getStatusText = () => {
     if (!isOnline) return 'Offline';
-    if (!hasPermission) return 'Mic Permission Required';
-    if (gateOpen) return 'Listening';
-    return 'Mic Disabled';
+    if (!hasPermission) return 'Permission Required';
+    if (gateOpen) return 'Active';
+    return 'Inactive';
   };
   
   return (

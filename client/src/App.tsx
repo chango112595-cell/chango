@@ -154,17 +154,9 @@ function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWit
   
   // Initialize voice controller and integrate with gate/orchestrator
   useEffect(() => {
-    let initialized = false;
     let cleanupFns: (() => void)[] = [];
     
     const initializeVoiceSystem = async () => {
-      // Prevent duplicate initialization
-      if (initialized) {
-        console.log("[App] Voice system already initialized, skipping");
-        return;
-      }
-      
-      initialized = true;
       console.log("[App] Initializing enhanced voice system...");
       
       // iOS-specific checks
@@ -293,7 +285,6 @@ function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWit
     
     // Cleanup on unmount
     return () => {
-      initialized = false;
       cleanupFns.forEach(fn => fn());
       // Only destroy voice controller if it was initialized
       const permissionDenied = sessionStorage.getItem('mic_permission_denied') === 'true';
@@ -301,7 +292,7 @@ function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWit
         voiceController.destroy();
       }
     };
-  }, [gateOpen, hasPermission]);
+  }, []); // Empty dependency array - run once on mount
   
   // Log always listen status
   useEffect(() => {

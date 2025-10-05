@@ -12,6 +12,7 @@ import { voiceBus } from '@/voice/voiceBus';
 import { startHealthWatch, stopHealthWatch } from '@/dev/health/monitor';
 import { GlobalMonitor } from '@/monitor/GlobalMonitor';
 import { debugBus } from '@/dev/debugBus';
+import { bootSttHealthMonitor } from '@/monitor/sttHealth';
 
 export interface BootstrapOptions {
   autoStartListening?: boolean;
@@ -230,6 +231,17 @@ export async function bootstrapChango(options: BootstrapOptions = {}): Promise<v
     } catch (error) {
       console.error('[Bootstrap] ⚠️ Failed to start health monitor:', error);
       // Don't fail bootstrap if health monitor fails - it's optional
+    }
+
+    // Step 7: Start STT Health Monitor (auto-recovery)
+    console.log('[Bootstrap] Step 7: Starting STT Health Monitor...');
+    try {
+      bootSttHealthMonitor();
+      console.log('[Bootstrap] ✅ STT Health Monitor started successfully');
+      console.log('[Bootstrap] - STT auto-recovery enabled (12 second timeout)');
+    } catch (error) {
+      console.error('[Bootstrap] ⚠️ Failed to start STT Health Monitor:', error);
+      // Don't fail bootstrap if STT health monitor fails - it's optional
     }
 
     // Mark bootstrap as complete

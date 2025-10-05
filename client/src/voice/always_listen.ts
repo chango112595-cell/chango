@@ -24,6 +24,7 @@ import { GlobalMonitor } from '../monitor/GlobalMonitor';
 import { DuplexGuard } from './duplexGuard';
 import { handleUserUtterance } from '../lib/orchestrator';
 import { isDuplicate } from '../lib/voice/dupGuard';
+import { sttHeartbeatOk } from '../monitor/sttHealth';
 
 // TypeScript declarations for Web Speech API
 interface SpeechRecognitionResult {
@@ -600,6 +601,9 @@ class AlwaysListenManager {
     
     // Send heartbeat
     beat('stt', { hasResults: true });
+    
+    // Reset STT health monitor timer whenever we get results
+    sttHeartbeatOk();
     
     let finalTranscript = '';
     

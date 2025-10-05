@@ -1,0 +1,141 @@
+Perfect—here’s a single copy-paste patch pack (isolated, no UI changes) that stops repeat replies and strengthens the advanced monitor. Drop these files in, then wire as shown.
+
+⸻
+
+client/voice/duplexGuard.ts
+
+let speaking = false;
+const listeners = new Set<(s:boolean)=>void>();
+
+export const DuplexGuard = {
+  isSpeaking(){ return speaking; },
+  onChange(fn:(s:boolean)=>void){ listeners.add(fn); return ()=>listeners.delete(fn); },
+  setSpeaking(s:boolean){
+    if (speaking === s) return;
+    speaking = s;
+    for (const fn of [...listeners]) try{ fn(speaking); } catch {}
+  }
+};
+
+client/voice/speakOnce.ts
+
+const spoken = new Set<string>();
+const TTL_MS = 60_000;
+
+export function speakOnce(id:string, text:string, speakFn:(t:string)=>void){
+  if (spoken.has(id)) return;
+  spoken.add(id);
+  setTimeout(()=>spoken.delete(id), TTL_MS);
+  speakFn(text);
+}
+
+client/voice/dupFilter.ts
+
+let lastHash = '';
+export function isDuplicate(text:string){
+  const h = text.trim().toLowerCase().replace(/\s+/g,' ');
+  if (!h) return false;
+  if (h === lastHash) return true;
+  lastHash = h;
+  setTimeout(()=>{ if(lastHash===h) lastHash=''; }, 15_000);
+  return false;
+}
+
+Update your mic request (where you call getUserMedia)
+
+await navigator.mediaDevices.getUserMedia({
+  audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+});
+
+Bind STT (make listeners one-time + pause during TTS)
+
+import { DuplexGuard } from '@/voice/duplexGuard';
+
+let sttCtl: AbortController | null = null;
+
+function bindSTT(recognition: SpeechRecognition){
+  sttCtl?.abort();
+  sttCtl = new AbortController();
+  const sig = sttCtl.signal;
+
+  DuplexGuard.onChange(spk => {
+    if (spk) recognition.stop();
+    else try { recognition.start(); } catch {}
+  });
+
+  recognition.onresult = (e:any) => {
+    if (sig.aborted) return;
+    // your existing final transcript extraction...
+    // if (isFinal && finalText) onFinal(finalText);
+  };
+
+  recognition.onend = () => { if (!sig.aborted && !DuplexGuard.isSpeaking()) try{ recognition.start(); }catch{} };
+  recognition.onerror = () => { if (!sig.aborted) setTimeout(()=>{ try{ recognition.start(); }catch{} }, 600); };
+}
+
+Wrap TTS (mark speaking + avoid stale speech)
+
+import { DuplexGuard } from '@/voice/duplexGuard';
+
+export function speak(text:string){
+  const u = new SpeechSynthesisUtterance(text);
+  u.onstart = () => DuplexGuard.setSpeaking(true);
+  const end = () => DuplexGuard.setSpeaking(false);
+  u.onend = end; u.onerror = end;
+  if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(u);
+}
+
+Use dedupe when replying (where you handle assistant replies)
+
+import { isDuplicate } from '@/voice/dupFilter';
+import { speakOnce } from '@/voice/speakOnce';
+import { speak } from '@/voice/ttsWrapper'; // or wherever your speak() lives
+
+function handleAssistantReply(replyText:string){
+  if (isDuplicate(replyText)) return;
+  const id = `${Date.now()}::${replyText.slice(0,40)}`;
+  speakOnce(id, replyText, speak);
+}
+
+
+⸻
+
+Advanced Debug Monitor: repeat/echo signals
+
+Add to client/monitor/GlobalMonitor.ts (or your monitor module):
+
+let lastReply = ''; let lastReplyAt = 0;
+export function markReply(text:string, debug?: (t:string,l:'info'|'warn'|'error'|'ok',m:string,d?:any)=>void){
+  const norm = (text||'').trim().toLowerCase().replace(/\s+/g,' ');
+  const now = Date.now();
+  if (norm && norm === lastReply && now - lastReplyAt < 8000){
+    debug?.('REPEAT','warn','duplicate reply suppressed',{text:norm});
+  }
+  lastReply = norm; lastReplyAt = now;
+}
+
+export function markEcho(debug?: (t:string,l:'info'|'warn'|'error'|'ok',m:string,d?:any)=>void){
+  debug?.('ECHO','warn','stt heard while tts speaking – likely device echo');
+}
+
+Wire these:
+
+// when you finalize a reply:
+GlobalMonitor.markReply(replyText, (tag,l,m,d)=>DebugBus.emit({ tag: `MON:${tag}`, level:l==='ok'?'info':l, msg:m, data:d }));
+
+// inside STT onresult, if DuplexGuard.isSpeaking():
+if (DuplexGuard.isSpeaking()) {
+  GlobalMonitor.markEcho((tag,l,m,d)=>DebugBus.emit({ tag:`MON:${tag}`, level:l==='ok'?'info':l, msg:m, data:d }));
+}
+
+
+⸻
+
+Quick verification (1 minute)
+	1.	Ask “what time is it?” → Chango answers once.
+	2.	While he’s speaking, talk — STT pauses; no echo-triggered replies.
+	3.	Watch Debug HUD for MON:REPEAT or MON:ECHO warnings when you intentionally try to force duplicates/echo.
+	4.	Toggle mute/unmute and ask again — still single reply.
+
+If you want, I can bundle this into a single PASTE_ME.md for Replit; otherwise, paste these files/blocks into your current project and you’re set.

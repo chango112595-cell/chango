@@ -64,6 +64,11 @@ if (import.meta.env.DEV) {
   import("./tests/testConversationEngineFlow").then(() => {
     console.log("[Tests] Conversation engine flow test loaded - will auto-run");
   });
+  
+  // Force bootstrap to ensure conversation engine is initialized
+  import("./tests/forceBootstrap").then(() => {
+    console.log("[Tests] Force bootstrap loaded - ensuring Chango is initialized");
+  });
 }
 
 // Start the diagnostic runner and attach notifiers

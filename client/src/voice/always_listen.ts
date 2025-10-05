@@ -577,18 +577,14 @@ class AlwaysListenManager {
   private async handleError(event: SpeechRecognitionErrorEvent): Promise<void> {
     const now = Date.now();
     
-    // CRITICAL FIX: Check if mic is unavailable before handling errors
+    // Check if mic is unavailable but continue trying
     const micNotFound = sessionStorage.getItem('mic_device_not_found') === 'true';
     const micDenied = sessionStorage.getItem('mic_permission_denied') === 'true';
     
     if (micNotFound || micDenied) {
-      // Don't attempt recovery or log errors when we know mic is unavailable
-      console.log('[AlwaysListen] Mic unavailable (device not found or permission denied), skipping error handling');
-      this.state = 'error';
-      this.isEnabled = false;
-      this.isPausedForRecovery = true;
-      this.clearTimers();
-      return;
+      // Log warning but continue trying to engage STT
+      console.warn('[AlwaysListen] Mic unavailable but continuing to attempt STT engagement');
+      // Don't return early - let the system keep trying
     }
     
     // Track error rate
@@ -844,42 +840,38 @@ class AlwaysListenManager {
       return;
     }
     
-    // Check microphone permission first
-    console.log('[AlwaysListen] Checking microphone permission before starting...');
+    // Check microphone permission but don't block
+    console.log('[AlwaysListen] Checking microphone status...');
     const permissionStatus = await this.checkMicrophonePermission();
     
     if (!permissionStatus.hasPermission) {
-      console.error('[AlwaysListen] Cannot start: No microphone permission');
-      this.state = 'error';
+      console.warn('[AlwaysListen] No microphone permission, but attempting to start anyway');
       this.hasPermission = false;
       
       if (FEATURES.DEBUG_BUS) {
-        debugBus.error('AlwaysListen', 'Cannot start - no permission', permissionStatus);
+        debugBus.warn('AlwaysListen', 'Starting without permission', permissionStatus);
       }
       
-      // Start monitoring for permission
+      // Start monitoring for permission but don't return
       this.startPermissionMonitoring();
-      return;
     }
     
     if (permissionStatus.microphoneMuted) {
-      console.warn('[AlwaysListen] Warning: Microphone is muted');
+      console.warn('[AlwaysListen] Warning: Microphone is muted, continuing anyway');
       if (FEATURES.DEBUG_BUS) {
         debugBus.warn('AlwaysListen', 'Starting with muted microphone', permissionStatus);
       }
     }
     
     if (!permissionStatus.microphoneAvailable) {
-      console.error('[AlwaysListen] Cannot start: No microphone available');
-      this.state = 'error';
+      console.warn('[AlwaysListen] No microphone available, but attempting to engage STT anyway');
       
       if (FEATURES.DEBUG_BUS) {
-        debugBus.error('AlwaysListen', 'Cannot start - no microphone', permissionStatus);
+        debugBus.warn('AlwaysListen', 'Attempting STT without microphone', permissionStatus);
       }
       
-      // Start monitoring for microphone
+      // Start monitoring for microphone but don't return
       this.startMicrophoneMonitoring();
-      return;
     }
     
     this.state = 'starting';
@@ -917,16 +909,13 @@ class AlwaysListenManager {
    * Schedule a restart with debouncing
    */
   private scheduleRestart(delay?: number): void {
-    // CRITICAL FIX: Don't schedule restarts when mic is unavailable
+    // Check mic status but continue trying
     const micNotFound = sessionStorage.getItem('mic_device_not_found') === 'true';
     const micDenied = sessionStorage.getItem('mic_permission_denied') === 'true';
     
     if (micNotFound || micDenied) {
-      console.log('[AlwaysListen] Not scheduling restart - mic unavailable');
-      this.state = 'error';
-      this.isEnabled = false;
-      this.clearTimers();
-      return;
+      console.warn('[AlwaysListen] Mic unavailable, but still scheduling restart to keep trying');
+      // Don't return - continue with restart schedule
     }
     
     // Clear existing timer

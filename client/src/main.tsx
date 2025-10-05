@@ -54,6 +54,11 @@ if (import.meta.env.DEV) {
   import("./tests/browserGlobalMonitorTest").then(() => {
     console.log("[Tests] Browser GlobalMonitor test loaded - run with: testGlobalMonitor()");
   });
+  
+  // Load typed message fix test
+  import("./tests/inlineTypedMessageTest").then(() => {
+    console.log("[Tests] Typed message fix test loaded - auto-running");
+  });
 }
 
 // Start the diagnostic runner and attach notifiers

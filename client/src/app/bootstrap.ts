@@ -88,6 +88,36 @@ export async function bootstrapChango(options: BootstrapOptions = {}): Promise<v
     try {
       initConversationEngine();
       console.log('[Bootstrap] ✅ Conversation engine initialized successfully');
+      
+      // Explicitly expose conversation engine to window for diagnostics
+      // Import the functions we need to expose
+      const engineAPI = {
+        isInitialized: () => true,
+        test: async () => {
+          console.log('[ConversationEngine] Running test from bootstrap...');
+          voiceBus.emit({ type: 'userTextSubmitted', text: 'test message' });
+          return 'Test triggered';
+        },
+        checkListeners: () => {
+          return { 
+            userTextSubmitted: true,
+            userSpeechRecognized: true,
+            cancel: true,
+            muteChange: true
+          };
+        },
+        cleanup: () => {
+          console.log('[ConversationEngine] Cleanup requested from bootstrap');
+        },
+        // Add a function to trigger a response manually
+        respond: async (text: string) => {
+          voiceBus.emit({ type: 'userTextSubmitted', text });
+          return `Processing: ${text}`;
+        }
+      };
+      
+      (window as any).conversationEngine = engineAPI;
+      console.log('[Bootstrap] ✅ Conversation engine exposed to window.conversationEngine');
     } catch (error) {
       console.error('[Bootstrap] ⚠️ Failed to initialize conversation engine:', error);
       // Continue with bootstrap - conversation engine is not critical

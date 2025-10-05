@@ -195,7 +195,7 @@ class VoiceControllerModule {
         // If there's a command after the wake word, emit it for processing
         if (command) {
           console.log('[VoiceController] Processing command after wake word:', command);
-          voiceBus.emit({ type: 'userSpeechRecognized', text: command, source: 'stt' });
+          voiceBus.emit({ type: 'userSpeechRecognized', text: command, source: 'system' });
         }
         
         return;

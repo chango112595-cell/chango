@@ -20,6 +20,7 @@ import { voiceGate } from '../core/gate';
 import { moduleRegistry, ModuleType } from '../dev/moduleRegistry';
 import { GlobalMonitor } from '../monitor/GlobalMonitor';
 import { DuplexGuard } from './duplexGuard';
+import { handleUserUtterance } from '../lib/orchestrator';
 
 // TypeScript declarations for Web Speech API
 interface SpeechRecognitionResult {
@@ -568,6 +569,19 @@ class AlwaysListenManager {
       // Don't emit if TTS is speaking (likely echo)
       if (!DuplexGuard.isSpeaking()) {
         this.emitTranscript(finalTranscript, true);
+        
+        // Wire to orchestrator for handling with wake word and speaking lock
+        try {
+          console.log('[AlwaysListen] Sending final transcript to orchestrator:', finalTranscript);
+          debugBus.info('VPrint', `final="${finalTranscript}"`);
+          
+          // Get wake word setting - default to true if not available
+          const wakeWordEnabled = (window as any).settings?.wakeWordEnabled ?? true;
+          handleUserUtterance(finalTranscript, { wakewordOn: wakeWordEnabled });
+        } catch (error) {
+          console.error('[AlwaysListen] Failed to send to orchestrator:', error);
+          debugBus.error('AlwaysListen', 'Failed to send to orchestrator', { error });
+        }
       } else {
         console.warn('[AlwaysListen] Discarding transcript during TTS playback:', finalTranscript);
       }

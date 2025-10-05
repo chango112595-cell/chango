@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 
 export function AudioUnlock() {
-  const [attempts, setAttempts] = useState(0);
+  const [isHidden, setIsHidden] = useState(false);
   
   // Check if iOS or Safari - be more thorough
   const isIOS = (/iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream) || 
@@ -9,14 +9,22 @@ export function AudioUnlock() {
   const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
   
   useEffect(() => {
-    if (isIOS || isSafari) {
+    // Check sessionStorage to see if audio was already unlocked
+    const audioUnlocked = sessionStorage.getItem('audioUnlocked');
+    if (audioUnlocked === 'true') {
+      setIsHidden(true);
+      console.log('[AudioUnlock] Audio already unlocked from previous session');
+    } else if (isIOS || isSafari) {
       console.log('[AudioUnlock] Detected iOS/Safari, will show button');
     }
   }, [isIOS, isSafari]);
   
   const handleUnlock = async () => {
-    console.log('[AudioUnlock] Button clicked, attempt', attempts + 1);
-    setAttempts(prev => prev + 1);
+    console.log('[AudioUnlock] Button clicked, hiding button immediately');
+    
+    // Hide button immediately for user feedback
+    setIsHidden(true);
+    sessionStorage.setItem('audioUnlocked', 'true');
     
     try {
       // Method 1: Silent audio element
@@ -64,8 +72,8 @@ export function AudioUnlock() {
     }
   };
   
-  // ONLY show on iOS - not Safari on desktop
-  if (isIOS) {
+  // ONLY show on iOS - not Safari on desktop, and only if not hidden
+  if (isIOS && !isHidden) {
     return (
       <button
         onClick={handleUnlock}

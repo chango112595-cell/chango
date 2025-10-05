@@ -21,7 +21,7 @@ export const FEATURES = {
   VOICE_PROFILES: true,         // Enable voice profile selection
   
   // UI Components
-  SHOW_HEADER_BAR: true,        // Show the futuristic header bar
+  SHOW_HEADER_BAR: false,        // Show the futuristic header bar
   SHOW_ASK_BAR: true,           // Show the text input ask bar
   SHOW_STATUS_DOCK: true,       // Show the status dock
   SHOW_HOLOGRAM: true,          // Show the hologram/sphere

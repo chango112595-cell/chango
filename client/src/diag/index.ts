@@ -5,3 +5,4 @@ import './checks/sttPipeline';
 import './checks/ttsStuck';
 import './checks/micPerm';
 import './checks/perfBudget';
+import './checks/conversationEngine';

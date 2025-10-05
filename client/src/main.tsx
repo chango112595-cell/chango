@@ -59,6 +59,11 @@ if (import.meta.env.DEV) {
   import("./tests/inlineTypedMessageTest").then(() => {
     console.log("[Tests] Typed message fix test loaded - auto-running");
   });
+  
+  // Load conversation engine flow test
+  import("./tests/testConversationEngineFlow").then(() => {
+    console.log("[Tests] Conversation engine flow test loaded - will auto-run");
+  });
 }
 
 // Start the diagnostic runner and attach notifiers

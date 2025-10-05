@@ -63,7 +63,7 @@ if (import.meta.env.DEV) {
       voiceBus.emit({
         type: 'userTextSubmitted',
         text: 'What time is it?',
-        source: 'test'
+        source: 'system'
       });
       
       // Clean up after 2 seconds

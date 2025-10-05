@@ -87,7 +87,7 @@ export async function testTypedMessageFix() {
     voiceBus.emit({
       type: 'userTextSubmitted',
       text: 'What time is it?',
-      source: 'test'
+      source: 'system'
     });
     
     // Wait for response

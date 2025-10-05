@@ -6,6 +6,7 @@
 import { TTSProvider, TTSSpeakOptions } from '../interfaces';
 import { GlobalMonitor } from '../../../monitor/GlobalMonitor';
 import { DuplexGuard } from '../../duplexGuard';
+import { debugBus } from '../../../dev/debugBus';
 
 /**
  * LocalNeuralProvider class
@@ -272,6 +273,8 @@ export class LocalNeuralProvider implements TTSProvider {
           // Mark TTS as active for GlobalMonitor and DuplexGuard
           GlobalMonitor.markTTS(true);
           DuplexGuard.setSpeaking(true);
+          // Debug monitoring
+          debugBus.info('TTS', 'start');
         };
 
         utterance.onend = () => {
@@ -280,6 +283,8 @@ export class LocalNeuralProvider implements TTSProvider {
           // Mark TTS as inactive for GlobalMonitor and DuplexGuard
           GlobalMonitor.markTTS(false);
           DuplexGuard.setSpeaking(false);
+          // Debug monitoring
+          debugBus.info('TTS', 'end');
           resolve();
         };
 
@@ -289,6 +294,8 @@ export class LocalNeuralProvider implements TTSProvider {
           // Mark TTS as inactive for GlobalMonitor and DuplexGuard on error
           GlobalMonitor.markTTS(false);
           DuplexGuard.setSpeaking(false);
+          // Debug monitoring
+          debugBus.error('TTS', `error: ${event.error}`);
           
           // If it's a canceled or synthesis-failed error and we haven't started speaking, try without voice
           if ((event.error === 'canceled' || event.error === 'synthesis-failed') && !speechStarted) {
@@ -380,6 +387,8 @@ export class LocalNeuralProvider implements TTSProvider {
       console.log('[LocalNeuralProvider] Stopping speech');
       this.synthesis.cancel();
       this.currentUtterance = null;
+      // Debug monitoring
+      debugBus.info('TTS', 'cancel');
     }
   }
 

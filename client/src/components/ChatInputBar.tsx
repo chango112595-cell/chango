@@ -231,6 +231,23 @@ export function ChatInputBar({
           className="chat-input-form"
         >
           <div className="input-wrapper">
+            {/* Mic Button */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={handleMicClick}
+              disabled={isProcessing}
+              className={`mic-button ${isListening ? 'listening' : ''}`}
+              data-testid="button-mic"
+            >
+              {isListening ? (
+                <Mic className="w-5 h-5 text-red-500 animate-pulse" />
+              ) : (
+                <MicOff className="w-5 h-5 text-gray-500" />
+              )}
+            </Button>
+            
             {/* Text Input */}
             <input
               ref={inputRef}

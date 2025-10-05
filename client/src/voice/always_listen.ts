@@ -21,6 +21,7 @@ import { moduleRegistry, ModuleType } from '../dev/moduleRegistry';
 import { GlobalMonitor } from '../monitor/GlobalMonitor';
 import { DuplexGuard } from './duplexGuard';
 import { handleUserUtterance } from '../lib/orchestrator';
+import { isDuplicate } from '../lib/voice/dupGuard';
 
 // TypeScript declarations for Web Speech API
 interface SpeechRecognitionResult {
@@ -572,6 +573,13 @@ class AlwaysListenManager {
         
         // Wire to orchestrator for handling with wake word and speaking lock
         try {
+          // Check for duplicate STT transcript
+          if (isDuplicate(finalTranscript)) {
+            debugBus.info('Gate', 'drop_duplicate_stt');
+            console.log('[AlwaysListen] Dropping duplicate STT transcript:', finalTranscript);
+            return;
+          }
+          
           console.log('[AlwaysListen] Sending final transcript to orchestrator:', finalTranscript);
           debugBus.info('VPrint', `final="${finalTranscript}"`);
           

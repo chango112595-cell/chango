@@ -18,6 +18,7 @@ import { startSTT, stopSTT } from './stt';
 import { voiceGate } from '../core/gate';
 import { moduleRegistry, ModuleType } from '../dev/moduleRegistry';
 import { GlobalMonitor } from '../monitor/GlobalMonitor';
+import { DuplexGuard } from './duplexGuard';
 
 // TypeScript declarations for Web Speech API
 interface SpeechRecognitionResult {
@@ -226,6 +227,27 @@ class AlwaysListenManager {
     if (this.config.pauseOnHidden) {
       document.addEventListener('visibilitychange', this.handleVisibilityChange.bind(this));
     }
+
+    // Setup DuplexGuard listener to pause/resume STT based on TTS state
+    DuplexGuard.onChange((speaking) => {
+      if (speaking) {
+        // TTS is speaking, pause STT to prevent echo
+        if (this.recognition && this.state === 'listening') {
+          console.log('[AlwaysListen] Pausing STT - TTS is speaking');
+          try {
+            this.recognition.stop();
+          } catch (e) {
+            console.warn('[AlwaysListen] Error stopping recognition for TTS:', e);
+          }
+        }
+      } else {
+        // TTS stopped, restart STT if it was enabled
+        if (this.isEnabled && this.state === 'idle') {
+          console.log('[AlwaysListen] Restarting STT - TTS finished');
+          this.scheduleRestart(100); // Quick restart after TTS
+        }
+      }
+    });
 
     // Start health monitoring
     this.startHealthMonitoring();
@@ -484,6 +506,17 @@ class AlwaysListenManager {
   private handleResults(event: SpeechRecognitionEvent): void {
     console.log('[AlwaysListen] 📝 Processing recognition results...');
     
+    // Check if TTS is speaking - this might be echo
+    if (DuplexGuard.isSpeaking()) {
+      console.warn('[AlwaysListen] 🔊 STT heard something while TTS is speaking - likely echo');
+      GlobalMonitor.markEcho((tag, level, msg, data) => {
+        if (FEATURES.DEBUG_BUS) {
+          debugBus.emit({ tag, level, msg, data });
+        }
+      });
+      // Still process but mark as potential echo
+    }
+    
     // Reset consecutive failures on successful recognition
     this.consecutiveFailures = 0;
     this.currentRetryDelay = 500; // Reset to initial delay
@@ -517,7 +550,12 @@ class AlwaysListenManager {
       // Mark that we heard something for GlobalMonitor
       GlobalMonitor.markHeard();
       
-      this.emitTranscript(finalTranscript, true);
+      // Don't emit if TTS is speaking (likely echo)
+      if (!DuplexGuard.isSpeaking()) {
+        this.emitTranscript(finalTranscript, true);
+      } else {
+        console.warn('[AlwaysListen] Discarding transcript during TTS playback:', finalTranscript);
+      }
       this.lastInterimTranscript = '';
     }
   }

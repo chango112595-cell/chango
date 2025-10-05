@@ -29,7 +29,13 @@ export class VAD {
     beat('vad', { action: 'init_start' });
     
     this.ctx=new (window.AudioContext || (window as any).webkitAudioContext)();
-    const ms = stream ?? await navigator.mediaDevices.getUserMedia({audio:true});
+    const ms = stream ?? await navigator.mediaDevices.getUserMedia({
+      audio: { 
+        echoCancellation: true, 
+        noiseSuppression: true, 
+        autoGainControl: true 
+      }
+    });
     this.source=this.ctx.createMediaStreamSource(ms);
     this.analyser=this.ctx.createAnalyser();
     this.analyser.fftSize=1024;

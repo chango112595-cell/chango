@@ -19,7 +19,13 @@ export async function checkMicPermission(): Promise<MicState> {
     }
   } catch {}
   try {
-    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const s = await navigator.mediaDevices.getUserMedia({ 
+      audio: { 
+        echoCancellation: true, 
+        noiseSuppression: true, 
+        autoGainControl: true 
+      } 
+    });
     s.getTracks().forEach(t => t.stop());
     return 'granted';
   } catch (e:any) {

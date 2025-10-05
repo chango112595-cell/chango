@@ -31,6 +31,7 @@ import { responder } from '../services/responder';
 import { debugBus } from '../dev/debugBus';
 import { voiceBus } from '../voice/voiceBus';
 import { STORAGE_KEYS } from '../config/system.config';
+import { ensureMicReady } from '../lib/audio/ensureMicReady';
 
 interface ChatInputBarProps {
   className?: string;
@@ -255,6 +256,26 @@ export function ChatInputBar({
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
+              onFocus={async () => {
+                // iOS Safari: Try to ensure mic is ready on focus (user gesture)
+                try {
+                  await ensureMicReady();
+                  debugBus.info('ChatInputBar', 'mic_ready_on_focus');
+                } catch (error) {
+                  // Silently handle errors - user may not have granted permission yet
+                  debugBus.info('ChatInputBar', 'mic_ready_failed_on_focus', { error: String(error) });
+                }
+              }}
+              onClick={async () => {
+                // iOS Safari: Try to ensure mic is ready on click (user gesture)
+                try {
+                  await ensureMicReady();
+                  debugBus.info('ChatInputBar', 'mic_ready_on_click');
+                } catch (error) {
+                  // Silently handle errors - user may not have granted permission yet
+                  debugBus.info('ChatInputBar', 'mic_ready_failed_on_click', { error: String(error) });
+                }
+              }}
               placeholder={placeholder}
               disabled={isProcessing}
               className="chat-input"

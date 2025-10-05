@@ -10,6 +10,7 @@
  */
 
 import { checkMicPermission, requestMicStream, unlockAudioContext } from '../lib/permissions';
+import { ensureMicReady } from '../lib/audio/ensureMicReady';
 import { voiceBus } from './voiceBus';
 import { debugBus } from '../dev/debugBus';
 import { FEATURES } from '../config/featureFlags';
@@ -141,8 +142,11 @@ async function acquireMic() {
 export async function startAlwaysListenNew(cfg: AlwaysCfg) {
   if (running || !cfg.enabled) return;
   try {
-    await ensureAudioUnlocked();        // iOS: user gesture required once
-    const s = await acquireMic();       // ask / reuse permission
+    // Use ensureMicReady for robust iOS mic bootstrap
+    // This handles AudioContext resume and mic permission in one call
+    stream = await ensureMicReady();
+    debugBus.info('STT', 'Mic ready via ensureMicReady');
+    
     await startSTT();                   // your STT module starts listening
 
     // Optional: gate by wake-word
@@ -840,21 +844,33 @@ class AlwaysListenManager {
       return;
     }
     
-    // Check microphone permission but don't block
-    console.log('[AlwaysListen] Checking microphone status...');
-    const permissionStatus = await this.checkMicrophonePermission();
-    
-    if (!permissionStatus.hasPermission) {
-      console.warn('[AlwaysListen] No microphone permission, but attempting to start anyway');
+    // Try to ensure mic is ready (iOS-safe bootstrap)
+    try {
+      console.log('[AlwaysListen] Ensuring mic is ready...');
+      const micStream = await ensureMicReady();
+      console.log('[AlwaysListen] Mic ready, got stream');
+      // Store the stream reference
+      stream = micStream;
+      this.hasPermission = true;
+      this.microphoneAvailable = true;
+      
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('AlwaysListen', 'Mic ready via ensureMicReady in startRecognition');
+      }
+    } catch (error) {
+      console.warn('[AlwaysListen] Could not ensure mic ready, continuing anyway:', error);
       this.hasPermission = false;
       
       if (FEATURES.DEBUG_BUS) {
-        debugBus.warn('AlwaysListen', 'Starting without permission', permissionStatus);
+        debugBus.warn('AlwaysListen', 'Starting without mic ready', { error: String(error) });
       }
       
       // Start monitoring for permission but don't return
       this.startPermissionMonitoring();
     }
+    
+    // Check microphone permission status
+    const permissionStatus = await this.checkMicrophonePermission();
     
     if (permissionStatus.microphoneMuted) {
       console.warn('[AlwaysListen] Warning: Microphone is muted, continuing anyway');

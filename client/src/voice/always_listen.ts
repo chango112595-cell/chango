@@ -446,6 +446,7 @@ class AlwaysListenManager {
       
       if (FEATURES.DEBUG_BUS) {
         debugBus.info('AlwaysListen', 'Recognition started');
+        debugBus.info('STT', 'ready'); // Add STT ready status
       }
     };
 
@@ -637,6 +638,7 @@ class AlwaysListenManager {
         consecutiveFailures: this.consecutiveFailures,
         retryDelay: this.currentRetryDelay
       });
+      debugBus.error('STT', `error: ${event.error}${event.message ? ` - ${event.message}` : ''}`);
     }
 
     // Check if we've hit the max consecutive failures

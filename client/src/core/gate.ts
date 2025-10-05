@@ -15,6 +15,15 @@ export class VoiceGate {
   constructor() {
     // Check initial permission state
     this.checkPermission();
+    
+    // Subscribe to gate state changes for debug monitoring
+    this.onStateChange((isOpen) => {
+      const status = this.getStatus();
+      debugBus.info('Gate', isOpen ? 'open' : 'closed', {
+        hasPermission: status.hasPermission,
+        canPassVoice: status.canPassVoice
+      });
+    });
   }
 
   /**

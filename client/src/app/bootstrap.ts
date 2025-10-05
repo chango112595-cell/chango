@@ -12,7 +12,7 @@ import { voiceBus } from '@/voice/voiceBus';
 import { startHealthWatch, stopHealthWatch } from '@/dev/health/monitor';
 import { GlobalMonitor } from '@/monitor/GlobalMonitor';
 import { debugBus } from '@/dev/debugBus';
-import { bootSttHealthMonitor } from '@/monitor/sttHealth';
+import { bootVoiceInfra } from '@/lib/voice/bootVoice';
 
 export interface BootstrapOptions {
   autoStartListening?: boolean;
@@ -233,15 +233,17 @@ export async function bootstrapChango(options: BootstrapOptions = {}): Promise<v
       // Don't fail bootstrap if health monitor fails - it's optional
     }
 
-    // Step 7: Start STT Health Monitor (auto-recovery)
-    console.log('[Bootstrap] Step 7: Starting STT Health Monitor...');
+    // Step 7: Boot Voice Infrastructure (audio unlock, permissions, STT health monitor)
+    console.log('[Bootstrap] Step 7: Booting voice infrastructure...');
     try {
-      bootSttHealthMonitor();
-      console.log('[Bootstrap] ✅ STT Health Monitor started successfully');
+      await bootVoiceInfra();
+      console.log('[Bootstrap] ✅ Voice infrastructure booted successfully');
+      console.log('[Bootstrap] - Audio unlock listeners set up for mobile');
+      console.log('[Bootstrap] - Microphone permissions checked and logged');
       console.log('[Bootstrap] - STT auto-recovery enabled (12 second timeout)');
     } catch (error) {
-      console.error('[Bootstrap] ⚠️ Failed to start STT Health Monitor:', error);
-      // Don't fail bootstrap if STT health monitor fails - it's optional
+      console.error('[Bootstrap] ⚠️ Failed to boot voice infrastructure:', error);
+      // Don't fail bootstrap if voice infrastructure fails - it's optional
     }
 
     // Mark bootstrap as complete

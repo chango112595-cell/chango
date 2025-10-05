@@ -164,13 +164,8 @@ function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWit
         return;
       }
       
-      // Check if permission was previously denied
-      const permissionDenied = sessionStorage.getItem('mic_permission_denied') === 'true';
-      if (permissionDenied) {
-        console.log("[App] Mic permission previously denied, skipping voice initialization");
-        debugBus.info("App", "voice_init_skipped", { reason: "permission_denied" });
-        return;
-      }
+      initialized = true;
+      console.log("[App] Initializing enhanced voice system...");
       
       // iOS-specific checks
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -179,58 +174,70 @@ function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWit
         debugBus.info("App", "ios_detected", { userAgent: navigator.userAgent });
       }
       
-      initialized = true;
-      console.log("[App] Initializing enhanced voice system...");
       debugBus.info("App", "voice_init_start", { isIOS });
       
       try {
-        // First bootstrap Chango to initialize VoiceOrchestrator and TTS
-        console.log("[App] Bootstrapping Chango for TTS initialization...");
+        // ALWAYS bootstrap Chango to initialize conversation engine and TTS
+        // This is needed for text input to work, even without mic permission
+        console.log("[App] Bootstrapping Chango for conversation engine and TTS initialization...");
         await bootstrapChango({
           autoStartListening: false,  // Don't auto-start, will be handled by gate
           enableTTS: !isIOS || true,  // Enable TTS even on iOS, but handle failures
           pauseOnHidden: true
         });
-        console.log("[App] Bootstrap complete, VoiceOrchestrator should be ready");
+        console.log("[App] Bootstrap complete, conversation engine and VoiceOrchestrator are ready");
         
-        // Then initialize the voice controller with new gate integration
-        await voiceController.initialize({
-          autoStart: false, // Don't auto-start, wait for gate
-          wakeWordEnabled: !isIOS, // Disable wake word on iOS due to audio restrictions
-          mode: isIOS ? 'PUSH' : 'WAKE'
-        });
+        // Check if permission was previously denied
+        const permissionDenied = sessionStorage.getItem('mic_permission_denied') === 'true';
+        if (permissionDenied) {
+          console.log("[App] Mic permission previously denied, skipping voice controller initialization");
+          debugBus.info("App", "voice_controller_skipped", { reason: "permission_denied" });
+          // Continue to set up other components but skip voice controller
+        } else {
+          // Initialize the voice controller only if mic permission wasn't denied
+          console.log("[App] Initializing voice controller with gate integration...");
+          await voiceController.initialize({
+            autoStart: false, // Don't auto-start, wait for gate
+            wakeWordEnabled: !isIOS, // Disable wake word on iOS due to audio restrictions
+            mode: isIOS ? 'PUSH' : 'WAKE'
+          });
+          console.log("[App] Voice controller initialized successfully");
+        }
         
         // Message routing removed - now handled directly by ChatInputBar for text
         // and by voice recognition handler for voice to prevent double responses
         
-        // Setup voice recognition results to orchestrator
-        const unsubscribeSpeech = voiceBus.on('userSpeechRecognized', async (event) => {
-          const text = event.text;
-          if (!text) return;
-          
-          // Route through orchestrator
-          const decision = await orchestrator.routeMessage({
-            text,
-            source: 'voice'
-          });
-          
-          if (decision.shouldProcess) {
-            await orchestrator.processMessage({
+        // Setup voice recognition results to orchestrator (only if voice is available)
+        let unsubscribeSpeech = () => {};
+        if (!permissionDenied) {
+          unsubscribeSpeech = voiceBus.on('userSpeechRecognized', async (event) => {
+            const text = event.text;
+            if (!text) return;
+            
+            // Route through orchestrator
+            const decision = await orchestrator.routeMessage({
               text,
               source: 'voice'
-            }, decision);
+            });
             
-            // Get response from responder
-            if (decision.responseType !== 'none') {
-              await responder.respond(text, {
-                source: 'voice',
-                responseType: decision.responseType as any
-              });
+            if (decision.shouldProcess) {
+              await orchestrator.processMessage({
+                text,
+                source: 'voice'
+              }, decision);
+              
+              // Get response from responder
+              if (decision.responseType !== 'none') {
+                await responder.respond(text, {
+                  source: 'voice',
+                  responseType: decision.responseType as any
+                });
+              }
             }
-          }
-        });
+          });
+        }
         
-        // Setup gate state monitoring
+        // Setup gate state monitoring (always, for debugging)
         const unsubscribeGate = voiceGate.onStateChange((isOpen) => {
           debugBus.info("App", "gate_state_changed", { isOpen });
           
@@ -288,7 +295,11 @@ function EnhancedVoiceInitializer({ onInitializeWithGesture }: { onInitializeWit
     return () => {
       initialized = false;
       cleanupFns.forEach(fn => fn());
-      voiceController.destroy();
+      // Only destroy voice controller if it was initialized
+      const permissionDenied = sessionStorage.getItem('mic_permission_denied') === 'true';
+      if (!permissionDenied) {
+        voiceController.destroy();
+      }
     };
   }, [gateOpen, hasPermission]);
   

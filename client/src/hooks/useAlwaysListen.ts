@@ -38,7 +38,7 @@ export function useAlwaysListen(autoStart: boolean = false) {
       hasPermission: status.hasPermission,
       isInitialized: status.isEnabled,
       gateOpen: voiceGate.isGateOpen(),
-      error: status.error || null
+      error: status.errorMessage || null
     }));
   }, []);
   
@@ -64,16 +64,23 @@ export function useAlwaysListen(autoStart: boolean = false) {
         }));
         
         if (isDeviceNotFound) {
-          debugBus.error('useAlwaysListen', 'device_not_found', {
-            message: 'No microphone device available - text chat only mode'
+          // Log warning but continue - let STT try to engage
+          debugBus.warn('useAlwaysListen', 'device_not_found', {
+            message: 'No microphone device detected - STT will keep trying'
           });
+          // Continue initialization even without device
         } else {
-          debugBus.error('useAlwaysListen', 'permission_denied', {});
+          debugBus.warn('useAlwaysListen', 'permission_not_granted', {
+            message: 'Mic permission not granted - STT will attempt to start anyway'
+          });
+          // Continue initialization even without permission
         }
-        return false;
       }
       
-      setState(prev => ({ ...prev, hasPermission: true }));
+      setState(prev => ({ 
+        ...prev, 
+        hasPermission: permStatus.granted 
+      }));
       
       // Open the gate
       const gateOpened = await openGate('user_gesture');
@@ -91,7 +98,15 @@ export function useAlwaysListen(autoStart: boolean = false) {
       
       // Initialize and start the singleton alwaysListen
       await alwaysListen.initialize();
-      await alwaysListen.start();
+      
+      // Force start even if no permission/device
+      console.log('[useAlwaysListen] Forcing STT start regardless of device availability');
+      try {
+        await alwaysListen.start();
+      } catch (error) {
+        console.warn('[useAlwaysListen] STT start error (expected with no device):', error);
+        // Continue anyway - let STT keep trying
+      }
       
       // Update state from singleton
       updateStateFromSingleton();

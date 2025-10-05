@@ -147,3 +147,8 @@
     background: conic-gradient(from 180deg, #34d39933, #22d3ee33, #6366f133, #34d39933);
   }
 }
+
+/* Hide floating mic FAB */
+.fab-mic, [data-ui="floating-mic"] { 
+  display: none !important; 
+}

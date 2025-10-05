@@ -1,6 +1,6 @@
 // Energy + spectral flux VAD with hysteresis; emits speech_start / speech_end
 import { debugBus } from '../dev/debugBus';
-import { FEATURES } from '../config/features';
+import { FEATURES } from '../config/featureFlags';
 import { beat } from '../dev/health/monitor';
 
 export type VadEvent = { type:'speech_start'|'speech_end'; level:number };

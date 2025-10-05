@@ -105,10 +105,12 @@ export class LocalNeuralProvider implements TTSProvider {
         }
       };
       
-      this.synthesis.addEventListener('voiceschanged', voicesChangedHandler);
+      if (this.synthesis) {
+        this.synthesis.addEventListener('voiceschanged', voicesChangedHandler);
 
-      // Also use the property for older browsers
-      this.synthesis.onvoiceschanged = voicesChangedHandler;
+        // Also use the property for older browsers
+        this.synthesis.onvoiceschanged = voicesChangedHandler;
+      }
 
       // Aggressive retry strategy with exponential backoff
       let retryDelay = 10;

@@ -511,7 +511,18 @@ class AlwaysListenManager {
       console.warn('[AlwaysListen] 🔊 STT heard something while TTS is speaking - likely echo');
       GlobalMonitor.markEcho((tag, level, msg, data) => {
         if (FEATURES.DEBUG_BUS) {
-          debugBus.emit({ tag, level, msg, data });
+          // Use the appropriate debugBus method based on level
+          switch (level) {
+            case 'error':
+              debugBus.error(tag, msg, data);
+              break;
+            case 'warn':
+              debugBus.warn(tag, msg, data);
+              break;
+            default:
+              debugBus.info(tag, msg, data);
+              break;
+          }
         }
       });
       // Still process but mark as potential echo

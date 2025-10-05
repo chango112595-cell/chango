@@ -74,6 +74,11 @@ if (import.meta.env.DEV) {
   import("./tests/quickTestChango").then(() => {
     console.log("[Tests] Quick Chango test loaded - will auto-run real commands");
   });
+  
+  // Load comprehensive voice system test
+  import("./tests/voiceSystemComprehensiveTest").then(() => {
+    console.log("[Tests] Voice System Comprehensive Test loaded - will auto-run after 3 seconds");
+  });
 }
 
 // Start the diagnostic runner and attach notifiers

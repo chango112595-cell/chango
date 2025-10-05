@@ -1,0 +1,178 @@
+Alright—based on the symptoms you showed earlier (“Gate” red, AlwaysListen Permission check failed, replies sometimes stop, repeats), here are the 3 most common causes and exact patches to make Chango reply reliably on iOS/Safari + Replit:
+
+⸻
+
+1) Mic/Audio permission never becomes “ready” on iOS
+
+Mobile Safari requires a user-gesture to resume the audio context every time the page loads. If your STT init runs before that, Gate stays red and nothing reaches the LLM.
+
+Patch A — robust mic bootstrap (drop-in)
+
+Add this helper and call it before any listen or wake-word start (e.g., on first tap in the input, Send button, or “Enable Microphone”):
+
+// lib/audio/ensureMicReady.ts
+let _booting = false;
+
+export async function ensureMicReady(): Promise<MediaStream> {
+  if (_booting) throw new Error("mic_boot_in_progress");
+  _booting = true;
+  try {
+    // 1) resume AudioContext on iOS
+    const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (AC) {
+      (window as any).__globalAC = (window as any).__globalAC || new AC();
+      if ((window as any).__globalAC.state !== 'running') {
+        await (window as any).__globalAC.resume();
+      }
+    }
+
+    // 2) request mic with conservative constraints
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: false,
+      }
+    });
+
+    // 3) cache & sanity check
+    const track = stream.getAudioTracks()[0];
+    if (!track || track.readyState !== 'live') throw new Error("mic_track_dead");
+
+    return stream;
+  } finally {
+    _booting = false;
+  }
+}
+
+Use it anywhere you start STT / wake word:
+
+import { ensureMicReady } from '@/lib/audio/ensureMicReady';
+
+async function startAlwaysListen() {
+  const stream = await ensureMicReady(); // <-- NEW
+  await stt.start({ stream });           // pass the live stream into STT
+  gate.set('stt', true);
+}
+
+Also invoke ensureMicReady() on first user interaction:
+
+// in ChatInput / first tap handler:
+onFocus={async () => { try { await ensureMicReady(); } catch {} }}
+onClick={async () => { try { await ensureMicReady(); } catch {} }}
+
+Why this fixes it: it guarantees the AudioContext is resumed by a gesture and a live MediaStream exists before STT starts, so “Gate” flips green and the pipeline opens.
+
+⸻
+
+2) Orchestrator never gets the transcript (gate open, but no reply)
+
+Two frequent culprits:
+	•	Wake-word guard still active but not matching your new keyword (“lolo”).
+	•	Debounce/lock never releases after a reply, so subsequent utterances are ignored.
+
+Patch B — wake-word guard & lock
+
+// lib/voice/wakeword.ts
+export const WAKE_WORD = /^(?:lolo|hey\s+lolo)\b/i; // ensure your chosen words
+
+export function shouldWake(text: string, enabled: boolean) {
+  if (!enabled) return true; // if wake-word mode off, always pass
+  return WAKE_WORD.test(text.trim());
+}
+
+// lib/orchestrator.ts
+let speakingLock = false;
+
+export async function handleUserUtterance(text: string, opts: { wakewordOn: boolean }) {
+  if (!text?.trim()) return;
+
+  // wakeword gate
+  if (!shouldWake(text, opts.wakewordOn)) return;
+
+  // prevent double-processing while speaking
+  if (speakingLock) return;
+  speakingLock = true;
+  try {
+    const reply = await nluRoute(text);             // your LLM/router
+    chatStore.addBot(reply);
+    await voiceBus.speak(reply, { interrupt: true });// allow interrupt for snappy feel
+  } finally {
+    speakingLock = false;
+  }
+}
+
+Wire it from STT “final result”:
+
+stt.on('final', (text) => {
+  debug.feed('VPrint', `final="${text}"`);
+  handleUserUtterance(text, { wakewordOn: settings.wakeWordEnabled });
+});
+
+
+⸻
+
+3) Repeat loop (same message keeps coming back)
+
+This usually happens when TTS “end/cancel” re-triggers the same utterance or the transcript is re-enqueued. Break the loop with a last-utterance fingerprint and ignore duplicates within a short window.
+
+Patch C — duplicate suppression
+
+// lib/voice/dupGuard.ts
+let lastHash = '';
+let lastAt = 0;
+
+export function isDuplicate(s: string, ms=3000) {
+  const h = s.trim().toLowerCase();
+  const now = Date.now();
+  if (h && h === lastHash && (now - lastAt) < ms) return true;
+  lastHash = h; lastAt = now;
+  return false;
+}
+
+Use in both directions:
+
+// when accepting STT final
+if (isDuplicate(text)) { debug.feed('Gate', 'drop_duplicate_stt'); return; }
+
+// when posting bot reply
+if (isDuplicate(reply)) { debug.feed('Gate', 'drop_duplicate_bot'); return; }
+
+And make sure your voiceBus.cancelSpeak() doesn’t re-enqueue (you already fixed stack recursion earlier).
+
+⸻
+
+Make the Debug Monitor actually surface this
+
+Add these event taps so you’ll see why it’s not replying:
+
+// debug taps
+stt.on('ready',  () => debug.status('STT', true));
+stt.on('error',  e  => debug.feed('STT', `error: ${String(e)}`));
+stt.on('final',  t  => debug.feed('VPrint', `final="${t}"`));
+
+voiceBus.on(ev => {
+  if (ev.type === 'start')  debug.status('TTS', true);
+  if (ev.type === 'end')    debug.status('TTS', true);
+  if (ev.type === 'error')  debug.feed('TTS', `error: ${String(ev.err)}`);
+  if (ev.type === 'cancel') debug.feed('TTS', 'cancel');
+});
+
+gate.subscribe(g => {
+  debug.status('Gate', !!(g.stt && g.vad && g.permissions));
+});
+
+You should now see a green STT + Gate before speaking, and VPrint final="..." followed by a single bot message and TTS.
+
+⸻
+
+Quick checklist (do these now)
+	•	Tap once in the input (or Send) after reload → should silently run ensureMicReady() (no popup after the first grant).
+	•	Confirm Wake Word set to “lolo”, or turn wake-word off to test.
+	•	Look at Debug Monitor:
+	•	STT: green, Gate: green, TTS: green → pipeline is healthy.
+	•	AlwaysListen Permission check failed should disappear after the first gesture.
+
+⸻
+
+If you paste these patches and the reply still stalls, copy just the last 10 lines from the Debug Monitor and I’ll pinpoint the next blocker immediately.

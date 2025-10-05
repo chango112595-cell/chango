@@ -339,6 +339,7 @@
   mask-composite: exclude;
   opacity: 0.7;
   transition: opacity 0.3s ease;
+  pointer-events: none; /* Fix: Don't block clicks on the input */
 }
 
 .input-wrapper:focus-within {

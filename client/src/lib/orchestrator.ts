@@ -3,6 +3,7 @@ import { shouldWake } from './voice/wakeword';
 import { sendToLLM } from '../llm/orchestrator';
 import { voiceBus } from '../voice/voiceBus';
 import { debugBus } from '../dev/debugBus';
+import { isDuplicate } from './voice/dupGuard';
 
 let speakingLock = false;
 
@@ -16,6 +17,12 @@ function addBotMessage(reply: string) {
 
 export async function handleUserUtterance(text: string, opts: { wakewordOn: boolean }) {
   if (!text?.trim()) return;
+
+  // Check for duplicate user utterance
+  if (isDuplicate(text)) {
+    debugBus.info('Gate', 'drop_duplicate_utterance');
+    return;
+  }
 
   // wakeword gate
   if (!shouldWake(text, opts.wakewordOn)) {
@@ -34,6 +41,13 @@ export async function handleUserUtterance(text: string, opts: { wakewordOn: bool
   
   try {
     const reply = await sendToLLM(text); // your LLM/router
+    
+    // Check for duplicate bot reply
+    if (isDuplicate(reply)) {
+      debugBus.info('Gate', 'drop_duplicate_bot');
+      return;
+    }
+    
     addBotMessage(reply);
     voiceBus.emitSpeak(reply, 'system'); // emit speak event for TTS to handle
   } catch (error) {

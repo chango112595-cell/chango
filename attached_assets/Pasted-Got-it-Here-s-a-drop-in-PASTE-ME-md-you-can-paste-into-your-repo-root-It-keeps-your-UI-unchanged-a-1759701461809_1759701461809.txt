@@ -1,0 +1,273 @@
+Got it. Here’s a drop-in PASTE_ME.md you can paste into your repo root. It keeps your UI unchanged and adds (1) mic-permission detection & recovery, (2) audio unlock on first tap, (3) auto STT restart when stuck, (4) debug monitor permission visibility. Everything is isolated under new files so nothing else breaks.
+
+⸻
+
+PASTE_ME.md — Mic Permission + STT Recovery + Audio Unlock (Isolated)
+
+What this adds
+	•	✅ Detect mic permission (granted / prompt / denied) and show it in the Debug Monitor
+	•	✅ Don’t start Always-Listen if permission is missing; retry politely
+	•	✅ One-tap Audio Unlock to satisfy mobile autoplay policies
+	•	✅ Auto-recover STT when it gets stuck (bounded retries, no loops)
+	•	✅ No UI changes required; all code is isolated in new modules
+
+⸻
+
+1) Add isolated utilities
+
+src/lib/audio/unlockAudio.ts
+
+// Isolated: safe to import anywhere
+let unlocked = false;
+let ctx: AudioContext | null = null;
+
+export function ensureAudioUnlockedOnce(): void {
+  if (unlocked) return;
+  const resume = () => {
+    try {
+      // iOS Safari uses webkitAudioContext
+      // @ts-ignore
+      ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx && ctx.state === 'suspended') {
+        ctx.resume();
+      }
+      unlocked = true;
+      window.removeEventListener('pointerdown', resume, { capture: true } as any);
+      window.removeEventListener('touchend', resume, { capture: true } as any);
+      document.removeEventListener('visibilitychange', resume, { capture: true } as any);
+      console.debug('[AudioUnlock] audio unlocked');
+    } catch {
+      // ignore
+    }
+  };
+
+  window.addEventListener('pointerdown', resume, { once: true, capture: true });
+  window.addEventListener('touchend', resume, { once: true, capture: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') resume();
+  }, { capture: true });
+}
+
+src/lib/permissions/microphone.ts
+
+export type MicState = 'granted' | 'prompt' | 'denied' | 'unsupported';
+
+export async function getMicrophonePermission(): Promise<MicState> {
+  try {
+    if (!('permissions' in navigator)) return 'unsupported';
+    // @ts-ignore
+    const status = await navigator.permissions.query({ name: 'microphone' });
+    return (status.state as MicState) ?? 'unsupported';
+  } catch {
+    return 'unsupported';
+  }
+}
+
+export async function requestMicrophoneIfNeeded(): Promise<boolean> {
+  const state = await getMicrophonePermission();
+  if (state === 'granted') return true;
+  try {
+    // Ask for mic once to trigger browser prompt
+    await navigator.mediaDevices.getUserMedia({ audio: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+
+⸻
+
+2) Wire into Always-Listen (non-breaking)
+
+Patch src/voice/alwaysListen.ts (or equivalent STT starter)
+
+Add the guarded start + permission logging. If your file names differ, keep the same logic.
+
+import { getMicrophonePermission, requestMicrophoneIfNeeded } from '@/lib/permissions/microphone';
+import { debugBus } from '@/monitor/debugBus'; // your existing bus
+import { ensureAudioUnlockedOnce } from '@/lib/audio/unlockAudio';
+
+// idempotent flag to avoid rapid loops
+let starting = false;
+let sttActive = false;
+
+export async function startAlwaysListen(): Promise<boolean> {
+  if (starting || sttActive) return true;
+  starting = true;
+
+  // Make sure playback can happen (mobile)
+  ensureAudioUnlockedOnce();
+
+  const micState = await getMicrophonePermission();
+  debugBus.emit({ ch: 'AlwaysListen', level: 'info', msg: `Mic permission: ${micState}` });
+
+  if (micState !== 'granted') {
+    const ok = await requestMicrophoneIfNeeded();
+    if (!ok) {
+      debugBus.emit({ ch: 'AlwaysListen', level: 'warn', msg: 'Permission check failed; will not start STT.' });
+      starting = false;
+      sttActive = false;
+      return false;
+    }
+  }
+
+  try {
+    // ⬇️ your existing STT init here
+    // await STTEngine.start({ wakeWord, onResult, onError, ... })
+
+    sttActive = true;
+    debugBus.emit({ ch: 'AlwaysListen', level: 'ok', msg: 'STT started.' });
+    return true;
+  } catch (err) {
+    debugBus.emit({ ch: 'AlwaysListen', level: 'error', msg: `STT start error: ${String(err)}` });
+    sttActive = false;
+    return false;
+  } finally {
+    starting = false;
+  }
+}
+
+export async function stopAlwaysListen(): Promise<void> {
+  if (!sttActive) return;
+  try {
+    // await STTEngine.stop();
+  } finally {
+    sttActive = false;
+    debugBus.emit({ ch: 'AlwaysListen', level: 'info', msg: 'STT stopped.' });
+  }
+}
+
+export function isAlwaysListenActive() { return sttActive; }
+
+
+⸻
+
+3) Robust STT Health Monitor (bounded self-healing)
+
+src/monitor/sttHealth.ts
+
+import { debugBus } from '@/monitor/debugBus';
+import { startAlwaysListen, stopAlwaysListen, isAlwaysListenActive } from '@/voice/alwaysListen';
+import { getMicrophonePermission } from '@/lib/permissions/microphone';
+
+let lastOk = Date.now();
+let recovering = false;
+let failCount = 0;
+const MAX_RECOVERIES = 4;
+const STUCK_MS = 12_000;
+
+export function sttHeartbeatOk() {
+  lastOk = Date.now();
+  failCount = 0;
+}
+
+export async function sttHealthTick() {
+  const age = Date.now() - lastOk;
+  const mic = await getMicrophonePermission();
+
+  if (mic === 'denied') {
+    debugBus.emit({ ch: 'Health', level: 'error', msg: 'Mic denied by browser. Please allow microphone.' });
+    return;
+  }
+
+  if (age < STUCK_MS) return;
+
+  if (recovering || failCount >= MAX_RECOVERIES) {
+    debugBus.emit({ ch: 'Health', level: 'warn', msg: 'Max STT recoveries reached; manual action required.' });
+    return;
+  }
+
+  recovering = true;
+  failCount++;
+  debugBus.emit({ ch: 'Health', level: 'warn', msg: `STT seems stuck (${age}ms). Recovery #${failCount}` });
+
+  try {
+    if (isAlwaysListenActive()) {
+      await stopAlwaysListen();
+      await new Promise(r => setTimeout(r, 800));
+    }
+    await startAlwaysListen();
+  } catch (e) {
+    debugBus.emit({ ch: 'Health', level: 'error', msg: `Recovery failed: ${String(e)}` });
+  } finally {
+    recovering = false;
+    lastOk = Date.now();
+  }
+}
+
+// call this on app boot once
+export function bootSttHealthMonitor() {
+  setInterval(sttHealthTick, 2_000);
+}
+
+Hook a heartbeat from your STT result event:
+
+// wherever STT yields interim/final transcripts
+import { sttHeartbeatOk } from '@/monitor/sttHealth';
+
+function onSttResult(text: string, isFinal: boolean) {
+  sttHeartbeatOk();
+  // …your existing routing…
+}
+
+
+⸻
+
+4) Show permission & health in your Debug Monitor
+
+Minimal debugBus event (no UI change needed if you already render it)
+
+// Example type – match your project’s shape
+export type DebugEvent = { ts?: number; ch: string; level: 'info'|'ok'|'warn'|'error'; msg: string };
+
+class DebugBus {
+  private fns = new Set<(e: DebugEvent)=>void>();
+  emit(e: DebugEvent) {
+    const event = { ts: Date.now(), ...e };
+    this.fns.forEach(fn => queueMicrotask(()=>fn(event)));
+    // (optional) persist last N to window for quick export
+    // @ts-ignore
+    (window.__dbg = window.__dbg || []).push(event);
+  }
+  on(fn:(e:DebugEvent)=>void){ this.fns.add(fn); return ()=>this.fns.delete(fn); }
+}
+export const debugBus = new DebugBus();
+
+Add a one-time permission probe on app mount (e.g., in your root component):
+
+import { getMicrophonePermission } from '@/lib/permissions/microphone';
+import { debugBus } from '@/monitor/debugBus';
+import { bootSttHealthMonitor } from '@/monitor/sttHealth';
+import { ensureAudioUnlockedOnce } from '@/lib/audio/unlockAudio';
+
+export async function bootVoiceInfra() {
+  ensureAudioUnlockedOnce();
+  const mic = await getMicrophonePermission();
+  debugBus.emit({ ch: 'Permissions', level: mic === 'granted' ? 'ok' : 'warn', msg: `Microphone: ${mic}` });
+  bootSttHealthMonitor();
+}
+
+Call bootVoiceInfra() once when the app starts.
+
+⸻
+
+5) Quick checklist (what you should see)
+	•	Debug Monitor logs:
+	•	Permissions Microphone: granted (or prompt/denied)
+	•	STT started. on success
+	•	Auto-recovery messages when STT is stuck
+	•	Mobile Safari / iOS:
+	•	After first tap, TTS audio plays (no “Audio play failed”)
+	•	Chango answers again when you speak the wake word or press your existing mic control
+
+⸻
+
+Notes
+	•	No UI changed. All new code is isolated in src/lib/* and src/monitor/*.
+	•	If your folder aliases differ, adjust imports (@/…) to your paths.
+	•	If you use a custom STT engine, keep using it — the wrappers here only handle permission/health and don’t conflict with your engine.
+
+⸻
+
+If you paste this file into the repo and apply the new modules, Chango should stop getting stuck on permissions and resume responding reliably. If anything still stalls, tell me what your Debug Monitor prints after these patches and I’ll tighten the recovery logic.

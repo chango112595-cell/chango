@@ -1,4 +1,7 @@
 import { DebugBus } from '../debug/DebugBus';
+import { isDuplicate } from './dupFilter';
+import { speakOnce } from './speakOnce';
+import { speak as speakCore } from './ttsWrapper';
 
 let synth: SpeechSynthesis | null = null;
 let currentUtterance: SpeechSynthesisUtterance | null = null;
@@ -6,40 +9,36 @@ let currentUtterance: SpeechSynthesisUtterance | null = null;
 export async function speak(text: string): Promise<void> {
   if (!text) return;
   
-  if (!synth) synth = window.speechSynthesis;
-  if (!synth) {
-    DebugBus.emit({ tag: 'TTS', level: 'error', msg: 'No speech synthesis available' });
+  // Check for duplicate text
+  if (isDuplicate(text)) {
+    DebugBus.emit({ tag: 'TTS', level: 'info', msg: 'Duplicate text filtered' });
     return;
   }
-
-  // Cancel any current speech
-  if (currentUtterance) {
-    synth.cancel();
-    currentUtterance = null;
-  }
-
+  
+  // Create unique ID for this speech request
+  const id = `${Date.now()}::${text.slice(0, 40)}`;
+  
+  // Use speakOnce to prevent rapid repeats
   return new Promise((resolve) => {
-    currentUtterance = new SpeechSynthesisUtterance(text);
-    currentUtterance.rate = 1.0;
-    currentUtterance.pitch = 1.0;
-    currentUtterance.volume = 1.0;
-    
-    currentUtterance.onend = () => {
-      DebugBus.emit({ tag: 'TTS', level: 'info', msg: 'Speech ended' });
-      currentUtterance = null;
-      resolve();
-    };
-    
-    currentUtterance.onerror = (e) => {
-      DebugBus.emit({ tag: 'TTS', level: 'error', msg: 'Speech error', data: e });
-      currentUtterance = null;
-      resolve();
-    };
-
-    if (synth) {
-      synth.speak(currentUtterance);
-    }
-    DebugBus.emit({ tag: 'TTS', level: 'info', msg: `Speaking: "${text.slice(0,50)}..."` });
+    speakOnce(id, text, (textToSpeak) => {
+      // Use the wrapped speak function that handles DuplexGuard
+      speakCore(textToSpeak);
+      
+      // Since speakCore doesn't return a promise, we need to listen for completion
+      // This is a temporary solution until we refactor the TTS system
+      const checkComplete = setInterval(() => {
+        if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+          clearInterval(checkComplete);
+          resolve();
+        }
+      }, 100);
+      
+      // Timeout after 30 seconds to prevent hanging
+      setTimeout(() => {
+        clearInterval(checkComplete);
+        resolve();
+      }, 30000);
+    });
   });
 }
 

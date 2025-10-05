@@ -64,5 +64,24 @@ export const GlobalMonitor = {
 
   markHeard() { s.lastHeard = Date.now(); },
   markSTT(active: boolean) { s.sttActive = active; },
-  markTTS(starting: boolean) { s.ttsStart = starting ? Date.now() : null; }
+  markTTS(starting: boolean) { s.ttsStart = starting ? Date.now() : null; },
+  
+  // New functions for duplicate detection
+  markReply(text: string, debug?: (tag: string, level: 'info'|'warn'|'error'|'ok', msg: string, data?: any) => void) {
+    const norm = (text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const now = Date.now();
+    if (norm && norm === lastReply && now - lastReplyAt < 8000) {
+      debug?.('REPEAT', 'warn', 'duplicate reply suppressed', { text: norm });
+    }
+    lastReply = norm;
+    lastReplyAt = now;
+  },
+  
+  markEcho(debug?: (tag: string, level: 'info'|'warn'|'error'|'ok', msg: string, data?: any) => void) {
+    debug?.('ECHO', 'warn', 'stt heard while tts speaking – likely device echo');
+  }
 };
+
+// Variables for duplicate detection
+let lastReply = '';
+let lastReplyAt = 0;

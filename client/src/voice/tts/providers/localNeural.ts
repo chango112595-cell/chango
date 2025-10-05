@@ -5,6 +5,7 @@
 
 import { TTSProvider, TTSSpeakOptions } from '../interfaces';
 import { GlobalMonitor } from '../../../monitor/GlobalMonitor';
+import { DuplexGuard } from '../../duplexGuard';
 
 /**
  * LocalNeuralProvider class
@@ -266,23 +267,26 @@ export class LocalNeuralProvider implements TTSProvider {
         utterance.onstart = () => {
           speechStarted = true;
           console.log('[LocalNeuralProvider] Speech started');
-          // Mark TTS as active for GlobalMonitor
+          // Mark TTS as active for GlobalMonitor and DuplexGuard
           GlobalMonitor.markTTS(true);
+          DuplexGuard.setSpeaking(true);
         };
 
         utterance.onend = () => {
           this.currentUtterance = null;
           console.log('[LocalNeuralProvider] Speech completed successfully');
-          // Mark TTS as inactive for GlobalMonitor
+          // Mark TTS as inactive for GlobalMonitor and DuplexGuard
           GlobalMonitor.markTTS(false);
+          DuplexGuard.setSpeaking(false);
           resolve();
         };
 
         utterance.onerror = (event) => {
           this.currentUtterance = null;
           console.error('[LocalNeuralProvider] Speech error:', event.error);
-          // Mark TTS as inactive for GlobalMonitor on error
+          // Mark TTS as inactive for GlobalMonitor and DuplexGuard on error
           GlobalMonitor.markTTS(false);
+          DuplexGuard.setSpeaking(false);
           
           // If it's a canceled or synthesis-failed error and we haven't started speaking, try without voice
           if ((event.error === 'canceled' || event.error === 'synthesis-failed') && !speechStarted) {

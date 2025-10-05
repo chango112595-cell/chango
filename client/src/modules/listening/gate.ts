@@ -39,16 +39,6 @@ function stripWakeWord(text: string): string {
  * @returns GateResult with allowed status, processed text, and reason
  */
 export function passGate(text: string, typed: boolean = false): GateResult {
-  // Typed input should always pass through without wake word requirement
-  if (typed) {
-    console.log('[Gate] Typed input detected - always allowing through:', text);
-    return {
-      allowed: true,
-      text: text,
-      reason: "typed"
-    };
-  }
-  
   // If either wake word detection or address requirement is disabled, allow everything through
   if (!FEATURES.WAKE_WORD || !FEATURES.AnswerOnlyWhenAddressed) {
     console.log('[Gate] Wake word or address requirement disabled - allowing through');
@@ -59,14 +49,14 @@ export function passGate(text: string, typed: boolean = false): GateResult {
     };
   }
   
-  // Check if the speech is addressed to Chango
+  // Check if the input is addressed to Chango (contains wake word "lolo")
   if (isAddressedToChango(text)) {
     // Strip the wake word before passing through
     const processedText = stripWakeWord(text);
     
     // Check if it's just the wake word alone (a "ping")
     if (processedText.trim() === '' || processedText.trim().length === 0) {
-      console.log('[Gate] Bare wake word detected (ping) - allowing through with acknowledge:', text);
+      console.log(`[Gate] Bare wake word detected (ping) - ${typed ? 'typed' : 'spoken'}:`, text);
       return {
         allowed: true,
         text: 'acknowledge',
@@ -74,16 +64,16 @@ export function passGate(text: string, typed: boolean = false): GateResult {
       };
     }
     
-    console.log('[Gate] Wake word detected - allowing through:', text, '->', processedText);
+    console.log(`[Gate] Wake word "lolo" detected - ${typed ? 'typed' : 'spoken'}:`, text, '->', processedText);
     return {
       allowed: true,
       text: processedText,
-      reason: "wake"
+      reason: typed ? "typed" : "wake"
     };
   }
   
-  // Block unaddressed speech
-  console.log('[Gate] Speech not addressed to Chango - blocking:', text);
+  // Block input that doesn't contain the wake word "lolo"
+  console.log(`[Gate] Input not addressed to Chango (no "lolo") - blocking ${typed ? 'typed' : 'spoken'}:`, text);
   return {
     allowed: false,
     text: text,

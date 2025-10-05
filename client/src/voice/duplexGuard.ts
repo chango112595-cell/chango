@@ -20,7 +20,7 @@ export const DuplexGuard = {
   setSpeaking(s: boolean) {
     if (speaking === s) return;
     speaking = s;
-    for (const fn of [...listeners]) {
+    for (const fn of Array.from(listeners)) {
       try { 
         fn(speaking); 
       } catch (e) {

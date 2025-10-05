@@ -147,14 +147,3 @@
     background: conic-gradient(from 180deg, #34d39933, #22d3ee33, #6366f133, #34d39933);
   }
 }
-
-/* Hide floating mic FAB */
-.fab-mic, 
-[data-ui="floating-mic"],
-.mic-button,
-[data-testid="button-mic"],
-.chat-input-bar .mic-button,
-button[aria-label*="mic" i],
-button[aria-label*="microphone" i] { 
-  display: none !important; 
-}

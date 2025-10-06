@@ -46,11 +46,11 @@ export function ThemeProvider({
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => {
     // Check system preference
     if (typeof window !== 'undefined' && window.matchMedia) {
-      // For this app, we'll use 'prefers-color-scheme: dark' to determine HUD theme
-      // Since both themes are dark, we'll use a custom logic
+      // Map system preferences to our themes:
+      // - prefers-color-scheme: dark → 'hud' theme
+      // - prefers-color-scheme: light → 'classic' theme
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      // Default to classic for now, could be enhanced with more specific system detection
-      return 'classic';
+      return prefersDark ? 'hud' : 'classic';
     }
     return 'classic';
   });
@@ -65,9 +65,10 @@ export function ThemeProvider({
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     
     const handleChange = (e: MediaQueryListEvent) => {
-      // Since both themes are dark, we could use additional heuristics
-      // For now, we'll keep classic as default
-      setSystemTheme('classic');
+      // Map system preferences to our themes:
+      // - prefers-color-scheme: dark → 'hud' theme
+      // - prefers-color-scheme: light → 'classic' theme
+      setSystemTheme(e.matches ? 'hud' : 'classic');
     };
 
     // Modern browsers

@@ -4,13 +4,37 @@
  * Enhanced responsive design with smooth transitions
  */
 
-/* Global responsive transitions for smooth scaling */
-* {
+/* Specific transitions for interactive elements only */
+/* Removed global * selector to improve performance */
+/* Apply transitions only to specific elements that need them */
+
+/* Transitions for buttons and interactive elements */
+.chat-toggle-button,
+.mic-button,
+.submit-button,
+.status-indicator,
+.input-wrapper,
+.chat-input-bar,
+.header-compact {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Text and color transitions only */
+.header-title span,
+.chat-toggle-button svg {
+  transition: transform 0.3s ease;
+}
+
+/* Background and border transitions */
+.input-wrapper::before,
+.status-indicator::before {
+  transition: opacity 0.3s ease;
+}
+
+/* Padding and margin transitions for responsive containers */
+.responsive-container {
   transition: padding 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
-              margin 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              font-size 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+              margin 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Responsive container utility */

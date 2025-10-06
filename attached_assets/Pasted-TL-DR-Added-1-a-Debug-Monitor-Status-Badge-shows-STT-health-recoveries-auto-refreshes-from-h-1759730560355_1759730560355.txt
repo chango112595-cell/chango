@@ -1,0 +1,160 @@
+TL;DR: Added (1) a Debug Monitor Status Badge (shows STT health + recoveries, auto-refreshes from /hud/status.json) and (2) a Network Scanner you can run with ChangoNet.scan() to detect duplicate module loads and 404s, then auto-download a JSON report. Zero layout changes outside the Debug Monitor.
+
+⸻
+
+Plan (pseudocode)
+	•	client/chango/diag/monitor_badge.js
+	•	Find your existing Debug Monitor root.
+	•	Inject a tiny badge row (non-destructive).
+	•	Poll /hud/status.json every 10s; update health % + recoveries.
+	•	Color code: ≥90 OK, 60–89 Warn, <60 Danger.
+	•	client/chango/diag/netscan.js
+	•	Collect <script type="module"> sources (absolute URLs).
+	•	De-dupe by URL; flag duplicates.
+	•	fetch each with HEAD (fallback GET) to catch non-200.
+	•	Summarize and download net-scan.json; also log to console.
+	•	Wire both with <script type="module"> tags (order after your monitor).
+
+⸻
+
+
+# client/chango/diag/monitor_badge.js
+/* Debug Monitor Status Badge — non-destructive injection. */
+function findHost(){
+  return document.querySelector("[data-chango-debug]")
+      || document.querySelector(".debug-monitor")
+      || document.getElementById("debug");
+}
+function mkRow(){
+  const row=document.createElement("div");
+  row.className="chango-monitor-badge";
+  Object.assign(row.style,{
+    display:"flex", alignItems:"center", gap:"10px",
+    padding:"6px 8px", margin:"4px 8px 0",
+    border:"1px solid rgba(0,255,255,.25)", borderRadius:"6px",
+    background:"rgba(0,0,0,.35)", font:"12px ui-monospace,monospace"
+  });
+  const dot=document.createElement("span");
+  Object.assign(dot.style,{ display:"inline-block", width:"10px", height:"10px",
+    borderRadius:"50%", background:"#888" });
+  const txt=document.createElement("span");
+  txt.textContent="STT: —  |  Recoveries: —";
+  row.append(dot, txt);
+  return {row, dot, txt};
+}
+function colorByHealth(h){
+  if(h>=90) return "#00d18f";   // ok
+  if(h>=60) return "#ffcc00";   // warn
+  return "#ff4d4d";             // danger
+}
+async function pullHUD(){
+  try{
+    const r=await fetch("/hud/status.json",{cache:"no-store"});
+    if(!r.ok) return null;
+    return r.json();
+  }catch{ return null; }
+}
+function start(){
+  const host=findHost(); if(!host) return;
+  // Avoid duplicates
+  if(host.querySelector(".chango-monitor-badge")) return;
+  const {row,dot,txt}=mkRow(); host.insertBefore(row, host.firstChild);
+  const tick=async ()=>{
+    const data=await pullHUD(); if(!data) return;
+    const h=Number(data?.metrics?.stt_health ?? 0);
+    const rec=Number(data?.metrics?.stt_recoveries ?? 0);
+    dot.style.background=colorByHealth(h);
+    txt.textContent=`STT: ${h}%  |  Recoveries: ${rec}`;
+  };
+  tick(); setInterval(tick, 10000);
+}
+if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",start); else start();
+
+# client/chango/diag/netscan.js
+/* Network Scanner — run: ChangoNet.scan()
+   - Detect duplicate <script type="module"> URLs.
+   - HEAD request each; fallback GET; flag non-2xx/3xx.
+   - Download net-scan.json and log summary.
+*/
+function abs(url){
+  try{ return new URL(url, location.href).href; }catch{ return url; }
+}
+async function headOrGet(url){
+  try{
+    const r=await fetch(url,{ method:"HEAD", cache:"no-store" });
+    if(r.ok || (r.status>=300 && r.status<400)) return { ok:true, status:r.status };
+    // Some hosts disallow HEAD; try GET
+    const g=await fetch(url,{ method:"GET", cache:"no-store" });
+    return { ok:g.ok || (g.status>=300 && g.status<400), status:g.status };
+  }catch(e){ return { ok:false, status:0, err:String(e) }; }
+}
+function dlJSON(filename, data){
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 0);
+}
+async function scan(){
+  const nodes=[...document.querySelectorAll('script[type="module"][src]')];
+  const list=nodes.map(n=>abs(n.getAttribute("src")));
+  const counts=list.reduce((m,u)=>(m[u]=(m[u]||0)+1,m),{});
+  const duplicates=Object.entries(counts).filter(([,c])=>c>1).map(([u,c])=>({ url:u, count:c }));
+  const results=[];
+  for(const url of [...new Set(list)]){
+    const res=await headOrGet(url);
+    results.push({ url, ok:res.ok, status:res.status, err:res.err||null });
+  }
+  const failing=results.filter(r=>!r.ok);
+  const report={ ts:new Date().toISOString(), total:list.length, unique:results.length, duplicates, failing, results };
+  // console summary
+  console.groupCollapsed("[ChangoNet] scan");
+  console.log("Total scripts:", report.total, "Unique:", report.unique);
+  if(duplicates.length){ console.warn("Duplicates:", duplicates); } else { console.log("No duplicates ✅"); }
+  if(failing.length){ console.error("Failures:", failing); } else { console.log("No 404s/failed fetch ✅"); }
+  console.groupEnd();
+  // download
+  dlJSON("net-scan.json", report);
+  return report;
+}
+if(!window.ChangoNet) window.ChangoNet={};
+window.ChangoNet.scan = scan;
+export { scan };
+
+# client/index.html  (add these two lines near your other debug modules; UI stays the same)
+<!-- Debug Monitor status badge -->
+<script type="module" src="/client/chango/diag/monitor_badge.js"></script>
+<!-- Network scanner (run manually from console) -->
+<script type="module" src="/client/chango/diag/netscan.js"></script>
+
+
+⸻
+
+How to use (super quick)
+	•	Badge: open your Debug Monitor → badge shows STT: NN% | Recoveries: N and auto-updates.
+	•	Scanner: DevTools → await ChangoNet.scan() → downloads net-scan.json and logs duplicates/404s.
+
+⸻
+
+Checkpoint Capsule (saved here)
+
+{
+  "capsule": "CHANGO_CHECKPOINT",
+  "version": 1,
+  "name": "Oct-06-2025—MonitorBadge+NetScan",
+  "timestamp_local": "2025-10-06T00:00:00",
+  "marker": "Added Debug Monitor status badge + network scanner.",
+  "scope": {
+    "ui_changes": "Debug Monitor header badge only",
+    "modules_added": [
+      "client/chango/diag/monitor_badge.js",
+      "client/chango/diag/netscan.js"
+    ]
+  },
+  "next_todos": [
+    "Auto-run net scan in dev-mode and post a short summary into Debug Monitor.",
+    "Expose badge metrics to your HUD sphere for a tiny corner indicator."
+  ]
+}
+
+a. Want me to post the net-scan summary into the SelfTest tab automatically after ChangoNet.scan() runs?
+b. Want a single Chango.devCheck() that runs SelfTest + NetScan and writes one combined report?

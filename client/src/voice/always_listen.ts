@@ -153,6 +153,19 @@ async function acquireMic() {
 }
 
 export async function startAlwaysListenNew(cfg: AlwaysCfg) {
+  // Import isPermissionDenied from microphone module
+  const { isPermissionDenied } = await import('@/lib/permissions/microphone');
+  
+  // Check if permission was denied - don't even try if it was
+  if (isPermissionDenied()) {
+    debugBus.error('AlwaysListen', 'Microphone permission was denied - not attempting to start STT', {
+      action: 'Please enable microphone in browser settings',
+      permanentlyDenied: true
+    });
+    beat('stt', { status: 'error', hasPermission: false, reason: 'permission_denied' });
+    return;
+  }
+  
   // Check if already starting or active to avoid duplicates
   if (starting || sttActive || !cfg.enabled) {
     debugBus.info('AlwaysListen', `Already starting/active or disabled (starting=${starting}, active=${sttActive}, enabled=${cfg.enabled})`);
@@ -170,20 +183,31 @@ export async function startAlwaysListenNew(cfg: AlwaysCfg) {
     const permissionState = await getMicrophonePermission();
     debugBus.info('AlwaysListen', `Permission state: ${permissionState}`);
     
+    // Stop immediately if permission is denied
+    if (permissionState === 'denied') {
+      debugBus.error('AlwaysListen', 'Microphone permission is denied - stopping', {
+        action: 'User must enable microphone in browser settings',
+        permanentlyDenied: true
+      });
+      starting = false;
+      beat('stt', { status: 'error', hasPermission: false, reason: 'permission_denied' });
+      return;
+    }
+    
     // Request permission if needed
     if (permissionState === 'prompt') {
       debugBus.info('AlwaysListen', 'Requesting microphone permission...');
       const granted = await requestMicrophoneIfNeeded();
       if (!granted) {
-        debugBus.error('AlwaysListen', 'Microphone permission denied by user');
+        debugBus.error('AlwaysListen', 'Microphone permission denied by user', {
+          action: 'Permission must be granted to use voice features',
+          permanentlyDenied: isPermissionDenied()
+        });
         starting = false;
+        beat('stt', { status: 'error', hasPermission: false, reason: 'permission_denied' });
         return;
       }
       debugBus.info('AlwaysListen', 'Microphone permission granted');
-    } else if (permissionState === 'denied') {
-      debugBus.error('AlwaysListen', 'Microphone permission is denied');
-      starting = false;
-      return;
     } else if (permissionState === 'unsupported') {
       debugBus.warn('AlwaysListen', 'Permission API not supported, attempting to continue');
     }
@@ -212,15 +236,38 @@ export async function startAlwaysListenNew(cfg: AlwaysCfg) {
       // Send heartbeat
       beat('stt', { status: 'started', hasPermission: true });
     } else {
-      debugBus.error('AlwaysListen', `Cannot start STT - permission state: ${permissionState}`);
+      debugBus.error('AlwaysListen', `Cannot start STT - permission state: ${permissionState}`, {
+        state: permissionState,
+        action: 'Check browser settings'
+      });
+      beat('stt', { status: 'error', hasPermission: false, reason: 'invalid_state' });
     }
   } catch (e:any) {
     running = false;
     sttActive = false;
-    debugBus.error('AlwaysListen', `Startup failed: ${e?.message||e}`);
     
-    // Send error heartbeat
-    beat('stt', { status: 'error', hasPermission: false });
+    const errorMsg = e?.message || e || 'Unknown error';
+    
+    // Check if it's a permission error
+    if (errorMsg.includes('not allowed') || 
+        errorMsg.includes('Permission denied') ||
+        errorMsg.includes('NotAllowedError') ||
+        errorMsg.includes('audio-capture') ||
+        errorMsg.includes('mic_denied')) {
+      debugBus.error('AlwaysListen', 'Permission error detected - will not retry', {
+        error: errorMsg,
+        permanentlyDenied: true,
+        action: 'Enable microphone in browser settings'
+      });
+      beat('stt', { status: 'error', hasPermission: false, reason: 'permission_error' });
+    } else {
+      debugBus.error('AlwaysListen', `Startup failed: ${errorMsg}`, {
+        error: errorMsg,
+        willRetry: false
+      });
+      // Send error heartbeat
+      beat('stt', { status: 'error', hasPermission: false, reason: 'startup_failed' });
+    }
   } finally {
     starting = false; // Clear starting flag in all cases
   }
@@ -910,34 +957,85 @@ class AlwaysListenManager {
         break;
 
       case 'not-allowed':
-        // Permission denied - check actual permission state
-        console.error('[AlwaysListen] Permission error detected, checking actual state...');
+        // Permission denied - STOP IMMEDIATELY, no retries
+        console.error('[AlwaysListen] Permission error detected - STOPPING');
         
+        // Import permission checking function
+        const { isPermissionDenied: checkIfDenied } = await import('@/lib/permissions/microphone');
+        
+        // Mark that permission was denied
+        this.hasPermission = false;
+        this.state = 'error';
+        this.isPausedForRecovery = true; // Prevent auto-restart
+        this.errorMessage = 'Microphone permission denied - please enable in browser settings';
+        
+        // Check actual permission state
         const permissionStatus = await this.checkMicrophonePermission();
         
-        if (!permissionStatus.hasPermission) {
-          console.error('[AlwaysListen] Confirmed: Microphone permission denied');
-          this.hasPermission = false;
-          this.state = 'error';
+        if (!permissionStatus.hasPermission || checkIfDenied()) {
+          console.error('[AlwaysListen] Confirmed: Microphone permission denied - will NOT retry');
           
           if (FEATURES.DEBUG_BUS) {
-            debugBus.error('AlwaysListen', 'Permission denied', permissionStatus);
+            debugBus.error('AlwaysListen', 'Permission permanently denied - stopping all retries', {
+              ...permissionStatus,
+              action: 'User must grant permission in browser settings',
+              willRetry: false
+            });
           }
           
-          // Start monitoring for permission changes
-          this.startPermissionMonitoring();
+          // DO NOT schedule restart or monitor - just stop
+          this.isEnabled = false; // Disable to prevent any restarts
+          
+          // Clear any existing timers
+          if (this.restartTimer) {
+            clearTimeout(this.restartTimer);
+            this.restartTimer = null;
+          }
+          
+          // Send error heartbeat
+          beat('stt', { status: 'error', hasPermission: false, reason: 'permission_denied' });
         } else {
           // Permission is actually granted, might be a transient error
           console.log('[AlwaysListen] Permission check passed, likely transient error');
-          if (this.isEnabled) {
-            this.scheduleRestart(1000);
+          if (this.isEnabled && !this.isPausedForRecovery) {
+            this.scheduleRestart(2000); // Longer delay for safety
           }
         }
         break;
 
       case 'audio-capture':
-        // Audio capture failed - could be muted mic or no device
-        console.error('[AlwaysListen] Audio capture failed, checking microphone status...');
+        // Audio capture failed - could be permission denied, muted mic, or no device
+        console.error('[AlwaysListen] Audio capture failed, checking status...');
+        
+        // Import permission checking function
+        const { isPermissionDenied: isDenied } = await import('@/lib/permissions/microphone');
+        
+        // Check if permission was denied first
+        if (isDenied()) {
+          console.error('[AlwaysListen] Audio-capture error due to permission denial - STOPPING');
+          this.hasPermission = false;
+          this.state = 'error';
+          this.isPausedForRecovery = true; // Prevent auto-restart
+          this.isEnabled = false; // Disable completely
+          this.errorMessage = 'Microphone permission denied - please enable in browser settings';
+          
+          if (FEATURES.DEBUG_BUS) {
+            debugBus.error('AlwaysListen', 'Audio-capture failed due to permission denial', {
+              action: 'User must grant permission in browser settings',
+              willRetry: false
+            });
+          }
+          
+          // Clear any existing timers
+          if (this.restartTimer) {
+            clearTimeout(this.restartTimer);
+            this.restartTimer = null;
+          }
+          
+          // Send error heartbeat
+          beat('stt', { status: 'error', hasPermission: false, reason: 'permission_denied' });
+          break; // Exit early, no recovery
+        }
         
         // Increment consecutive failures for audio-capture errors
         this.consecutiveFailures++;
@@ -949,16 +1047,18 @@ class AlwaysListenManager {
           this.isPausedForRecovery = true;
           this.errorMessage = 'Voice system paused for recovery - will retry in 30 seconds';
           
-          // Schedule a longer recovery period
-          setTimeout(() => {
-            console.log('[AlwaysListen] Recovery period complete, attempting to restart...');
-            this.isPausedForRecovery = false;
-            this.consecutiveFailures = 0;
-            this.currentRetryDelay = 500; // Reset delay
-            if (this.isEnabled) {
-              this.start();
-            }
-          }, 30000); // 30 second recovery period
+          // Only schedule recovery if permission is not denied
+          if (!isDenied()) {
+            setTimeout(() => {
+              console.log('[AlwaysListen] Recovery period complete, attempting to restart...');
+              this.isPausedForRecovery = false;
+              this.consecutiveFailures = 0;
+              this.currentRetryDelay = 500; // Reset delay
+              if (this.isEnabled) {
+                this.start();
+              }
+            }, 30000); // 30 second recovery period
+          }
           
           this.state = 'error';
           break; // Exit early, don't schedule immediate restart

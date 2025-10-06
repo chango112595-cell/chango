@@ -275,12 +275,13 @@ class AlwaysListenManager {
   private isPausedForRecovery: boolean = false;
   private lastSuccessfulRecognition: number = Date.now();
   private errorMessage: string = '';
+  private isStartingRecognition: boolean = false; // Global flag to prevent concurrent starts
 
   constructor() {
     this.config = {
       autoRestart: true,
       pauseOnHidden: true,
-      restartDelay: 500,
+      restartDelay: 1500, // Increased from 500ms to 1500ms to prevent rapid restarts
       noSpeechTimeout: 10000,
       maxRestartAttempts: 5,
       language: 'en-US'
@@ -489,9 +490,12 @@ class AlwaysListenManager {
       this.restartAttempts = 0;
       this.hasPermission = true;
       
+      // Clear the starting flag when recognition actually starts
+      this.isStartingRecognition = false;
+      
       // Reset consecutive failures on successful start
       this.consecutiveFailures = 0;
-      this.currentRetryDelay = 500; // Reset to initial delay
+      this.currentRetryDelay = 1500; // Reset to initial delay (increased from 500ms)
       this.isPausedForRecovery = false;
       this.errorMessage = '';
       
@@ -855,10 +859,11 @@ class AlwaysListenManager {
         break;
 
       case 'aborted':
-        // Recognition aborted - restart if enabled
+        // Recognition aborted - restart if enabled with longer delay
         console.log('[AlwaysListen] Recognition aborted');
-        if (this.isEnabled) {
-          this.scheduleRestart(200);
+        if (this.isEnabled && !this.isPausedForRecovery) {
+          // Use longer delay for aborted errors to prevent rapid restarts
+          this.scheduleRestart(2000); // Increased from 200ms to 2000ms
         }
         break;
 
@@ -922,11 +927,20 @@ class AlwaysListenManager {
   private async startRecognition(): Promise<void> {
     if (!this.recognition || !this.isEnabled) return;
     
+    // Check if already starting to prevent concurrent starts
+    if (this.isStartingRecognition) {
+      console.log('[AlwaysListen] Already starting recognition, skipping concurrent start');
+      return;
+    }
+    
     // Check current state
     if (this.state === 'listening' || this.state === 'starting') {
       console.log('[AlwaysListen] Already starting/listening, skipping start');
       return;
     }
+    
+    // Set the global flag to prevent concurrent starts
+    this.isStartingRecognition = true;
     
     // Try to ensure mic is ready (iOS-safe bootstrap)
     try {
@@ -944,6 +958,9 @@ class AlwaysListenManager {
     } catch (error) {
       console.warn('[AlwaysListen] Could not ensure mic ready, continuing anyway:', error);
       this.hasPermission = false;
+      
+      // Clear the flag on mic ready error too
+      this.isStartingRecognition = false;
       
       if (FEATURES.DEBUG_BUS) {
         debugBus.warn('AlwaysListen', 'Starting without mic ready', { error: String(error) });
@@ -979,8 +996,13 @@ class AlwaysListenManager {
     try {
       this.recognition.start();
       console.log('[AlwaysListen] Recognition start requested');
+      // Clear the flag after successful start request
+      this.isStartingRecognition = false;
     } catch (error: any) {
       console.error('[AlwaysListen] Failed to start recognition:', error);
+      
+      // Always clear the flag on error
+      this.isStartingRecognition = false;
       
       if (FEATURES.DEBUG_BUS) {
         debugBus.error('AlwaysListen', 'Start failed', { error: error?.message });
@@ -994,7 +1016,7 @@ class AlwaysListenManager {
         } catch (abortError) {
           console.warn('[AlwaysListen] Error aborting:', abortError);
         }
-        this.scheduleRestart(500);
+        this.scheduleRestart(2000); // Increased from 500ms to 2000ms to prevent rapid restarts
       } else {
         // Other error - schedule restart
         this.state = 'error';

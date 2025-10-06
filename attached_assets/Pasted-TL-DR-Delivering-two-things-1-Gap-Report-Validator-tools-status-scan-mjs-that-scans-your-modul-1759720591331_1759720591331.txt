@@ -1,0 +1,376 @@
+TL;DR: Delivering two things:
+	1.	Gap Report Validator (tools/status_scan.mjs) that scans your modules and produces GAP_REPORT.md, plus appends an Auto Status section to TASK_MASTER_CURRENT.md without overwriting your manual table.
+	2.	Runtime Telemetry → Docs refresher: a headless client telemetry module (client/chango/diag/telemetry.js) that records live metrics and lets you download telemetry/runtime.json. A companion script (tools/refresh_docs.mjs) ingests that JSON and appends updated status to your docs.
+
+⸻
+
+Plan (pseudocode)
+	•	Validator (tools/status_scan.mjs):
+	•	Define expected modules per task.
+	•	For each file: check existence, minimal API via regex (export class, functions).
+	•	Compute coverage %, emit GAP_REPORT.md.
+	•	Append “Auto Status (scan)” section to TASK_MASTER_CURRENT.md with timestamps + inferred completion.
+	•	Telemetry (client):
+	•	Hook bus events (vad:start/stop, stt:result, diag:error, etc.).
+	•	Aggregate counters (TTS speak time, STT finals, VAD sessions, permission denials).
+	•	Expose window.ChangoTelemetry.download() to save telemetry/runtime.json locally.
+	•	Docs refresher (tools/refresh_docs.mjs):
+	•	Load telemetry/runtime.json.
+	•	Derive stability %: e.g., (tts_ok / (tts_ok + tts_err)), loop-stoppage rate, STT finalization ratio.
+	•	Append “Auto Status (telemetry)” to TASK_MASTER_CURRENT.md and Handoff snapshot to HANDDOWN_SUMMARY.md.
+	•	Zero UI change; isolated ES modules.
+
+⸻
+
+
+# tools/status_scan.mjs
+#!/usr/bin/env node
+/**
+ * Gap Report Validator: scans codebase for required modules/APIs and appends an Auto Status section.
+ * Safe: does not overwrite your manual tables; appends at the end with timestamp.
+ */
+import fs from "node:fs";
+import path from "node:path";
+
+const ROOT = process.cwd();
+const read = (p) => fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null;
+const write = (p, s) => fs.writeFileSync(p, s, "utf8");
+const append = (p, s) => fs.appendFileSync(p, s, "utf8");
+const stamp = () => new Date().toISOString();
+
+const EXPECT = {
+  "Core Systems": {
+    "Voice System Stability Audit": [
+      "client/chango/core/state.js",
+      "client/chango/audio/contextPool.js",
+      "client/chango/audio/vad.js",
+      "client/chango/stt/webspeech.js"
+    ],
+    "Microphone Permission Validator": [
+      "client/chango/audio/vad.js"
+    ],
+    "Hybrid Core Logging System": [
+      "client/chango/diag/monitor.js"
+    ]
+  },
+  "Voice & Audio": {
+    "STT Pipeline Integration": [
+      "client/chango/stt/webspeech.js"
+    ],
+    "Natural Response Engine": [
+      "client/chango/tts/prosody.js",
+      "client/chango/accent/engine.js"
+    ],
+    "Advanced Voice Program": [
+      "client/chango/tts/formantSynth.js",
+      "server/cli/tts_render.mjs"
+    ],
+    "Wake Word (Lolo)": [
+      "client/chango/wakeword/detector.js"
+    ],
+    "Hands-Free Mode Control": [
+      "client/chango/audio/vad.js"
+    ],
+    "Mute / Unmute System": [
+      "client/chango/audio/contextPool.js"
+    ]
+  },
+  "User Interface": {
+    "HUD Sphere System": [
+      // UI untouched; presence is a no-op check (kept empty to avoid UI coupling)
+    ],
+    "Responsive UI Refactor": [
+      "client/chango/core/device.js"
+    ],
+    "UI Safe Zones": [
+      "client/chango/ui/adapter.js"
+    ]
+  },
+  "Diagnostics & Monitoring": {
+    "Global Debug Monitor": [
+      "client/chango/diag/monitor.js"
+    ],
+    "Auto-Heal Mechanism": [
+      // future: placeholder so report marks as missing if no file yet
+      "client/chango/diag/autoHeal.js"
+    ],
+    "Priority Event Filter": [
+      "client/chango/diag/monitor.js"
+    ]
+  },
+  "Knowledge & Core Memory": {
+    "Historical Knowledge Feed": [],
+    "Temporal Awareness": []
+  },
+  "Security & Failsafes": {
+    "Manual Override (Mute / Pause)": [
+      "client/chango/ui/adapter.js"
+    ],
+    "Voice Recognition Security": [
+      // future voiceprint API placeholder
+      "client/chango/audio/mfcc.js"
+    ]
+  }
+};
+
+function fileExists(rel) {
+  return fs.existsSync(path.join(ROOT, rel));
+}
+
+function checkExports(src, patterns) {
+  if (!src) return 0;
+  let score = 0, total = patterns.length;
+  for (const re of patterns) if (re.test(src)) score++;
+  return total ? (score / total) : 1;
+}
+
+function scan() {
+  const results = [];
+  for (const [layer, tasks] of Object.entries(EXPECT)) {
+    for (const [task, files] of Object.entries(tasks)) {
+      if (!files.length) {
+        results.push({ layer, task, coverage: 0, files: [], notes: "no files required (manual)" });
+        continue;
+      }
+      let ok = 0; const entries = [];
+      for (const f of files) {
+        const found = fileExists(f);
+        let apiScore = 0;
+        if (found) {
+          const src = read(path.join(ROOT, f));
+          // minimal API checks by file:
+          const pats = /formantSynth/.test(f) ? [/class\s+FormantSynth/]
+                    : /vad\.js$/.test(f) ? [/class\s+VAD/, /start\(/, /stop\(/]
+                    : /contextPool\.js$/.test(f) ? [/class\s+AudioContextPool/]
+                    : /webspeech\.js$/.test(f) ? [/class\s+WebSpeechSTT/]
+                    : /prosody\.js$/.test(f) ? [/prosodyPlan\(/]
+                    : /engine\.js$/.test(f) ? [/accentize\(/]
+                    : /detector\.js$/.test(f) ? [/class\s+WakeWordDetector/]
+                    : /monitor\.js$/.test(f) ? [/class\s+Monitor/]
+                    : /device\.js$/.test(f) ? [/export\s+const\s+device/]
+                    : /mfcc\.js$/.test(f) ? [/class\s+MFCC/]
+                    : /tts_render\.mjs$/.test(f) ? [/writeWav\(/]
+                    : [];
+          apiScore = checkExports(src, pats);
+        }
+        entries.push({ file: f, exists: found, apiScore });
+        if (found && apiScore >= 0.8) ok++;
+      }
+      const coverage = Math.round((ok / files.length) * 100);
+      results.push({ layer, task, coverage, files: entries, notes: "" });
+    }
+  }
+  return results;
+}
+
+function toMarkdown(results) {
+  let md = `# GAP REPORT\n\nGenerated: ${stamp()}\n\n`;
+  const groups = {};
+  for (const r of results) (groups[r.layer] ||= []).push(r);
+  for (const [layer, arr] of Object.entries(groups)) {
+    md += `## ${layer}\n\n| Task | Coverage | Notes |\n|---|---:|---|\n`;
+    for (const r of arr) {
+      md += `| ${r.task} | ${r.coverage}% | ${r.notes || ""} |\n`;
+      for (const ent of r.files) {
+        md += `| ↳ \`${ent.file}\` | ${ent.exists ? Math.round(ent.apiScore*100)+'%' : 'missing'} | |\n`;
+      }
+    }
+    md += `\n`;
+  }
+  return md;
+}
+
+function appendAutoStatus(results) {
+  const dest = path.join(ROOT, "TASK_MASTER_CURRENT.md");
+  const md0 = read(dest) || "";
+  const lines = [];
+  lines.push("\n---\n");
+  lines.push(`### Auto Status (scan) — ${stamp()}\n`);
+  lines.push("| Layer | Task | Coverage |\n|---|---|---:|\n");
+  for (const r of results) lines.push(`| ${r.layer} | ${r.task} | ${r.coverage}% |`);
+  const out = md0 + lines.join("\n") + "\n";
+  write(dest, out);
+}
+
+(function main(){
+  const results = scan();
+  const report = toMarkdown(results);
+  const outPath = path.join(ROOT, "GAP_REPORT.md");
+  write(outPath, report);
+  appendAutoStatus(results);
+  console.log(`Wrote GAP_REPORT.md and appended Auto Status to TASK_MASTER_CURRENT.md`);
+})();
+
+# tools/refresh_docs.mjs
+#!/usr/bin/env node
+/**
+ * Refresh docs from runtime telemetry snapshot: telemetry/runtime.json
+ * Appends "Auto Status (telemetry)" to TASK_MASTER_CURRENT.md and a brief handover entry.
+ */
+import fs from "node:fs";
+import path from "node:path";
+
+const ROOT = process.cwd();
+const stamp = () => new Date().toISOString();
+const readJSON = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
+const append = (p, s) => fs.appendFileSync(p, s, "utf8");
+
+function safePct(num) { return isFinite(num) && num>=0 ? Math.max(0, Math.min(100, Math.round(num))) : 0; }
+
+function deriveStatus(t) {
+  // Inputs expected from telemetry.js (see below)
+  const tts_ok = t.tts.success || 0;
+  const tts_err = t.tts.error || 0;
+  const stt_final = t.stt.final || 0;
+  const stt_interim = t.stt.interim || 0;
+  const stt_err = t.stt.error || 0;
+  const vad_sessions = t.vad.sessions || 0;
+  const mic_denied = t.mic.denied || 0;
+
+  const voice_stability = safePct((tts_ok / Math.max(1, (tts_ok + tts_err))) * 100);
+  const stt_quality = safePct((stt_final / Math.max(1, (stt_final + stt_err))) * 100);
+  const hands_free = vad_sessions > 0 ? 100 : 0;
+  const mic_health = mic_denied === 0 ? 100 : Math.max(0, 100 - mic_denied * 5);
+
+  return { voice_stability, stt_quality, hands_free, mic_health };
+}
+
+(function main(){
+  const telPath = path.join(ROOT, "telemetry", "runtime.json");
+  if (!fs.existsSync(telPath)) {
+    console.error(`Telemetry file not found: ${telPath}`);
+    process.exit(1);
+  }
+  const t = readJSON(telPath);
+  const s = deriveStatus(t);
+
+  // TASK_MASTER_CURRENT.md
+  const tmc = path.join(ROOT, "TASK_MASTER_CURRENT.md");
+  const md = [
+    "\n---\n",
+    `### Auto Status (telemetry) — ${stamp()}\n`,
+    `- Voice System Stability: **${s.voice_stability}%**`,
+    `- STT Quality (finalization ratio): **${s.stt_quality}%**`,
+    `- Hands-Free (VAD sessions present): **${s.hands_free}%**`,
+    `- Microphone Health: **${s.mic_health}%**\n`
+  ].join("\n");
+  append(tmc, md);
+
+  // HANDDOWN_SUMMARY.md (brief)
+  const hdf = path.join(ROOT, "HANDDOWN_SUMMARY.md");
+  const hand = [
+    "\n---\n",
+    `**Auto Handover Note — ${stamp()}**`,
+    `- Session: ${t.session?.id || "n/a"} — device: ${t.device?.type || "unknown"} — sr: ${t.device?.sampleRate || "?"}`,
+    `- TTS ok/err: ${t.tts?.success || 0}/${t.tts?.error || 0} — STT final/interim/err: ${t.stt?.final || 0}/${t.stt?.interim || 0}/${t.stt?.error || 0}`,
+    `- VAD sessions: ${t.vad?.sessions || 0} — mic: denied=${t.mic?.denied || 0}`
+  ].join("\n");
+  append(hdf, hand);
+
+  console.log("Appended telemetry-based status to TASK_MASTER_CURRENT.md and HANDDOWN_SUMMARY.md");
+})();
+
+# client/chango/diag/telemetry.js
+/**
+ * Headless telemetry collector; no UI changes.
+ * - Listens to bus events and aggregates counts.
+ * - Exposes window.ChangoTelemetry.download() to save `telemetry/runtime.json`.
+ */
+import { bus } from "../core/eventBus.js";
+import { device } from "../core/device.js";
+
+function nowISO(){ return new Date().toISOString(); }
+function dlJSON(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 0);
+}
+
+export class Telemetry {
+  constructor() {
+    this.payload = {
+      session: { id: Math.random().toString(36).slice(2), start: nowISO() },
+      device: { type: device.isCar ? "car" : device.isMobile ? "mobile" : "desktop", sampleRate: device.sampleRateHint },
+      tts: { success: 0, error: 0, durations_ms: 0 },
+      stt: { interim: 0, final: 0, error: 0 },
+      vad: { sessions: 0, active: false },
+      mic: { denied: 0, recovered: 0 },
+      diag: { errors: 0, warns: 0, infos: 0 }
+    };
+    this._wire();
+    window.ChangoTelemetry = {
+      download: () => this.download(),
+      snapshot: () => JSON.parse(JSON.stringify(this.payload))
+    };
+  }
+  _wire() {
+    bus.on("vad:start", () => { if (!this.payload.vad.active) { this.payload.vad.active = true; this.payload.vad.sessions++; } });
+    bus.on("vad:stop", () => { this.payload.vad.active = false; });
+
+    bus.on("stt:result", (e) => { if (!e) return; if (e.final) this.payload.stt.final++; else this.payload.stt.interim++; });
+    bus.on("stt:unavailable", () => { this.payload.stt.error++; });
+
+    bus.on("diag:error", () => { this.payload.diag.errors++; });
+    bus.on("diag:warn",  () => { this.payload.diag.warns++;  });
+    bus.on("diag:info",  () => { this.payload.diag.infos++;  });
+
+    // TTS timing hooks (emit these around synth if desired)
+    bus.on("tts:begin", (ms)=>{ /* placeholder for begin ts */ });
+    bus.on("tts:end", (ms)=>{ this.payload.tts.durations_ms += (ms||0); this.payload.tts.success++; });
+    bus.on("tts:fail", ()=>{ this.payload.tts.error++; });
+
+    // Mic permissions
+    // If your VAD emits denial events, count them here:
+    bus.on("mic:denied", ()=>{ this.payload.mic.denied++; });
+    bus.on("mic:recovered", ()=>{ this.payload.mic.recovered++; });
+  }
+  download() {
+    const out = {
+      ...this.payload,
+      session: { ...this.payload.session, end: nowISO() }
+    };
+    dlJSON("runtime.json", out);
+  }
+}
+
+export const telemetry = new Telemetry();
+
+# (Optional) Integrate telemetry in bootstrap without UI changes:
+# Add these two lines in client/chango/bootstrap.js near other imports and inside speak():
+# import { telemetry } from "./diag/telemetry.js";
+# bus.emit("tts:begin");
+# await tts.speak(tl,{rate:1,pitch:1,volume:1});
+# bus.emit("tts:end");
+
+
+⸻
+
+How to use
+	•	Generate a gap report (scan the codebase):
+
+node tools/status_scan.mjs
+# Produces GAP_REPORT.md and appends "Auto Status (scan)" to TASK_MASTER_CURRENT.md
+
+
+	•	Collect telemetry in the browser (no UI changes):
+	1.	Load your app (with client/chango/diag/telemetry.js imported by bootstrap.js).
+	2.	Interact normally (speak, STT, VAD).
+	3.	In DevTools console run:
+
+ChangoTelemetry.download()
+
+This saves runtime.json. Move it to telemetry/runtime.json in your repo.
+
+	•	Refresh docs from telemetry:
+
+node tools/refresh_docs.mjs
+# Appends "Auto Status (telemetry)" to TASK_MASTER_CURRENT.md and a note to HANDDOWN_SUMMARY.md
+
+
+	•	No UI change: All modules are headless; your banner & layout remain untouched.
+
+⸻
+
+a. Want me to wire an Owner Voiceprint gate (enroll/match) that flips a status line when locked?
+b. Prefer the telemetry refresher to update a JSON dashboard (for your HUD) instead of only appending to MD?

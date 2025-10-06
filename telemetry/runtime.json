@@ -1,0 +1,33 @@
+{
+  "session": {
+    "id": "test123",
+    "start": "2025-10-06T03:00:00Z"
+  },
+  "device": {
+    "type": "desktop",
+    "sampleRate": 48000
+  },
+  "tts": {
+    "success": 10,
+    "error": 2,
+    "durations_ms": 5000
+  },
+  "stt": {
+    "interim": 15,
+    "final": 8,
+    "error": 1
+  },
+  "vad": {
+    "sessions": 3,
+    "active": false
+  },
+  "mic": {
+    "denied": 0,
+    "recovered": 0
+  },
+  "diag": {
+    "errors": 2,
+    "warns": 5,
+    "infos": 20
+  }
+}

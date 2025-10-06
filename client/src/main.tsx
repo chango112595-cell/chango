@@ -5,6 +5,9 @@ import { Voice } from "@/lib/voiceController";
 import "./app/initHealthMonitor";
 import { startDiagRunner, attachDiagNotifier } from "./diag";
 
+// Import Chango voice modules integration
+import "./chango-integration.js";
+
 // Test utilities have been moved to client/tests/ directory
 // They should not be imported in production code
 if (import.meta.env.DEV) {

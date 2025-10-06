@@ -241,6 +241,8 @@ export function ChatInputBar({
               disabled={isProcessing}
               className={`mic-button ${isListening ? 'listening' : ''}`}
               data-testid="button-mic"
+              data-chango-enable={isListening ? undefined : "true"}
+              data-chango-stop={isListening ? "true" : undefined}
             >
               {isListening ? (
                 <Mic className="w-5 h-5 text-red-500 animate-pulse" />
@@ -280,6 +282,7 @@ export function ChatInputBar({
               disabled={isProcessing}
               className="chat-input"
               data-testid="input-chat"
+              data-chango-text="true"
               autoComplete="off"
               autoCorrect="off"
               spellCheck="false"
@@ -293,6 +296,7 @@ export function ChatInputBar({
               disabled={!inputText.trim() || isProcessing}
               className="submit-button"
               data-testid="button-submit"
+              data-chango-speak="true"
             >
               {isProcessing ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -302,6 +306,14 @@ export function ChatInputBar({
             </Button>
           </div>
         </form>
+        
+        {/* Voice status display */}
+        <div 
+          className="voice-status text-xs text-gray-500 text-center py-1"
+          data-chango-status="true"
+        >
+          {/* Status will be updated by Chango adapter */}
+        </div>
         
         {/* Safe area padding for mobile */}
         <div className="safe-area-padding" />

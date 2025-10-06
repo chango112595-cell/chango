@@ -14,6 +14,10 @@ Implemented centralized theme management and responsive design improvements:
   - Theme selector moved from standalone button to Settings → Appearance tab
   - Immediate theme application with visual feedback
   - Current theme displayed as selected in dropdown
+- **UI Mode Control**: Moved UI mode switching from top-right panel to Settings → Appearance
+  - Removed standalone UI mode switch from top-right corner
+  - UI mode selector (Header Bar vs Hologram Sphere) now in Settings Modal
+  - Settings persist to localStorage and sync across tabs
 - **Responsive Design**: Enhanced auto-scaling across all device sizes
   - Settings modal responsive from mobile (320px) to ultra-wide (1920px+)
   - Dynamic font sizing using clamp() for smooth text scaling

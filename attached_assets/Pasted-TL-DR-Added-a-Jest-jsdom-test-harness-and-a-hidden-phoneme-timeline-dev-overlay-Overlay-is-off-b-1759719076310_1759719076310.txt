@@ -1,0 +1,487 @@
+TL;DR: Added a Jest + jsdom test harness and a hidden phoneme timeline dev overlay. Overlay is off by default, enabled via ?changoDev=1 or localStorage.setItem('changoDev','1'). UI stays exactly the same. Modules remain isolated.
+
+⸻
+
+Plan (pseudocode)
+	•	Add tests: event bus, prosody, accent, MFCC, G2P/timeline.
+	•	Add dev overlay: listens to bus for tts:timeline; draws timeline; off by default.
+	•	Keep all audio/UI code unchanged; only emit timeline and optional init when enabled.
+
+⸻
+
+
+# package.json
+{
+  "name": "chango-ai",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand",
+    "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watch"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0"
+  }
+}
+
+# jest.config.mjs
+export default {
+  testEnvironment: "jsdom",
+  roots: ["<rootDir>/tests"],
+  transform: {},
+  moduleFileExtensions: ["js", "mjs"],
+  setupFilesAfterEnv: ["<rootDir>/tests/setup.js"]
+};
+
+# tests/setup.js
+// Why: stable Math.random in tests for reproducibility.
+const origRandom = Math.random;
+let seed = 42;
+Math.random = () => {
+  // xorshift32
+  seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+  return ((seed >>> 0) % 1000) / 1000;
+};
+
+# client/chango/core/eventBus.js
+export class EventBus {
+  constructor() { this.map = new Map(); }
+  on(type, fn) { (this.map.get(type) || this.map.set(type, new Set()).get(type)).add(fn); return () => this.off(type, fn); }
+  off(type, fn) { const s = this.map.get(type); if (s) s.delete(fn); }
+  emit(type, payload) { const s = this.map.get(type); if (!s) return; for (const fn of s) { try { fn(payload); } catch {} } }
+}
+export const bus = new EventBus();
+
+# client/chango/audio/contextPool.js
+export class AudioContextPool {
+  constructor({ sampleRate = 48000 } = {}) { this.sampleRate = sampleRate; this.ctx = null; this.master = null; this.unlocked = false; }
+  async ensure() {
+    if (!this.ctx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      this.ctx = new Ctx({ sampleRate: this.sampleRate });
+      this.master = this.ctx.createGain(); this.master.gain.value = 1; this.master.connect(this.ctx.destination);
+    }
+    return this.ctx;
+  }
+  async unlock() { await this.ensure(); if (this.ctx.state === "suspended") await this.ctx.resume(); this.unlocked = true; }
+  node() { return this.master; }
+  async stop() { if (this.ctx) { try { await this.ctx.close(); } catch {} } this.ctx = null; this.master = null; this.unlocked = false; }
+}
+export const ctxPool = new AudioContextPool();
+
+# client/chango/audio/vad.js
+import { bus } from "../core/eventBus.js";
+import { ctxPool } from "./contextPool.js";
+
+export class VAD {
+  constructor({ startThresh = 0.015, stopThresh = 0.008, minHoldMs = 150 } = {}) {
+    this.startT = startThresh; this.stopT = stopThresh; this.minHold = minHoldMs / 1000;
+    this.media = null; this.node = null; this.state = "idle"; this.lastStart = 0;
+  }
+  async start() {
+    await ctxPool.ensure(); const ctx = ctxPool.ctx;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+    this.media = ctx.createMediaStreamSource(stream);
+    const proc = ctx.createScriptProcessor(1024, 1, 1); const prev = new Float32Array(512); let prevMag = 0;
+    proc.onaudioprocess = (e) => {
+      const x = e.inputBuffer.getChannelData(0);
+      let energy = 0; for (let i = 0; i < x.length; i++) energy += x[i] * x[i]; energy /= x.length;
+      let mag = 0; for (let i = 0; i < prev.length; i++) mag += Math.abs(x[i] - prev[i]); prev.set(x.subarray(0, prev.length));
+      const flux = Math.abs(mag - prevMag); prevMag = mag;
+      const score = 0.85 * energy + 0.15 * (flux / prev.length);
+      const t = ctx.currentTime;
+      if (this.state === "idle" && score > this.startT) { this.state = "speech"; this.lastStart = t; bus.emit("vad:start", { t, energy: score }); }
+      else if (this.state === "speech" && score < this.stopT && (t - this.lastStart) > this.minHold) { this.state = "idle"; bus.emit("vad:stop", { t, energy: score }); }
+    };
+    this.media.connect(proc); proc.connect(ctxPool.node()); this.node = proc;
+  }
+  stop() { try { this.node && this.node.disconnect(); } catch {} try { this.media && this.media.disconnect(); } catch {} this.node = null; this.media = null; this.state = "idle"; }
+}
+
+# client/chango/audio/mfcc.js
+export class MFCC {
+  constructor({ fftSize = 1024, sampleRate = 48000, melBands = 24, coeffs = 13 } = {}) {
+    this.fftSize = fftSize; this.sampleRate = sampleRate; this.melBands = melBands; this.coeffs = coeffs;
+    this._hann = new Float32Array(fftSize);
+    for (let i = 0; i < fftSize; i++) this._hann[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (fftSize - 1)));
+    this._fb = null; // Why: cache mel filterbank for speed.
+  }
+  _fftReIm(x) {
+    const N = x.length; const re = x.slice(); const im = new Float32Array(N);
+    for (let i = 0, j = 0; i < N; i++) { if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+      let m = N >> 1; while (j >= m && m >= 2) { j -= m; m >>= 1; } j += m; }
+    for (let size = 2; size <= N; size <<= 1) {
+      const half = size >> 1, step = (2 * Math.PI) / size;
+      for (let i = 0; i < N; i += size) for (let k = 0; k < half; k++) {
+        const ang = step * k, wr = Math.cos(ang), wi = -Math.sin(ang);
+        const tr = wr * re[i + k + half] - wi * im[i + k + half];
+        const ti = wr * im[i + k + half] + wi * re[i + k + half];
+        re[i + k + half] = re[i + k] - tr; im[i + k + half] = im[i + k] - ti;
+        re[i + k] += tr; im[i + k] += ti;
+      }
+    }
+    return { re, im };
+  }
+  _hz2mel(hz) { return 2595 * Math.log10(1 + hz / 700); }
+  _mel2hz(m) { return 700 * (Math.pow(10, m / 2595) - 1); }
+  _melFilterbank() {
+    if (this._fb) return this._fb;
+    const sr = this.sampleRate, nfft = this.fftSize, nb = this.melBands;
+    const mMin = this._hz2mel(20), mMax = this._hz2mel(sr / 2);
+    const mpts = new Array(nb + 2).fill(0).map((_, i) => mMin + (i * (mMax - mMin)) / (nb + 1)).map(m => this._mel2hz(m));
+    const bins = mpts.map(f => Math.floor((nfft + 1) * f / sr));
+    const fb = Array.from({ length: nb }, () => new Float32Array(nfft / 2 + 1));
+    for (let i = 0; i < nb; i++) {
+      for (let k = bins[i]; k < bins[i + 1]; k++) fb[i][k] = (k - bins[i]) / Math.max(1, (bins[i + 1] - bins[i]));
+      for (let k = bins[i + 1]; k < bins[i + 2]; k++) fb[i][k] = (bins[i + 2] - k) / Math.max(1, (bins[i + 2] - bins[i + 1]));
+    }
+    this._fb = fb; return fb;
+  }
+  _dct(melE) {
+    const K = this.coeffs, N = melE.length, out = new Float32Array(K);
+    for (let k = 0; k < K; k++) {
+      let s = 0; for (let n = 0; n < N; n++) s += melE[n] * Math.cos(Math.PI * k * (2 * n + 1) / (2 * N));
+      out[k] = s * Math.sqrt(2 / N);
+    }
+    return out;
+  }
+  extract(frame) {
+    const x = frame.slice(0, this.fftSize);
+    for (let i = 0; i < x.length; i++) x[i] *= this._hann[i];
+    const { re, im } = this._fftReIm(x);
+    const mag = new Float32Array(re.length / 2);
+    for (let i = 0; i < mag.length; i++) mag[i] = Math.hypot(re[i], im[i]);
+    const fb = this._melFilterbank(); const mel = new Float32Array(fb.length);
+    for (let i = 0; i < fb.length; i++) { let s = 0; for (let k = 0; k < fb[i].length; k++) s += fb[i][k] * mag[k]; mel[i] = Math.log(1e-8 + s); }
+    return this._dct(mel);
+  }
+  voiceprint(frames) {
+    const mfccs = frames.map(f => this.extract(f));
+    const mean = new Float32Array(this.coeffs);
+    for (const v of mfccs) for (let i = 0; i < mean.length; i++) mean[i] += v[i];
+    for (let i = 0; i < mean.length; i++) mean[i] /= Math.max(1, mfccs.length);
+    return mean;
+  }
+  cosine(a, b) {
+    let s = 0, na = 0, nb = 0; for (let i = 0; i < a.length; i++) { s += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+    return s / (Math.sqrt(na) * Math.sqrt(nb) + 1e-9);
+  }
+}
+
+# client/chango/tts/prosody.js
+export function prosodyPlan(text) {
+  const raw = (text || "").trim();
+  const spans = splitIntoPhrases(raw).map(seg => toPhonPlans(seg));
+  return spans.flat();
+}
+function splitIntoPhrases(t) {
+  return t.split(/([.?!,;:])/).reduce((acc, cur, idx) => {
+    if (!cur) return acc; if (" .?!,;:".includes(cur) && idx > 0) { acc[acc.length - 1] += cur; }
+    else acc.push(cur); return acc;
+  }, []).map(s => s.trim()).filter(Boolean);
+}
+function toPhonPlans(phrase) {
+  const isQ = /[?]$/.test(phrase);
+  const words = phrase.replace(/[.?!,;:]/g, "").split(/\s+/).filter(Boolean);
+  return words.map((w, i) => ({
+    word: w,
+    emphasis: /\*\*[^*]+\*\*/.test(w),
+    boundary: (i === words.length - 1) ? (isQ ? "H%" : "L%") : (i % 3 === 2 ? "ip" : "none")
+  }));
+}
+
+# client/chango/accent/engine.js
+export function accentize(phonemes, profile = "neutral") {
+  const out = [];
+  const rules = profiles[profile] || profiles.neutral;
+  for (const ph of phonemes) {
+    let sym = ph.ph;
+    if (rules.vowel[sym]) sym = rules.vowel[sym];
+    if (rules.cons[sym]) sym = rules.cons[sym];
+    out.push({ ...ph, ph: sym, dur: (ph.dur || 1) * rules.tscale, gain: (ph.gain || 1) * rules.gscale });
+  }
+  return out;
+}
+const profiles = {
+  neutral: { vowel: {}, cons: {}, tscale: 1, gscale: 1 },
+  uk_rp:   { vowel: { ae: "aa", ah: "ax", er: "əː" }, cons: { r: "ɹ" }, tscale: 1.05, gscale: 0.95 },
+  us_south:{ vowel: { ih: "iy", ey: "eə", ay: "aə" }, cons: { r: "ɻ" }, tscale: 0.95, gscale: 1.02 }
+};
+
+# client/chango/tts/g2p.js
+// Why: keep G2P and timeline pure for testing.
+export function wordsToPhones(plan) {
+  const dict = { hello:["h","eh","l","ow"], world:["w","er","l","d"], chango:["ch","aa","ng","ow"], jarvis:["jh","aa","r","v","ih","s"] };
+  const out = [];
+  for (const unit of plan) {
+    const w = unit.word.toLowerCase().replace(/\*|_/g, "");
+    const phs = dict[w] || fallbackGrapheme(w);
+    for (const ph of phs) out.push({ ph, dur: 1, gain: 1 });
+    const boundary = unit.boundary;
+    out.push({ ph: "pau", dur: boundary === "H%" ? 1.4 : boundary === "ip" ? 0.7 : 0.5 });
+  }
+  return out;
+}
+export function fallbackGrapheme(w){
+  const seq=[]; for(let i=0;i<w.length;i++){ const c=w[i];
+    if ("aeiou".includes(c)) seq.push(vowel(c, w[i+1]||""));
+    else seq.push(cons(c));
+  } return seq;
+}
+export function vowel(v, n){ return v==="a"?(["e","y"].includes(n)?"ey":"ae"):v==="e"?"eh":v==="i"?"ih":v==="o"?(n==="w"?"ow":"ao"):v==="u"?"uw":"ah"; }
+export function cons(c){ const map={b:"b",c:"k",d:"d",f:"f",g:"g",h:"h",j:"jh",k:"k",l:"l",m:"m",n:"n",p:"p",q:"k",r:"r",s:"s",t:"t",v:"v",w:"w",x:"k",y:"y",z:"z"}; return map[c]||"pau"; }
+export function toTimeline(phs){ return phs.map(p=>({ ph: p.ph, dur: (p.dur||1)*0.08, gain: p.gain||1 })); }
+
+# client/chango/tts/formantSynth.js
+import { ctxPool } from "../audio/contextPool.js";
+const VOWELS = {
+  iy:[270,2290,3010], ih:[390,1990,2550], eh:[530,1840,2480], ae:[660,1720,2410],
+  aa:[730,1090,2440], ah:[570,1580,2410], ao:[570,840,2410], uh:[440,1020,2240],
+  uw:[300,870,2240],  ow:[360,940,2280],  ey:[530,1830,2480], ay:[660,1720,2410], oy:[500,1400,2400], er:[490,1350,1690]
+};
+const CONS_CENTERS = { f:8000, s:6000, sh:3500, th:4000, v:7000, z:5000, zh:3000, ch:3000, jh:2300, h:2000, k:1800, g:1500, t:2500, d:2000, p:2800, b:2400, m:700, n:700, l:1000, r:500, w:600, y:1000, ng:500 };
+
+export class FormantSynth {
+  constructor() { this.ctx = null; this.master = null; this.voices = { baseHz: 120 }; }
+  async ensure() { await ctxPool.ensure(); this.ctx = ctxPool.ctx; this.master = ctxPool.node(); }
+  async speak(timeline, { rate = 1, pitch = 1, volume = 1 } = {}) {
+    await this.ensure(); if (this.master) this.master.gain.value = volume;
+    const start = this.ctx.currentTime + 0.02; let t = start;
+    for (const item of timeline) {
+      const d = (item.dur || 0.08) / rate;
+      if (item.ph === "pau") { t += d; continue; }
+      await this.renderPhone(item, t, d, pitch);
+      t += d * 0.92;
+    }
+    return new Promise(res => setTimeout(res, (t - this.ctx.currentTime) * 1000));
+  }
+  async renderPhone(item, t, d, pitch) {
+    if (isVowel(item.ph)) this.renderVowel(item.ph, t, d, pitch, item.gain || 0.22);
+    else this.renderConsonant(item.ph, t, d, pitch, item.gain || 0.12);
+  }
+  renderVowel(v, t, d, pitch, gain = 0.22) {
+    const ctx = this.ctx; const src = ctx.createOscillator(); src.type = "sawtooth"; src.frequency.setValueAtTime((this.voices.baseHz || 120) * pitch, t);
+    const lfo = ctx.createOscillator(); lfo.type = "triangle"; lfo.frequency.value = 5 + Math.random()*2;
+    const lfoG = ctx.createGain(); lfoG.gain.value = 0.006; lfo.connect(lfoG); lfoG.connect(src.frequency);
+    const pre = ctx.createGain(); pre.gain.value = gain;
+    const [f1,f2,f3] = VOWELS[v] || VOWELS.ah;
+    const b1 = bandpass(ctx, f1*pitch, 20), b2 = bandpass(ctx, f2*pitch, 40), b3 = bandpass(ctx, f3*pitch, 60);
+    const nasal = bandpass(ctx, 250, 8);
+    src.connect(pre); pre.connect(b1); pre.connect(b2); pre.connect(b3); pre.connect(nasal);
+    const sum = ctx.createGain(); b1.connect(sum); b2.connect(sum); b3.connect(sum); nasal.connect(sum);
+    const asp = noise(ctx); const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 6000; asp.connect(hp); hp.connect(sum);
+    const env = ctx.createGain(); env.gain.value = 0.0001; sum.connect(env); env.connect(this.master);
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.exponentialRampToValueAtTime(1.0, t + Math.min(0.015, d*0.2));
+    env.gain.setValueAtTime(1.0, t + Math.max(0.01, d*0.7));
+    env.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    src.start(t); lfo.start(t); src.stop(t + d); lfo.stop(t + d);
+  }
+  renderConsonant(ph, t, d, pitch, gain = 0.12) {
+    const ctx = this.ctx; const n = noise(ctx);
+    const bp = bandpass(ctx, CONS_CENTERS[ph] || 2000, 100);
+    const g = ctx.createGain(); g.gain.value = gain; n.connect(bp); bp.connect(g); g.connect(this.master);
+    const atk = Math.min(0.006, d*0.3), rel = Math.min(0.03, d*0.5);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d - rel);
+    if (["m","n","l","r","v","z","w","y","jh","zh","ng"].includes(ph)) {
+      const osc = ctx.createOscillator(); osc.type = "triangle"; osc.frequency.value = 100 * pitch;
+      const vg = ctx.createGain(); vg.gain.value = 0.06; osc.connect(vg); vg.connect(this.master);
+      osc.start(t); osc.stop(t + d);
+    }
+    n.start(t); n.stop(t + d);
+  }
+}
+function bandpass(ctx, f, Q) { const b = ctx.createBiquadFilter(); b.type="bandpass"; b.frequency.value=f; b.Q.value=Q; return b; }
+function noise(ctx){ const b=ctx.createBuffer(1, ctx.sampleRate*2, ctx.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*0.6; const s=ctx.createBufferSource(); s.buffer=b; s.loop=true; return s; }
+function isVowel(ph){ return Object.prototype.hasOwnProperty.call(VOWELS, ph); }
+
+# client/chango/wakeword/detector.js
+import { bus } from "../core/eventBus.js";
+import { MFCC } from "../audio/mfcc.js";
+export class WakeWordDetector {
+  constructor({ name = "lolo", thresh = 0.72 } = {}) { this.name = name; this.thresh = thresh; this.mfcc = new MFCC(); this.templates = []; }
+  enroll(templateFrames) { this.templates.push(templateFrames); }
+  score(seq, tmpl) { const L = Math.min(seq.length, tmpl.length); let s = 0; for (let i = 0; i < L; i++) s += this.mfcc.cosine(seq[i], tmpl[i]); return s / L; }
+  detect(seq) { let best = -1; for (const t of this.templates) best = Math.max(best, this.score(seq, t)); if (best >= this.thresh) bus.emit("wake:hit", { phrase: this.name, score: best }); }
+}
+
+# client/chango/stt/webspeech.js
+import { bus } from "../core/eventBus.js";
+export class WebSpeechSTT {
+  constructor() { this.rec = null; this.active = false; }
+  start() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { bus.emit("stt:unavailable"); return; }
+    this.rec = new SR(); this.rec.continuous = true; this.rec.interimResults = true;
+    this.rec.onresult = (e) => { const i = e.resultIndex, r = e.results[i]; bus.emit("stt:result", { text: r[0].transcript, final: r.isFinal }); };
+    this.rec.onend = () => { if (this.active) this.rec.start(); };
+    this.rec.start(); this.active = true;
+  }
+  stop() { try { this.rec && this.rec.stop(); } catch {} this.active = false; }
+}
+
+# client/chango/ui/adapter.js
+import { bus } from "../core/eventBus.js";
+export class UIAdapter {
+  constructor() { this.el = { enable: q('[data-chango-enable]'), speak: q('[data-chango-speak]'), stop: q('[data-chango-stop]'), text: q('[data-chango-text]'), status: q('[data-chango-status]') }; }
+  mount({ speakFn, stopFn, unlockFn }) {
+    this.el.enable && this.el.enable.addEventListener("click", unlockFn);
+    this.el.speak  && this.el.speak.addEventListener("click", () => speakFn(this.text()));
+    this.el.stop   && this.el.stop.addEventListener("click", stopFn);
+    bus.on("status", s => this.status(s)); bus.on("vad:start", () => this.status("listening…")); bus.on("vad:stop", () => this.status("idle"));
+    bus.emit("status", "idle");
+  }
+  text(){ return this.el.text ? (this.el.text.value || this.el.text.textContent || "") : ""; }
+  status(s){ if (!this.el.status) return; this.el.status.textContent = s; }
+}
+function q(sel){ return document.querySelector(sel); }
+
+# client/chango/dev/overlay.js
+// Hidden dev overlay; draws phoneme timeline when enabled; non-interactive; no UI changes.
+import { bus } from "../core/eventBus.js";
+export class PhonemeOverlay {
+  constructor() {
+    this.enabled = this._shouldEnable();
+    this.root = null; this.canvas = null; this.ctx = null;
+    if (this.enabled) this._mount();
+    bus.on("tts:timeline", (payload) => { if (this.enabled) this._draw(payload); });
+  }
+  _shouldEnable() {
+    // Why: keep default off; opt-in via query or localStorage.
+    const qs = new URLSearchParams(location.search);
+    if (qs.get("changoDev") === "1") return true;
+    try { return localStorage.getItem("changoDev") === "1"; } catch { return false; }
+  }
+  _mount() {
+    this.root = document.createElement("div");
+    Object.assign(this.root.style, { position: "fixed", left: "0", right: "0", bottom: "0", height: "120px", pointerEvents: "none", zIndex: "2147483647", background: "linear-gradient(180deg, transparent, rgba(0,0,0,0.35))", display: "none" });
+    this.canvas = document.createElement("canvas"); this.canvas.width = window.innerWidth; this.canvas.height = 120;
+    this.root.appendChild(this.canvas); document.body.appendChild(this.root);
+    this.ctx = this.canvas.getContext("2d");
+    window.addEventListener("resize", () => { this.canvas.width = window.innerWidth; this._redraw(); });
+  }
+  show() { if (this.root) this.root.style.display = "block"; }
+  hide() { if (this.root) this.root.style.display = "none"; }
+  _draw({ items }) {
+    if (!this.ctx) return; this.show();
+    const ctx = this.ctx; ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
+    const total = items.reduce((s, i) => s + i.dur, 0);
+    let x = 10; const h = 60; const y = 40; const scale = Math.max(1, (this.canvas.width - 20) / (total * 1000));
+    for (const it of items) {
+      const w = Math.max(2, it.dur * 1000 * scale);
+      ctx.fillStyle = it.ph === "pau" ? "rgba(200,200,200,0.4)" : "rgba(140,200,255,0.7)";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "white"; ctx.font = "12px ui-monospace";
+      ctx.fillText(it.ph, x + 2, y + 14);
+      x += w + 4;
+    }
+  }
+  _redraw() {} // simple; draw only on new timeline
+}
+
+# client/chango/bootstrap.js
+import { bus } from "./core/eventBus.js";
+import { ctxPool } from "./audio/contextPool.js";
+import { VAD } from "./audio/vad.js";
+import { MFCC } from "./audio/mfcc.js";
+import { prosodyPlan } from "./tts/prosody.js";
+import { accentize } from "./accent/engine.js";
+import { FormantSynth } from "./tts/formantSynth.js";
+import { WakeWordDetector } from "./wakeword/detector.js";
+import { WebSpeechSTT } from "./stt/webspeech.js";
+import { UIAdapter } from "./ui/adapter.js";
+import { wordsToPhones, toTimeline } from "./tts/g2p.js";
+import { PhonemeOverlay } from "./dev/overlay.js";
+
+const ui = new UIAdapter();
+const vad = new VAD();
+const mfcc = new MFCC();
+const tts = new FormantSynth();
+const stt = new WebSpeechSTT();
+const wake = new WakeWordDetector({ name: "lolo" });
+const overlay = new PhonemeOverlay();
+
+// Placeholder wake template
+wake.enroll(Array.from({ length: 12 }, () => new Float32Array(13)));
+
+function unlock() { ctxPool.unlock().then(() => bus.emit("status", "ready")).catch(() => bus.emit("status", "error: audio")); }
+
+async function speak(text) {
+  if (!text || !text.trim()) { bus.emit("status", "nothing to say"); return; }
+  const plan = prosodyPlan(text);
+  const phonemes = wordsToPhones(plan);
+  const acc = accentize(phonemes, "neutral");
+  const tl = toTimeline(acc);
+  bus.emit("tts:timeline", { items: tl }); // Why: dev overlay rendering.
+  await tts.speak(tl, { rate: 1, pitch: 1, volume: 1 });
+  bus.emit("status", "idle");
+}
+function stop() { ctxPool.stop(); bus.emit("status", "stopped"); }
+ui.mount({ speakFn: speak, stopFn: stop, unlockFn: unlock });
+
+(async () => { try { await vad.start(); } catch {} stt.start(); })();
+
+# tests/eventBus.test.js
+import { EventBus } from "../client/chango/core/eventBus.js";
+test("event bus on/emit/off", () => {
+  const bus = new EventBus(); let called = 0;
+  const off = bus.on("x", (p) => { called += p; });
+  bus.emit("x", 2); expect(called).toBe(2);
+  off(); bus.emit("x", 3); expect(called).toBe(2);
+});
+
+# tests/prosody.test.js
+import { prosodyPlan } from "../client/chango/tts/prosody.js";
+test("prosodyPlan splits phrases and marks end boundary", () => {
+  const out = prosodyPlan("Hello world?");
+  expect(out.at(-1).boundary).toBe("H%");
+});
+test("prosodyPlan marks ip boundaries internally", () => {
+  const out = prosodyPlan("a b c d e f");
+  const ips = out.filter(x => x.boundary === "ip").length;
+  expect(ips).toBeGreaterThan(0);
+});
+
+# tests/accent.test.js
+import { accentize } from "../client/chango/accent/engine.js";
+test("accentize scales duration/gain and maps vowels", () => {
+  const seq = [{ ph:"ae", dur:1, gain:1 }];
+  const out = accentize(seq, "uk_rp");
+  expect(out[0].ph).not.toBe("ae"); // vowel mapped
+  expect(out[0].dur).toBeCloseTo(1.05, 2);
+});
+
+# tests/mfcc.test.js
+import { MFCC } from "../client/chango/audio/mfcc.js";
+test("MFCC voiceprint is stable on constant tone", () => {
+  const sr = 48000, N = 1024, toneHz = 440;
+  const frame = new Float32Array(N);
+  for (let i=0;i<N;i++) frame[i] = Math.sin(2*Math.PI*toneHz*i/sr);
+  const mfcc = new MFCC({ fftSize: N, sampleRate: sr, melBands: 20, coeffs: 13 });
+  const v1 = mfcc.extract(frame);
+  const v2 = mfcc.extract(frame);
+  let diff = 0; for (let i=0;i<v1.length;i++) diff += Math.abs(v1[i]-v2[i]);
+  expect(diff).toBeLessThan(1e-6);
+});
+
+# tests/g2p_timeline.test.js
+import { wordsToPhones, toTimeline } from "../client/chango/tts/g2p.js";
+test("wordsToPhones inserts pauses for boundaries", () => {
+  const plan = [{ word:"hello", boundary:"none" }, { word:"world", boundary:"L%" }];
+  const seq = wordsToPhones(plan);
+  const last = seq.at(-1);
+  expect(last.ph).toBe("pau");
+  const phs = seq.filter(p => p.ph !== "pau").map(p => p.ph);
+  expect(phs.join(" ")).toMatch(/h eh l ow/);
+});
+test("toTimeline scales durations", () => {
+  const tl = toTimeline([{ ph:"eh", dur:2 }, { ph:"pau", dur:0.5 }]);
+  expect(tl[0].dur).toBeCloseTo(0.16, 3);
+  expect(tl[1].ph).toBe("pau");
+});
+
+a. Want me to add a tiny CLI to export the timeline → WAV (headless, offline)?
+b. Should I wire a keyboard shortcut (Alt+Shift+D) to toggle the dev overlay at runtime (still default-off)?

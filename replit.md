@@ -4,6 +4,22 @@ Chango AI is a full-stack TypeScript application featuring a React frontend and 
 
 # Recent Updates (October 6, 2025)
 
+## STT Recovery System and Offline Grammar
+Added robust STT recovery system with offline fallback capabilities:
+- **Offline Grammar Module**: Fallback intent recognition when WebSpeech fails
+  - Supports basic commands: time, date, weather, music, stop, power
+  - Activates after 2s timeout when wake word is detected
+- **Backoff Watchdog**: Progressive recovery delays (1s→2s→4s→8s cap)
+  - Automatic restart on STT failures with exponential backoff
+  - Resets backoff on any successful STT activity
+- **Health Tracking**: Real-time STT health metrics in HUD
+  - `/hud/status.json` endpoint for health monitoring
+  - STT health score (100 minus 15 per recovery)
+  - Recovery count and last recovery idle time tracking
+- **Intent System**: New brain/intent.js for modular intent routing
+
+# Recent Updates (October 6, 2025)
+
 ## CLI WAV Exporter and Enhanced Voice Features
 Added CLI tool and advanced voice system enhancements:
 - **CLI WAV Exporter**: Pure Node.js TTS-to-WAV renderer (no third-party deps)

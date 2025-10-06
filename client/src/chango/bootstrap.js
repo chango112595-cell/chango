@@ -183,4 +183,8 @@ ui.mount({
 });
 
 // Export for external access if needed
+// Export bus directly (it's the renamed eventBus from import)
 export { ui, vad, mfcc, tts, stt, wake, unlock, speak, stop, bus, ctxPool };
+// Also export as eventBus for backward compatibility
+const eventBus = bus;
+export { eventBus };

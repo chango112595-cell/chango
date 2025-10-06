@@ -1,4 +1,4 @@
-/* Bridge STT → wake word → TTS, with owner gate check, no UI changes. */
+/* Bridge STT → wake word → TTS, with 1s recovery and watchdog. */
 import { device } from "./core/device.js";
 import { bus } from "./core/eventBus.js";
 import { voiceGate } from "./security/voicegate.js";
@@ -8,6 +8,9 @@ class WebSpeechSTT {
     this.rec = null; 
     this.active = false; 
     this._last = ""; 
+    this.lastActivity = Date.now();
+    this.watchdog = null;
+    this.recoveryCount = 0;
   }
   
   start(){
@@ -21,7 +24,14 @@ class WebSpeechSTT {
     this.rec.interimResults = true; 
     this.rec.lang = "en-US";
     
+    // Track activity for watchdog
+    this.rec.onaudiostart = () => {
+      this.lastActivity = Date.now();
+      bus.emit("diag:info", { where: "stt", msg: "audio started" });
+    };
+    
     this.rec.onresult = async (e) => {
+      this.lastActivity = Date.now();
       const r = e.results[e.resultIndex]; 
       const text = (r[0]?.transcript || "").trim();
       if (!text) return;
@@ -72,21 +82,90 @@ class WebSpeechSTT {
       }
     };
     
+    // Fast recovery on end - restart after 1 second
     this.rec.onend = () => { 
       if (this.active) { 
-        try { this.rec.start(); } catch {} 
+        bus.emit("diag:info", { where: "stt", msg: "ended, restarting in 1s" });
+        setTimeout(() => {
+          if (this.active) {
+            try { 
+              this.rec.start(); 
+              this.recoveryCount++;
+              bus.emit("diag:info", { where: "stt", msg: `restarted (recovery #${this.recoveryCount})` });
+            } catch (e) {
+              bus.emit("diag:error", { where: "stt", msg: `restart failed: ${e.message}` });
+            }
+          }
+        }, 1000); // 1 second recovery instead of default
       } 
+    };
+    
+    // Fast recovery on error - restart after 1 second
+    this.rec.onerror = (e) => {
+      bus.emit("diag:warn", { where: "stt", msg: `error: ${e.error}` });
+      if (this.active && e.error !== 'not-allowed') {
+        setTimeout(() => {
+          if (this.active) {
+            try { 
+              this.rec.start(); 
+              this.recoveryCount++;
+              bus.emit("diag:info", { where: "stt", msg: `recovered from error (recovery #${this.recoveryCount})` });
+            } catch {}
+          }
+        }, 1000); // 1 second recovery
+      }
     };
     
     try { 
       this.rec.start(); 
-      this.active = true; 
+      this.active = true;
+      this.startWatchdog();
+      bus.emit("diag:info", { where: "stt", msg: "started with watchdog" });
+    } catch (e) {
+      bus.emit("diag:error", { where: "stt", msg: `start failed: ${e.message}` });
+    }
+  }
+  
+  startWatchdog() {
+    // Clear existing watchdog
+    if (this.watchdog) clearInterval(this.watchdog);
+    
+    // Check every 2 seconds for stuck STT (8s threshold)
+    this.watchdog = setInterval(() => {
+      const idleTime = Date.now() - this.lastActivity;
+      if (this.active && idleTime > 8000) {
+        bus.emit("diag:warn", { where: "stt", msg: `stuck for ${Math.round(idleTime/1000)}s, forcing restart` });
+        this.forceRestart();
+      }
+    }, 2000);
+  }
+  
+  forceRestart() {
+    try { 
+      this.rec && this.rec.stop(); 
     } catch {}
+    
+    setTimeout(() => {
+      if (this.active) {
+        try {
+          this.rec.start();
+          this.lastActivity = Date.now();
+          this.recoveryCount++;
+          bus.emit("diag:info", { where: "stt", msg: `force restarted (recovery #${this.recoveryCount})` });
+        } catch (e) {
+          bus.emit("diag:error", { where: "stt", msg: `force restart failed: ${e.message}` });
+        }
+      }
+    }, 500);
   }
   
   stop(){ 
     try{ 
       this.rec && this.rec.stop(); 
+      if (this.watchdog) {
+        clearInterval(this.watchdog);
+        this.watchdog = null;
+      }
     } catch {} 
     this.active = false; 
   }
@@ -94,6 +173,14 @@ class WebSpeechSTT {
 
 const stt = new WebSpeechSTT();
 stt.start();
+
+// VAD integration - ensure STT is running when voice detected
+bus.on("vad:start", () => {
+  if (stt.active && !stt.rec) {
+    bus.emit("diag:info", { where: "stt", msg: "VAD triggered, ensuring STT active" });
+    stt.forceRestart();
+  }
+});
 
 // route recognized command to your existing speak() without UI changes
 bus.on("cmd", (text) => {

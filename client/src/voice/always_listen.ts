@@ -91,11 +91,15 @@ interface SpeechGrammar {
   weight: number;
 }
 
-// Extend Window interface to include SpeechRecognition
+// Extend Window interface to include SpeechRecognition and singleton tracking
 declare global {
   interface Window {
     SpeechRecognition: SpeechRecognitionConstructor;
     webkitSpeechRecognition: SpeechRecognitionConstructor;
+    __alwaysListenInstance?: AlwaysListenManager;
+    __alwaysListenActive?: boolean;
+    __alwaysListenCreatedAt?: number;
+    __alwaysListenDisposedAt?: number;
   }
 }
 
@@ -249,6 +253,10 @@ export function isAlwaysListenActive(): boolean {
 }
 
 class AlwaysListenManager {
+  // Singleton instance and tracking
+  private static instance: AlwaysListenManager | null = null;
+  private static isCreating: boolean = false;
+  
   private recognition: SpeechRecognition | null = null;
   private state: RecognitionState = 'idle';
   private isEnabled: boolean = false;
@@ -276,8 +284,34 @@ class AlwaysListenManager {
   private lastSuccessfulRecognition: number = Date.now();
   private errorMessage: string = '';
   private isStartingRecognition: boolean = false; // Global flag to prevent concurrent starts
+  
+  // Lifecycle tracking
+  private instanceCreatedAt: number;
+  private instanceDisposedAt: number | null = null;
+  
+  // Operation guards
+  private operationInProgress: boolean = false;
+  private lastOperation: string = '';
 
-  constructor() {
+  // Private constructor for singleton pattern
+  private constructor() {
+    // Track creation time
+    this.instanceCreatedAt = Date.now();
+    this.instanceDisposedAt = null;
+    
+    // Set global window flags
+    window.__alwaysListenInstance = this;
+    window.__alwaysListenActive = false;
+    window.__alwaysListenCreatedAt = this.instanceCreatedAt;
+    
+    // Log singleton creation
+    console.log(`[AlwaysListen] 🚀 Singleton instance created at ${new Date(this.instanceCreatedAt).toISOString()}`);
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('AlwaysListen', 'Singleton created', {
+        createdAt: new Date(this.instanceCreatedAt).toISOString()
+      });
+    }
+    
     this.config = {
       autoRestart: true,
       pauseOnHidden: true,
@@ -315,6 +349,66 @@ class AlwaysListenManager {
 
     // Start health monitoring
     this.startHealthMonitoring();
+  }
+
+  /**
+   * Get singleton instance of AlwaysListenManager
+   */
+  public static getInstance(): AlwaysListenManager {
+    // Check if instance is already being created to prevent race conditions
+    if (AlwaysListenManager.isCreating) {
+      console.warn('[AlwaysListen] ⚠️ Instance creation already in progress, returning existing or waiting...');
+      // Wait a bit for creation to complete
+      const maxWait = 100;
+      const startTime = Date.now();
+      while (AlwaysListenManager.isCreating && (Date.now() - startTime) < maxWait) {
+        // Busy wait (not ideal but prevents race conditions)
+      }
+    }
+    
+    // Check for existing instance
+    if (AlwaysListenManager.instance) {
+      if (AlwaysListenManager.instance.instanceDisposedAt) {
+        console.warn('[AlwaysListen] ⚠️ Previous instance was disposed, creating new instance...');
+        AlwaysListenManager.instance = null;
+        window.__alwaysListenInstance = undefined;
+      } else {
+        console.log('[AlwaysListen] ♻️ Returning existing singleton instance');
+        return AlwaysListenManager.instance;
+      }
+    }
+    
+    // Check global window reference as backup
+    if (window.__alwaysListenInstance && !window.__alwaysListenInstance.instanceDisposedAt) {
+      console.log('[AlwaysListen] ♻️ Found existing instance in window, using that');
+      AlwaysListenManager.instance = window.__alwaysListenInstance;
+      return AlwaysListenManager.instance;
+    }
+    
+    // Create new instance
+    try {
+      AlwaysListenManager.isCreating = true;
+      console.log('[AlwaysListen] 🏗️ Creating new singleton instance...');
+      
+      // Clear any existing recognition that might be lingering
+      if (typeof window !== 'undefined') {
+        const existingRecognition = (window as any).__existingRecognition;
+        if (existingRecognition) {
+          console.warn('[AlwaysListen] 🧹 Clearing existing recognition instance...');
+          try {
+            existingRecognition.abort();
+          } catch (e) {
+            // Ignore errors
+          }
+          (window as any).__existingRecognition = null;
+        }
+      }
+      
+      AlwaysListenManager.instance = new AlwaysListenManager();
+      return AlwaysListenManager.instance;
+    } finally {
+      AlwaysListenManager.isCreating = false;
+    }
   }
 
   /**
@@ -367,40 +461,52 @@ class AlwaysListenManager {
    * Initialize continuous listening (idempotent)
    */
   async initialize(): Promise<void> {
+    // Guard against concurrent operations
+    if (this.operationInProgress) {
+      console.warn(`[AlwaysListen] ⚠️ Operation in progress: ${this.lastOperation}, skipping initialize`);
+      return;
+    }
+    
     // Idempotent - return if already initialized
     if (this.isInitialized) {
       console.log('[AlwaysListen] Already initialized, skipping...');
       return;
     }
-
-    console.log('[AlwaysListen] Initializing continuous listening...');
     
-    // Log to debug bus
-    if (FEATURES.DEBUG_BUS) {
-      debugBus.info('AlwaysListen', 'Initializing', { 
-        config: this.config,
-        state: this.state 
-      });
-    }
-    
-    // Check for browser support
-    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognitionAPI) {
-      const error = 'Speech recognition not supported in this browser';
-      console.error('[AlwaysListen]', error);
-      if (FEATURES.DEBUG_BUS) {
-        debugBus.error('AlwaysListen', error);
-      }
-      throw new Error(error);
-    }
-
     try {
+      this.operationInProgress = true;
+      this.lastOperation = 'initialize';
+
+      console.log('[AlwaysListen] Initializing continuous listening...');
+      
+      // Log to debug bus
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('AlwaysListen', 'Initializing', { 
+          config: this.config,
+          state: this.state 
+        });
+      }
+      
+      // Check for browser support
+      const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognitionAPI) {
+        const error = 'Speech recognition not supported in this browser';
+        console.error('[AlwaysListen]', error);
+        if (FEATURES.DEBUG_BUS) {
+          debugBus.error('AlwaysListen', error);
+        }
+        throw new Error(error);
+      }
+
       // Create recognition instance
       this.recognition = new SpeechRecognitionAPI();
       this.recognition.continuous = true;
       this.recognition.interimResults = true;
       this.recognition.lang = this.config.language;
       this.recognition.maxAlternatives = 1;
+      
+      // Track recognition instance globally for cleanup
+      (window as any).__existingRecognition = this.recognition;
 
       // Setup event handlers
       this.setupEventHandlers();
@@ -417,6 +523,8 @@ class AlwaysListenManager {
         debugBus.error('AlwaysListen', 'Initialization failed', { error });
       }
       throw error;
+    } finally {
+      this.operationInProgress = false;
     }
   }
 
@@ -424,57 +532,124 @@ class AlwaysListenManager {
    * Start listening (idempotent)
    */
   async start(): Promise<void> {
-    // Initialize if needed
-    if (!this.isInitialized) {
-      await this.initialize();
-    }
-
-    // Idempotent - return if already enabled and listening
-    if (this.isEnabled && (this.state === 'listening' || this.state === 'starting')) {
-      console.log('[AlwaysListen] Already enabled and listening/starting');
+    // Guard against concurrent operations
+    if (this.operationInProgress) {
+      console.warn(`[AlwaysListen] ⚠️ Operation in progress: ${this.lastOperation}, skipping start`);
       return;
     }
-
-    console.log('[AlwaysListen] Starting speech recognition...');
     
-    if (FEATURES.DEBUG_BUS) {
-      debugBus.info('AlwaysListen', 'Starting', { 
-        previousState: this.state 
-      });
+    try {
+      this.operationInProgress = true;
+      this.lastOperation = 'start';
+      
+      // Initialize if needed
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      // Idempotent - return if already enabled and listening
+      if (this.isEnabled && (this.state === 'listening' || this.state === 'starting')) {
+        console.log('[AlwaysListen] Already enabled and listening/starting');
+        return;
+      }
+
+      console.log('[AlwaysListen] Starting speech recognition...');
+      
+      // Update global flag
+      window.__alwaysListenActive = true;
+      
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('AlwaysListen', 'Starting', { 
+          previousState: this.state 
+        });
+      }
+
+      this.isEnabled = true;
+      this.restartAttempts = 0;
+      
+      // Start recognition
+      this.startRecognition();
+    } finally {
+      this.operationInProgress = false;
     }
-
-    this.isEnabled = true;
-    this.restartAttempts = 0;
-    
-    // Start recognition
-    this.startRecognition();
   }
 
   /**
-   * Stop listening
+   * Stop listening with comprehensive cleanup
    */
   stop(): void {
-    console.log('[AlwaysListen] Stopping continuous listening...');
-    
-    if (FEATURES.DEBUG_BUS) {
-      debugBus.info('AlwaysListen', 'Stopping', { 
-        state: this.state 
-      });
+    // Guard against concurrent operations
+    if (this.operationInProgress && this.lastOperation !== 'stop') {
+      console.warn(`[AlwaysListen] ⚠️ Operation in progress: ${this.lastOperation}, queuing stop`);
+      // Queue a stop after a short delay
+      setTimeout(() => this.stop(), 100);
+      return;
     }
     
-    this.isEnabled = false;
-    this.clearTimers();
-
-    if (this.recognition && (this.state === 'listening' || this.state === 'starting')) {
-      this.state = 'stopping';
-      try {
-        this.recognition.abort();
-      } catch (error) {
-        console.warn('[AlwaysListen] Error aborting recognition:', error);
+    try {
+      this.operationInProgress = true;
+      this.lastOperation = 'stop';
+      
+      console.log('[AlwaysListen] 🛑 Stopping continuous listening with full cleanup...');
+      
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('AlwaysListen', 'Stopping', { 
+          state: this.state,
+          wasEnabled: this.isEnabled
+        });
       }
+      
+      // Clear all flags
+      this.isEnabled = false;
+      this.isStartingRecognition = false;
+      window.__alwaysListenActive = false;
+      
+      // Clear all timers
+      this.clearTimers();
+      
+      // Stop and clear recognition
+      if (this.recognition) {
+        if (this.state === 'listening' || this.state === 'starting') {
+          this.state = 'stopping';
+          try {
+            this.recognition.abort();
+            console.log('[AlwaysListen] Recognition aborted');
+          } catch (error) {
+            console.warn('[AlwaysListen] Error aborting recognition:', error);
+          }
+        }
+        
+        // Remove all event handlers to prevent memory leaks
+        try {
+          this.recognition.onstart = null;
+          this.recognition.onend = null;
+          this.recognition.onresult = null;
+          this.recognition.onerror = null;
+          this.recognition.onspeechstart = null;
+          this.recognition.onspeechend = null;
+          this.recognition.onaudiostart = null;
+          this.recognition.onaudioend = null;
+          this.recognition.onnomatch = null;
+          this.recognition.onsoundstart = null;
+          this.recognition.onsoundend = null;
+          console.log('[AlwaysListen] Event handlers cleared');
+        } catch (e) {
+          console.warn('[AlwaysListen] Error clearing event handlers:', e);
+        }
+      }
+      
+      // Reset state
+      this.state = 'idle';
+      this.consecutiveFailures = 0;
+      this.currentRetryDelay = 500;
+      this.isPausedForRecovery = false;
+      this.errorMessage = '';
+      this.restartAttempts = 0;
+      
+      console.log('[AlwaysListen] ✅ Stop complete with full cleanup');
+    } finally {
+      this.operationInProgress = false;
     }
-    
-    this.state = 'idle';
   }
 
   /**
@@ -1240,43 +1415,61 @@ class AlwaysListenManager {
    * This clears error states and resets retry delays
    */
   async forceRestart(): Promise<void> {
-    console.log('[AlwaysListen] 🔧 Force restart requested');
+    // Guard against concurrent operations
+    if (this.operationInProgress) {
+      console.warn(`[AlwaysListen] ⚠️ Operation in progress: ${this.lastOperation}, queuing force restart`);
+      setTimeout(() => this.forceRestart(), 200);
+      return;
+    }
     
-    // Reset all error states
-    this.consecutiveFailures = 0;
-    this.currentRetryDelay = 500;
-    this.isPausedForRecovery = false;
-    this.errorMessage = '';
-    this.restartAttempts = 0;
-    this.errorCount = 0;
-    
-    // Clear any pending restart timer
-    this.clearTimers();
-    
-    // Stop current recognition if active
-    if (this.recognition && (this.state === 'listening' || this.state === 'starting')) {
-      try {
-        this.recognition.abort();
-      } catch (error) {
-        console.warn('[AlwaysListen] Error aborting during force restart:', error);
+    try {
+      this.operationInProgress = true;
+      this.lastOperation = 'forceRestart';
+      
+      console.log('[AlwaysListen] 🔧 Force restart requested - cleaning up and restarting singleton');
+      
+      // Reset all error states
+      this.consecutiveFailures = 0;
+      this.currentRetryDelay = 500;
+      this.isPausedForRecovery = false;
+      this.errorMessage = '';
+      this.restartAttempts = 0;
+      this.errorCount = 0;
+      
+      // Clear any pending restart timer
+      this.clearTimers();
+      
+      // Stop current recognition if active
+      if (this.recognition && (this.state === 'listening' || this.state === 'starting')) {
+        try {
+          this.recognition.abort();
+          console.log('[AlwaysListen] Existing recognition aborted');
+        } catch (error) {
+          console.warn('[AlwaysListen] Error aborting during force restart:', error);
+        }
       }
-    }
-    
-    // Update state
-    this.state = 'idle';
-    
-    if (FEATURES.DEBUG_BUS) {
-      debugBus.info('AlwaysListen', 'Force restart initiated', {
-        wasEnabled: this.isEnabled,
-        hadPermission: this.hasPermission
-      });
-    }
-    
-    // Re-enable if it was enabled
-    if (this.isEnabled) {
-      // Small delay to ensure clean restart
-      await new Promise(resolve => setTimeout(resolve, 100));
-      await this.startRecognition();
+      
+      // Update state
+      this.state = 'idle';
+      
+      if (FEATURES.DEBUG_BUS) {
+        debugBus.info('AlwaysListen', 'Force restart initiated', {
+          wasEnabled: this.isEnabled,
+          hadPermission: this.hasPermission,
+          instanceAge: Date.now() - this.instanceCreatedAt
+        });
+      }
+      
+      // Re-enable if it was enabled
+      if (this.isEnabled) {
+        // Small delay to ensure clean restart
+        await new Promise(resolve => setTimeout(resolve, 100));
+        await this.startRecognition();
+      }
+      
+      console.log('[AlwaysListen] ✅ Force restart complete');
+    } finally {
+      this.operationInProgress = false;
     }
   }
   
@@ -1314,11 +1507,22 @@ class AlwaysListenManager {
   }
 
   /**
-   * Cleanup
+   * Check if AlwaysListen is currently active
+   */
+  isActive(): boolean {
+    return this.isEnabled && this.state === 'listening' && !this.isPausedForRecovery;
+  }
+
+  /**
+   * Comprehensive cleanup and disposal
    */
   destroy(): void {
+    console.log('[AlwaysListen] 🗑️ Destroying singleton instance...');
+    
+    // Stop listening first
     this.stop();
     
+    // Clear health monitoring
     if (this.healthTimer) {
       clearInterval(this.healthTimer);
       this.healthTimer = null;
@@ -1329,18 +1533,61 @@ class AlwaysListenManager {
       document.removeEventListener('visibilitychange', this.handleVisibilityChange.bind(this));
     }
     
-    this.recognition = null;
+    // Clear recognition completely
+    if (this.recognition) {
+      try {
+        // Ensure it's stopped
+        this.recognition.abort();
+      } catch (e) {
+        // Ignore errors
+      }
+      
+      // Clear global reference
+      if ((window as any).__existingRecognition === this.recognition) {
+        (window as any).__existingRecognition = null;
+      }
+      
+      this.recognition = null;
+    }
+    
+    // Mark instance as disposed
+    this.instanceDisposedAt = Date.now();
     this.isInitialized = false;
+    
+    // Clear global window flags
+    if (window.__alwaysListenInstance === this) {
+      window.__alwaysListenInstance = undefined;
+      window.__alwaysListenActive = false;
+      window.__alwaysListenDisposedAt = this.instanceDisposedAt;
+    }
+    
+    // Clear static instance reference
+    if (AlwaysListenManager.instance === this) {
+      AlwaysListenManager.instance = null;
+    }
+    
+    const lifetime = this.instanceDisposedAt - this.instanceCreatedAt;
+    console.log(`[AlwaysListen] ✅ Singleton disposed after ${lifetime}ms lifetime`);
+    
+    if (FEATURES.DEBUG_BUS) {
+      debugBus.info('AlwaysListen', 'Singleton destroyed', {
+        lifetime,
+        createdAt: new Date(this.instanceCreatedAt).toISOString(),
+        disposedAt: new Date(this.instanceDisposedAt).toISOString()
+      });
+    }
   }
 }
 
-// Export singleton instance
-const alwaysListen = new AlwaysListenManager();
+// Export singleton getter
+const alwaysListen = AlwaysListenManager.getInstance();
 
 // Expose to window for debugging in development
 if (import.meta.env.DEV && typeof window !== 'undefined') {
   (window as any).__ALWAYS_LISTEN__ = alwaysListen;
+  (window as any).__ALWAYS_LISTEN_MANAGER__ = AlwaysListenManager;
+  console.log('[AlwaysListen] 🔍 Debug access available: window.__ALWAYS_LISTEN__ and window.__ALWAYS_LISTEN_MANAGER__');
 }
 
-export { alwaysListen };
-export type { AlwaysListenManager };
+export { alwaysListen, AlwaysListenManager };
+export type { AlwaysListenConfig, AlwaysCfg };

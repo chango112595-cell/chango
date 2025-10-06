@@ -5,7 +5,7 @@
 
 import { voiceOrchestrator } from '@/voice/tts/orchestrator';
 import { GlobalMonitor } from '@/monitor/GlobalMonitor';
-import { alwaysListen } from '@/voice/always_listen';
+import { alwaysListen, AlwaysListenManager } from '@/voice/always_listen';
 import { voiceBus } from '@/voice/voiceBus';
 
 export function exposeTestModules() {
@@ -15,6 +15,7 @@ export function exposeTestModules() {
       voiceOrchestrator,
       GlobalMonitor,
       alwaysListen,
+      AlwaysListenManager,
       voiceBus
     };
     
@@ -28,8 +29,17 @@ export function exposeTestModules() {
       voiceOrchestrator: !!voiceOrchestrator && voiceOrchestrator.isReady(),
       GlobalMonitor: !!GlobalMonitor,
       alwaysListen: !!alwaysListen && alwaysListen.getStatus().isEnabled,
+      AlwaysListenManager: !!AlwaysListenManager,
       voiceBus: !!voiceBus
     });
+    
+    // Log singleton instance info if created
+    if (alwaysListen) {
+      console.log('[TestModules] AlwaysListen singleton status:', {
+        isActive: alwaysListen.isActive(),
+        status: alwaysListen.getStatus()
+      });
+    }
   }
 }
 

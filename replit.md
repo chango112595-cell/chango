@@ -4,7 +4,18 @@ Chango AI is a full-stack TypeScript application featuring a React frontend and 
 
 # Recent Updates (October 6, 2025)
 
-## STT Recovery System and Offline Grammar
+## Self-Test Suite and Debug Monitor Integration
+Added comprehensive self-test capability for system validation:
+- **Console Self-Test**: Run `Chango.selftest()` in console to validate all systems
+  - Checks: Audio unlock, TTS, Mic/VAD, STT (WebSpeech/WASM), Wake path, Owner Gate, HUD endpoint
+  - Reports pass/fail with timing metrics
+  - Emits results to event bus for monitoring
+- **Debug Monitor Tab**: New "SelfTest" tab injected into existing Debug Monitor
+  - Non-destructive integration (no UI changes elsewhere)
+  - Streams real-time test logs and results
+  - Shows detailed failure reasons when tests fail
+
+## STT Recovery System and Offline Grammar  
 Added robust STT recovery system with offline fallback capabilities:
 - **Offline Grammar Module**: Fallback intent recognition when WebSpeech fails
   - Supports basic commands: time, date, weather, music, stop, power
@@ -17,8 +28,6 @@ Added robust STT recovery system with offline fallback capabilities:
   - STT health score (100 minus 15 per recovery)
   - Recovery count and last recovery idle time tracking
 - **Intent System**: New brain/intent.js for modular intent routing
-
-# Recent Updates (October 6, 2025)
 
 ## CLI WAV Exporter and Enhanced Voice Features
 Added CLI tool and advanced voice system enhancements:

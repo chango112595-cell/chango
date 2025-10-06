@@ -23,8 +23,8 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-6 py-8 max-w-7xl mt-16">
-        <div className="grid lg:grid-cols-3 gap-8">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-7xl mt-4 sm:mt-8 lg:mt-16">
+        <div className="grid lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
           {/* Left Column - Main Controls */}
           <div className="lg:col-span-2 space-y-6">
             {/* Chat Interface - Prominent Position */}

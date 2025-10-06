@@ -18,6 +18,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { SecurityPanel } from '@/components/settings/SecurityPanel';
 import { Settings, Shield, Volume2, Info, Palette } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeProvider';
+import { useUIMode } from '@/contexts/UIModeContext';
 
 interface SettingsModalProps {
   trigger?: React.ReactNode;
@@ -28,6 +29,7 @@ interface SettingsModalProps {
 export function SettingsModal({ trigger, open, onOpenChange }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState('security');
   const { theme, setTheme } = useTheme();
+  const { mode, setMode } = useUIMode();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -148,7 +150,8 @@ export function SettingsModal({ trigger, open, onOpenChange }: SettingsModalProp
                     <p className="text-xs text-muted-foreground mb-2">Choose between header bar or hologram sphere</p>
                     <select 
                       className="w-full px-3 py-2 rounded-md bg-background border border-cyan-500/20"
-                      defaultValue="header"
+                      value={mode}
+                      onChange={(e) => setMode(e.target.value as 'header' | 'sphere')}
                       data-testid="select-ui-mode"
                     >
                       <option value="header">Header Bar</option>

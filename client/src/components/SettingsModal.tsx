@@ -32,7 +32,7 @@ export function SettingsModal({ trigger, open, onOpenChange }: SettingsModalProp
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-      <DialogContent className="max-w-3xl max-h-[85vh] p-0 bg-background/95 backdrop-blur-xl border border-cyan-500/20">
+      <DialogContent className="w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl h-full sm:max-h-[85vh] p-0 sm:p-0 bg-background/95 backdrop-blur-xl border border-cyan-500/20">
         <DialogHeader className="px-6 pt-6">
           <DialogTitle className="text-xl font-bold flex items-center gap-2 text-cyan-400">
             <Settings className="h-5 w-5" />
@@ -44,7 +44,7 @@ export function SettingsModal({ trigger, open, onOpenChange }: SettingsModalProp
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1">
-          <TabsList className="w-full justify-start px-6 bg-background/50 border-b border-cyan-500/20 rounded-none">
+          <TabsList className="w-full justify-start px-6 bg-background/50 border-b border-cyan-500/20 rounded-none overflow-x-auto">
             <TabsTrigger 
               value="security" 
               className="flex items-center gap-2 data-[state=active]:bg-cyan-500/10 data-[state=active]:text-cyan-400"
@@ -75,7 +75,7 @@ export function SettingsModal({ trigger, open, onOpenChange }: SettingsModalProp
             </TabsTrigger>
           </TabsList>
 
-          <ScrollArea className="h-[calc(85vh-8rem)] px-6 py-4">
+          <ScrollArea className="h-[calc(100vh-12rem)] sm:h-[calc(85vh-8rem)] px-6 py-4">
             <TabsContent value="security" className="mt-0 space-y-4">
               <SecurityPanel />
             </TabsContent>

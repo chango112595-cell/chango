@@ -9,6 +9,8 @@ import { FormantSynth } from "./tts/formantSynth.js";
 import { WakeWordDetector } from "./wakeword/detector.js";
 import { WebSpeechSTT } from "./stt/webspeech.js";
 import { UIAdapter } from "./ui/adapter.js";
+import { speechState } from "./core/state.js";
+import { monitor } from "./diag/monitor.js";
 
 const ui = new UIAdapter();
 const vad = new VAD();
@@ -26,11 +28,18 @@ function unlock() {
 
 async function speak(text) {
   if (!text || !text.trim()) { bus.emit("status", "nothing to say"); return; }
+  
+  // Set speech state to speaking
+  speechState.set("speaking", "TTS started");
+  
   // Prosody → phonemes (very light map here)
   const plan = prosodyPlan(text);
   const phonemes = wordsToPhones(plan);
   const acc = accentize(phonemes, "neutral");
   await tts.speak(timeline(acc), { rate: 1, pitch: 1, volume: 1 });
+  
+  // Set speech state back to idle
+  speechState.set("idle", "TTS finished");
   bus.emit("status", "idle");
 }
 
@@ -184,7 +193,7 @@ ui.mount({
 
 // Export for external access if needed
 // Export bus directly (it's the renamed eventBus from import)
-export { ui, vad, mfcc, tts, stt, wake, unlock, speak, stop, bus, ctxPool };
+export { ui, vad, mfcc, tts, stt, wake, unlock, speak, stop, bus, ctxPool, speechState, monitor };
 // Also export as eventBus for backward compatibility
 const eventBus = bus;
 export { eventBus };

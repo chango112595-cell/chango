@@ -4,6 +4,27 @@ Chango AI is a full-stack TypeScript application featuring a React frontend and 
 
 # Recent Updates (October 6, 2025)
 
+## Theme Management and UI Improvements
+Implemented centralized theme management and responsive design improvements:
+- **Theme Provider**: Created centralized ThemeProvider component for managing app-wide theme state
+  - Supports three theme modes: Classic, HUD, and Auto (system preference)
+  - Auto mode properly maps system dark mode to HUD theme and light mode to Classic theme
+  - Theme preference persists to localStorage and syncs across tabs
+- **Settings Integration**: Theme switching now fully integrated into Settings Modal
+  - Theme selector moved from standalone button to Settings → Appearance tab
+  - Immediate theme application with visual feedback
+  - Current theme displayed as selected in dropdown
+- **Responsive Design**: Enhanced auto-scaling across all device sizes
+  - Settings modal responsive from mobile (320px) to ultra-wide (1920px+)
+  - Dynamic font sizing using clamp() for smooth text scaling
+  - Responsive container widths and padding at all breakpoints
+- **Performance Optimizations**: Removed overly broad CSS transitions
+  - Targeted transitions only on interactive elements
+  - Eliminated layout jank from global width/height animations
+- **UI Cleanup**: Removed HeaderCompact banner that was covering settings buttons
+
+# Recent Updates (October 6, 2025)
+
 ## Self-Test Suite and Debug Monitor Integration
 Added comprehensive self-test capability for system validation:
 - **Console Self-Test**: Run `Chango.selftest()` in console to validate all systems

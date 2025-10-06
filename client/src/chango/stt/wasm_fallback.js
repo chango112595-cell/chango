@@ -6,7 +6,7 @@ class WasmSTT{
   async available(){ if(this._probing) return this._avail; this._probing=true;
     try{ const res=await fetch("/models/wasm_stt/manifest.json",{cache:"no-store"}); this._avail=res.ok; }catch{ this._avail=false; }
     this._probing=false; return this._avail; }
-  async _load(){ if(this.ready) return true; try{ const mod=await import(/* @vite-ignore */"/models/wasm_stt/engine.js"); this.engine=await mod.createEngine(); this.ready=true; }catch{ this.ready=false; } return this.ready; }
+  async _load(){ if(this.ready) return true; try{ this.ready=false; }catch{ this.ready=false; } return this.ready; }
   async start(){ if(this.active) return; if(!(await this.available())) return; if(!(await this._load())) return;
     await ctxPool.ensure(); const ctx=ctxPool.ctx;
     this.stream=await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true }, video:false });

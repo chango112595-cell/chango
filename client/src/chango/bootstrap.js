@@ -15,6 +15,9 @@ import { telemetry } from "./diag/telemetry.js";
 import { voiceGate } from "./security/voicegate.js";
 // Import bridge.stt for STT-to-TTS integration with wake word
 import "./bridge.stt.js";
+// Import local keyword spotting and WASM fallback
+import { kws } from "./stt/kws_local.js";
+import { wasmSTT } from "./stt/wasm_fallback.js";
 
 const ui = new UIAdapter();
 const vad = new VAD();
@@ -207,7 +210,7 @@ ui.mount({
 
 // Export for external access if needed
 // Export bus directly (it's the renamed eventBus from import)
-export { ui, vad, mfcc, tts, stt, wake, unlock, speak, stop, bus, ctxPool, speechState, monitor, voiceGate, telemetry };
+export { ui, vad, mfcc, tts, stt, wake, unlock, speak, stop, bus, ctxPool, speechState, monitor, voiceGate, telemetry, kws, wasmSTT };
 // Also export as eventBus for backward compatibility
 const eventBus = bus;
 export { eventBus };

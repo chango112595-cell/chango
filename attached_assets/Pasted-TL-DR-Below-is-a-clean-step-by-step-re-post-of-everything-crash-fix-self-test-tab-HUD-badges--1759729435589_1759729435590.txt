@@ -1,0 +1,287 @@
+TL;DR: Below is a clean, step-by-step re-post of everything (crash fix + self-test tab + HUD badges) and the full code in one block. Do steps 1→6 in order, then run Chango.selftest().
+
+⸻
+
+Step-by-step
+	1.	Add singletons guard
+
+	•	Create client/chango/core/once.js.
+
+	2.	Drop in / update modules
+
+	•	client/chango/stt/kws_local.js
+	•	client/chango/stt/wasm_fallback.js
+	•	client/chango/diag/telemetry.js
+	•	client/chango/stt/grammar.js
+	•	client/chango/diag/selftest.js
+	•	client/chango/diag/monitor_tab_selftest.js
+	•	client/chango/bridge.stt.js
+	•	server/state/hud.js
+
+	3.	Wire scripts (order matters; no UI changes)
+
+	•	In client/index.html (end of <body>), add the <script type="module"> tags exactly as shown.
+
+	4.	Start app, run self-test
+
+	•	Open DevTools Console → await Chango.selftest()
+	•	Or click SelfTest → ▶ Run in your debug monitor.
+
+	5.	Check HUD JSON
+
+	•	Open /hud/status.json and confirm stt_health, stt_recoveries, selftest.
+
+	6.	If still quiet
+
+	•	Ensure window.speak exists; gate not enabled w/o enrolling; https/localhost; watch for 404s in Network.
+
+⸻
+
+
+# client/chango/core/once.js
+// Why: prevent multiple initializations (hot-reload duplicates crash STT/KWS/telemetry).
+const KEY="__CHANGO_SINGLETONS__";
+const G=(globalThis[KEY] ||= { map:new Map(), flags:new Set() });
+export function once(name,factory){ if(G.map.has(name)) return G.map.get(name); const v=factory(); G.map.set(name,v); return v; }
+export function flag(name){ if(G.flags.has(name)) return false; G.flags.add(name); return true; }
+export function get(name){ return G.map.get(name); }
+
+# client/chango/stt/kws_local.js
+import { bus } from "../core/eventBus.js";
+import { ctxPool } from "../audio/contextPool.js";
+import { MFCC } from "../audio/mfcc.js";
+import { once } from "../core/once.js";
+function dtw(a,b){ const n=a.length,m=b.length; const D=Array.from({length:n+1},()=>new Float32Array(m+1).fill(Infinity)); D[0][0]=0;
+  const dist=(x,y)=>{ let s=0; for(let i=0;i<x.length;i++){ const d=x[i]-y[i]; s+=d*d; } return Math.sqrt(s); };
+  for(let i=1;i<=n;i++) for(let j=1;j<=m;j++){ const cost=dist(a[i-1],b[j-1]); D[i][j]=cost+Math.min(D[i-1][j],D[i][j-1],D[i-1][j-1]); }
+  return D[n][m]/(n+m);
+}
+class LocalKWS{
+  constructor(){ this.active=false; this.stream=null; this.src=null; this.proc=null;
+    this.mfcc=new MFCC({ fftSize:1024, sampleRate:48000, melBands:24, coeffs:13 });
+    this.buf=new Float32Array(0);
+    this.templates={ lolo:Array.from({length:14},(_,i)=> new Float32Array(this.mfcc.coeffs).fill(Math.sin(i))),
+                     chango:Array.from({length:18},(_,i)=> new Float32Array(this.mfcc.coeffs).fill(Math.cos(i))) };
+  }
+  async start(){ if(this.active) return; await ctxPool.ensure(); const ctx=ctxPool.ctx;
+    this.stream=await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true }, video:false });
+    this.src=ctx.createMediaStreamSource(this.stream); this.proc=ctx.createScriptProcessor(2048,1,1);
+    this.proc.onaudioprocess=(e)=>this._onAudio(e.inputBuffer.getChannelData(0));
+    this.src.connect(this.proc); this.proc.connect(ctx.createGain()); this.active=true; }
+  stop(){ if(!this.active) return;
+    try{ this.proc && this.proc.disconnect(); }catch{} try{ this.src && this.src.disconnect(); }catch{}
+    try{ this.stream && this.stream.getTracks().forEach(t=>t.stop()); }catch{}
+    this.proc=this.src=this.stream=null; this.buf=new Float32Array(0); this.active=false; }
+  async enrollKWS(keyword="lolo",seconds=1.2){ await ctxPool.ensure(); const ctx=ctxPool.ctx;
+    const stream=await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true }, video:false });
+    const src=ctx.createMediaStreamSource(stream); const rec=ctx.createScriptProcessor(2048,1,1); const chunks=[];
+    rec.onaudioprocess=e=>chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    src.connect(rec); rec.connect(ctx.createGain()); await new Promise(r=>setTimeout(r,seconds*1000));
+    try{ rec.disconnect(); src.disconnect(); }catch{} stream.getTracks().forEach(t=>t.stop());
+    const len=chunks.reduce((s,a)=>s+a.length,0), x=new Float32Array(len); let o=0; for(const a of chunks){ x.set(a,o); o+=a.length; }
+    const frames=this._frames(x,this.mfcc.fftSize,this.mfcc.fftSize>>1).map(f=>this.mfcc.extract(f));
+    this.templates[keyword]=frames; return{ok:true,keyword,frames:frames.length}; }
+  _onAudio(x){ const keep=this.mfcc.sampleRate; const concat=new Float32Array(Math.min(keep,this.buf.length+x.length));
+    const overlap=Math.max(0,concat.length-x.length); if(overlap) concat.set(this.buf.subarray(this.buf.length-overlap)); concat.set(x,overlap); this.buf=concat;
+    const frames=this._frames(this.buf,this.mfcc.fftSize,this.mfcc.fftSize>>1); if(frames.length<10) return;
+    const mf=frames.map(f=>this.mfcc.extract(f)); let best=null;
+    for(const [kw,t] of Object.entries(this.templates)){ if(!t) continue; const d=dtw(mf,t); const score=1/(1+d); if(!best||score>best.score) best={kw,score}; }
+    if(best && best.score>=0.65) bus.emit("wake:hit",{phrase:best.kw,score:best.score,source:"kws"}); }
+  _frames(sig,size,hop){ const out=[]; for(let i=0;i+size<=sig.length;i+=hop) out.push(sig.subarray(i,i+size)); return out; }
+}
+export const kws = once("kws", ()=> new LocalKWS());
+
+# client/chango/stt/wasm_fallback.js
+import { bus } from "../core/eventBus.js";
+import { ctxPool } from "../audio/contextPool.js";
+import { once } from "../core/once.js";
+class WasmSTT{
+  constructor(){ this.active=false; this.ready=false; this.engine=null; this.src=null; this.proc=null; this.stream=null; this._probing=false; this._avail=false; }
+  async available(){ if(this._probing) return this._avail; this._probing=true;
+    try{ const res=await fetch("/models/wasm_stt/manifest.json",{cache:"no-store"}); this._avail=res.ok; }catch{ this._avail=false; }
+    this._probing=false; return this._avail; }
+  async _load(){ if(this.ready) return true; try{ const mod=await import(/* @vite-ignore */"/models/wasm_stt/engine.js"); this.engine=await mod.createEngine(); this.ready=true; }catch{ this.ready=false; } return this.ready; }
+  async start(){ if(this.active) return; if(!(await this.available())) return; if(!(await this._load())) return;
+    await ctxPool.ensure(); const ctx=ctxPool.ctx;
+    this.stream=await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true }, video:false });
+    this.src=ctx.createMediaStreamSource(this.stream); this.proc=ctx.createScriptProcessor(4096,1,1);
+    this.proc.onaudioprocess=(e)=>{ const pcm=new Float32Array(e.inputBuffer.getChannelData(0)); const out=this.engine.feed(pcm);
+      if(Array.isArray(out)) out.forEach(o=>o?.text && bus.emit("stt:result",{final:!!o.final,text:o.text})); };
+    this.src.connect(this.proc); this.proc.connect(ctx.createGain()); this.active=true; bus.emit("diag:info",{where:"wasm_stt",msg:"started"}); }
+  stop(){ if(!this.active) return;
+    try{ this.proc && this.proc.disconnect(); }catch{} try{ this.src && this.src.disconnect(); }catch{}
+    try{ this.stream && this.stream.getTracks().forEach(t=>t.stop()); }catch{}
+    this.proc=this.src=this.stream=null; this.active=false; }
+}
+export const wasmSTT = once("wasm_stt", ()=> new WasmSTT());
+
+# client/chango/diag/telemetry.js
+import { bus } from "../core/eventBus.js";
+import { device } from "../core/device.js";
+import { once } from "../core/once.js";
+class Telemetry{
+  constructor({intervalMs=10000}={}){ this.intervalMs=intervalMs; this.t=null; this._lastSend=0;
+    this.payload={ session:{ id:Math.random().toString(36).slice(2), start:new Date().toISOString() },
+      device:{ type: device.isCar?"car":device.isMobile?"mobile":"desktop", sampleRate: device.sampleRateHint },
+      tts:{ success:0, error:0, ms:0 }, stt:{ interim:0, final:0, error:0, recoveries:0, last_recovery_ms:0 },
+      vad:{ sessions:0, active:false }, mic:{ denied:0, recovered:0 }, diag:{ errors:0, warns:0, infos:0 }, selftest:{ last_pass:null, took_ms:null, at:null } };
+    this._wire(); this._schedule(); document.addEventListener("visibilitychange",()=>this._vis()); }
+  _wire(){ bus.on("vad:start",()=>{ if(!this.payload.vad.active){ this.payload.vad.active=true; this.payload.vad.sessions++; }});
+    bus.on("vad:stop",()=>{ this.payload.vad.active=false; });
+    bus.on("stt:result",(e)=>{ if(e?.final) this.payload.stt.final++; else this.payload.stt.interim++; });
+    bus.on("stt:unavailable",()=>{ this.payload.stt.error++; });
+    bus.on("diag:error",()=>{ this.payload.diag.errors++; }); bus.on("diag:warn",()=>{ this.payload.diag.warns++; }); bus.on("diag:info",()=>{ this.payload.diag.infos++; });
+    bus.on("tts:end",(ms)=>{ this.payload.tts.ms+=(ms||0); this.payload.tts.success++; }); bus.on("tts:fail",()=>{ this.payload.tts.error++; });
+    bus.on("mic:denied",()=>{ this.payload.mic.denied++; }); bus.on("mic:recovered",()=>{ this.payload.mic.recovered++; });
+    bus.on("diag:recovery",({count,idle_ms})=>{ this.payload.stt.recoveries=count; this.payload.stt.last_recovery_ms=idle_ms||0; });
+    bus.on("selftest:result",(s)=>{ this.payload.selftest={ last_pass:!!s.ok, took_ms:s.took_ms, at:new Date().toISOString() }; this._beacon(true); }); }
+  _vis(){ if(document.hidden){ clearInterval(this.t); } else { this._schedule(); } }
+  _schedule(){ clearInterval(this.t); this.t=setInterval(()=>this._beacon(false), this.intervalMs); }
+  _beacon(final){ if(document.hidden) return; const now=Date.now(); if(now-this._lastSend<this.intervalMs) return; this._lastSend=now;
+    const out={ ...this.payload, session:{ ...this.payload.session, end:new Date().toISOString(), final:!!final } };
+    try{ const blob=new Blob([JSON.stringify(out)],{type:"application/json"});
+      if(navigator.sendBeacon) navigator.sendBeacon("/api/telemetry", blob);
+      else fetch("/api/telemetry",{ method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(out) });
+    }catch{} }
+  snapshot(){ return JSON.parse(JSON.stringify(this.payload)); }
+}
+export const telemetry = once("telemetry", ()=> new Telemetry());
+
+# client/chango/stt/grammar.js
+import { bus } from "../core/eventBus.js";
+import { registerIntent, routeIntent } from "../brain/intent.js";
+let timer=null, pending=false;
+registerIntent({ name:"sys.stop", match:t=>/^\s*(stop|cancel|quiet|silence)\b/.test(t), handle:async({speak})=>{ speak("Stopping."); bus.emit("sys:stop"); return true; }});
+registerIntent({ name:"sys.power", match:t=>/^\s*(power|shutdown|go sleep)\b/.test(t), handle:async({speak})=>{ speak("Standing by."); bus.emit("sys:standby"); return true; }});
+function speakOut(m){ try{ if(typeof window.speak==="function") window.speak(m); else if(window.Chango?.speak) window.Chango.speak(m); else speechSynthesis.speak(new SpeechSynthesisUtterance(m)); }catch{} }
+bus.on("wake:hit",()=>{ clearTimeout(timer); pending=true; timer=setTimeout(()=>{ if(!pending) return; speakOut("Yes?"); pending=false; },2000); });
+bus.on("stt:result",async({text,final})=>{ if(!text) return; if(final){ clearTimeout(timer); pending=false; const handled=await routeIntent(text); if(!handled) speakOut(text); }});
+
+# client/chango/diag/selftest.js
+import { bus } from "../core/eventBus.js";
+import { ctxPool } from "../audio/contextPool.js";
+import { once } from "../core/once.js";
+function log(x){ bus.emit("selftest:log",{t:Date.now(),line:x}); }
+async function withTimeout(p,ms,label){ let to; const t=new Promise((_,r)=>to=setTimeout(()=>r(new Error(`${label} timeout ${ms}ms`)),ms)); try{ const v=await Promise.race([p,t]); clearTimeout(to); return v; } finally{ clearTimeout(to); } }
+async function testAudio(){ await ctxPool.unlock(); }
+async function testTTS(){ return new Promise((res)=>{ try{ if(typeof window.speak==="function"){ window.speak("Self test voice online."); setTimeout(res,1500); } else { const u=new SpeechSynthesisUtterance("Self test voice online."); speechSynthesis.speak(u); setTimeout(res,1500);} }catch{ setTimeout(res,1500);} }); }
+async function testHUD(){ const r=await fetch("/hud/status.json",{cache:"no-store"}); if(!r.ok) throw new Error(`HUD ${r.status}`); return r.json(); }
+async function run(){ const t0=Date.now(); log("— SelfTest started —");
+  const steps=[["Audio unlock",()=>withTimeout(testAudio(),4000,"audio")],["TTS",()=>withTimeout(testTTS(),4000,"tts")],["HUD",()=>withTimeout(testHUD(),3000,"hud")]];
+  const results=[]; for(const [name,fn] of steps){ try{ await fn(); log(`✅ ${name}`); results.push({step:name,ok:true}); }catch(e){ log(`❌ ${name}: ${e.message}`); results.push({step:name,ok:false,err:e.message}); } }
+  const sum={ ok:results.every(r=>r.ok), took_ms:Date.now()-t0, results }; bus.emit("selftest:result",sum); log(`— SelfTest finished (${sum.took_ms}ms) —`); return sum; }
+const api=once("selftest_api",()=>({ selftest:run })); if(!window.Chango) window.Chango={}; window.Chango.selftest=api.selftest; export{ run as selftest };
+
+# client/chango/diag/monitor_tab_selftest.js
+import { bus } from "../core/eventBus.js";
+import { flag } from "../core/once.js";
+if(flag("monitor_tab_selftest")){
+  function findHost(){ return document.querySelector("[data-chango-debug]")||document.querySelector(".debug-monitor")||document.getElementById("debug"); }
+  function mkBtn(){ const b=document.createElement("button"); b.textContent="SelfTest"; Object.assign(b.style,{all:"unset",cursor:"pointer",padding:"6px 10px",border:"1px solid rgba(0,255,255,.35)",borderRadius:"6px",fontFamily:"ui-monospace"}); return b; }
+  function mkBar(){ const d=document.createElement("div"); d.className="chango-tabs-inject"; Object.assign(d.style,{display:"flex",gap:"8px",padding:"6px 8px"}); return d; }
+  function mkPanel(){ const pre=document.createElement("pre"); pre.className="chango-selftest-panel"; Object.assign(pre.style,{margin:"8px",padding:"8px",height:"180px",overflow:"auto",background:"rgba(0,0,0,.35)",border:"1px solid rgba(0,255,255,.25)",borderRadius:"6px",font:"12px/1.4 ui-monospace"}); pre.textContent="SelfTest idle."; return pre; }
+  function init(){ const host=findHost(); if(!host) return; let bar=host.querySelector(".chango-tabs-inject"); if(!bar){ bar=mkBar(); host.appendChild(bar); }
+    const btn=mkBtn(); const runBtn=mkBtn(); runBtn.textContent="▶ Run"; const panel=mkPanel(); panel.style.display="none"; host.appendChild(panel);
+    btn.addEventListener("click",()=>{ panel.style.display=panel.style.display==="none"?"block":"none"; }); runBtn.addEventListener("click",()=>{ window.Chango?.selftest && window.Chango.selftest(); });
+    bar.appendChild(btn); bar.appendChild(runBtn);
+    bus.on("selftest:log",({line})=>{ panel.textContent+=`\n${line}`; panel.scrollTop=panel.scrollHeight; });
+    bus.on("selftest:result",(sum)=>{ panel.textContent+=`\n\nResult: ${sum.ok?"PASS ✅":"FAIL ❌"} (${sum.took_ms}ms)`; panel.scrollTop=panel.scrollHeight; }); }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init); else init();
+}
+
+# client/chango/bridge.stt.js
+import { device } from "./core/device.js";
+import { bus } from "./core/eventBus.js";
+import { voiceGate } from "./security/voicegate.js";
+import { routeIntent } from "./brain/intent.js";
+import { kws } from "./stt/kws_local.js";
+import { wasmSTT } from "./stt/wasm_fallback.js";
+import "./stt/grammar.js";
+import { once } from "./core/once.js";
+class WebSpeechSTT{
+  constructor(){ this.rec=null; this.active=false; this._last=""; this._lastEvent=0; this._wd=null; this._recoveries=0; this._backoff=1000; this._maxBackoff=8000; this._maxRecoveries=12; this._visHandler=null; }
+  _tick(){ this._lastEvent=performance.now(); this._backoff=1000; }
+  _watch(){ clearInterval(this._wd); this._wd=setInterval(()=>{ const idle=performance.now()-this._lastEvent; if(idle>8000 && this.active) this._recover(); },1000); }
+  _recover(){ if(this._recoveries>=this._maxRecoveries) return; this._recoveries++; const delay=Math.min(this._backoff,this._maxBackoff); this._backoff=Math.min(this._backoff*2,this._maxBackoff);
+    bus.emit("diag:recovery",{count:this._recoveries,idle_ms:Math.round(performance.now()-this._lastEvent)}); this._restart(delay); }
+  _restart(delay=1000){ try{ this.rec && this.rec.stop(); }catch{} clearInterval(this._wd); setTimeout(()=>{ if(!document.hidden) this.start(); },delay); }
+  start(){ if(this.active) return; const SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR){ bus.emit("stt:unavailable"); this._fallback(); return; }
+    this.rec=new SR(); this.rec.continuous=true; this.rec.interimResults=true; this.rec.lang="en-US";
+    this.rec.onstart=()=>{ this.active=true; this._tick(); this._watch(); };
+    this.rec.onresult=async(e)=>{ this._tick(); const r=e.results[e.resultIndex]; const text=(r[0]?.transcript||"").trim(); if(!text) return;
+      if(r.isFinal){ if(text===this._last) return; this._last=text; const trigger=/^(\s*(lolo|chango)[\s,.:;-]*)/i; if(!trigger.test(text)) return;
+        const cleaned=text.replace(trigger,"").trim(); if(!cleaned) return;
+        let pass=true; try{ const sr=device.sampleRateHint; const stream=await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true }, video:false });
+          const ac=new (window.AudioContext||window.webkitAudioContext)({sampleRate:sr}); const src=ac.createMediaStreamSource(stream);
+          const rec=ac.createScriptProcessor(2048,1,1); const chunks=[]; rec.onaudioprocess=ev=>chunks.push(new Float32Array(ev.inputBuffer.getChannelData(0)));
+          src.connect(rec); rec.connect(ac.createGain()); await new Promise(r=>setTimeout(r,800));
+          try{ rec.disconnect(); src.disconnect(); }catch{} stream.getTracks().forEach(t=>t.stop());
+          const len=chunks.reduce((s,a)=>s+a.length,0), x=new Float32Array(len); let o=0; for(const a of chunks){ x.set(a,o); o+=a.length; }
+          pass=voiceGate.check(x,sr);
+        }catch{}
+        if(!pass){ bus.emit("diag:warn",{where:"gate",msg:"Blocked non-owner"}); return; }
+        bus.emit("cmd",cleaned);
+      } else { bus.emit("stt:result",{text,final:false}); } };
+    this.rec.onerror=()=>this._recover(); this.rec.onend=()=>{ if(this.active && !document.hidden) this._recover(); };
+    try{ this.rec.start(); }catch{} this._visHandler=()=>{ if(document.hidden){ this.stop(); } else { this.start(); } };
+    document.addEventListener("visibilitychange",this._visHandler,{passive:true}); }
+  async _fallback(){ if(await wasmSTT.available()){ await wasmSTT.start(); this.active=true; } else { await kws.start(); this.active=true; } }
+  stop(){ if(!this.active) return; try{ this.rec && this.rec.stop(); }catch{} try{ wasmSTT.stop(); }catch{} try{ kws.stop(); }catch{} clearInterval(this._wd);
+    if(this._visHandler){ document.removeEventListener("visibilitychange",this._visHandler); this._visHandler=null; } this.active=false; }
+}
+export const sttBridge = once("stt_bridge", ()=> new WebSpeechSTT()); sttBridge.start();
+
+# server/state/hud.js
+import fs from "node:fs"; import path from "node:path";
+const DIR=path.join(process.cwd(),"telemetry"); const FILE=path.join(DIR,"runtime.json");
+let _last={ ts:null, payload:null };
+function ensure(){ try{ if(!fs.existsSync(DIR)) fs.mkdirSync(DIR,{recursive:true}); }catch{} }
+function load(){ try{ if(fs.existsSync(FILE)){ const p=JSON.parse(fs.readFileSync(FILE,"utf8")); _last={ ts:Date.now(), payload:p }; } }catch{} }
+function save(p){ try{ ensure(); fs.writeFileSync(FILE, JSON.stringify(p,null,2)); }catch{} }
+export function setHUD(payload){ _last={ ts:Date.now(), payload }; save(payload); }
+export function getHUD(){ const p=_last.payload||{}; const pct=(a=0,b=0)=>{ b=Math.max(1,b); return Math.round((a/b)*100); };
+  const stability=pct(p.tts?.success,(p.tts?.success||0)+(p.tts?.error||0));
+  const sttQual=pct(p.stt?.final,(p.stt?.final||0)+(p.stt?.error||0));
+  const rec=p.stt?.recoveries||0; const sttHealth=Math.max(0,100-Math.min(100, rec*15));
+  return { updated:_last.ts||0, device:p.device||{}, metrics:{ voice_stability:stability, stt_quality:sttQual, stt_recoveries:rec, stt_health:sttHealth, last_recovery_ms:p.stt?.last_recovery_ms||0, vad_sessions:p.vad?.sessions||0, mic_denied:p.mic?.denied||0, errors:p.diag?.errors||0 }, selftest:p.selftest||{ last_pass:null, took_ms:null, at:null } };
+}
+load();
+
+# client/index.html  (append near end of <body>; keep your UI as-is)
+<script type="module" src="/client/chango/core/once.js"></script>
+<script type="module" src="/client/chango/diag/telemetry.js"></script>
+<script type="module" src="/client/chango/security/voicegate.js"></script>
+<script type="module" src="/client/chango/stt/kws_local.js"></script>
+<script type="module" src="/client/chango/stt/wasm_fallback.js"></script>
+<script type="module" src="/client/chango/brain/intent.js"></script>
+<script type="module" src="/client/chango/stt/grammar.js"></script>
+<script type="module" src="/client/chango/diag/selftest.js"></script>
+<script type="module" src="/client/chango/diag/monitor_tab_selftest.js"></script>
+<script type="module" src="/client/chango/bridge.stt.js"></script>
+
+
+⸻
+
+Checkpoint Capsule (saved for this chat)
+
+{
+  "capsule": "CHANGO_CHECKPOINT",
+  "version": 1,
+  "name": "Oct-06-2025—CrashFix+SelfTest+HUD",
+  "timestamp_local": "2025-10-06T00:00:00",
+  "marker": "Singleton guards, bounded STT backoff, SelfTest tab, HUD health.",
+  "scope": {
+    "ui_changes": "debug monitor tab only",
+    "modules": [
+      "core/once.js","stt/kws_local.js","stt/wasm_fallback.js","diag/telemetry.js",
+      "stt/grammar.js","diag/selftest.js","diag/monitor_tab_selftest.js","bridge.stt.js","server/state/hud.js"
+    ]
+  },
+  "next_todos": [
+    "Enroll KWS templates for 'lolo'/'chango'.",
+    "Whitelist domains for open-intent; add skills auto-discovery."
+  ]
+}
+
+a. Want a tiny status badge in the monitor header (shows STT health + recoveries)?
+b. Want an automated network scan that flags duplicate module loads/404s and writes a short report?

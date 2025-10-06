@@ -1,0 +1,258 @@
+TL;DR: You’re close, but the “not responding” is because STT + wake-word → TTS isn’t fully wired, and the Owner Voiceprint gate doesn’t flip any visible status. I’m shipping (1) a drop-in Owner Voiceprint gate (enroll/match, LOCKED/UNLOCKED status), and (2) a telemetry refresher that powers a JSON HUD endpoint (/hud/status.json) while still appending to your MD docs. Zero UI changes; everything is isolated.
+
+⸻
+
+Plan (pseudocode)
+	•	Add client/chango/security/voicegate.js: enroll/store MFCC voiceprint, gate checks, and emit status “Owner: LOCKED/UNLOCKED”.
+	•	Patch bootstrap/bridge to call gate check on final STT results before running speak().
+	•	Add client/chango/diag/telemetry.js: collects counters and beacons snapshots to server periodically (or on unload).
+	•	Server: add server/state/hud.js to hold the last telemetry; add server/routes/telemetry.js:
+	•	POST /api/telemetry → store snapshot.
+	•	GET /hud/status.json → serve merged HUD JSON.
+	•	Keep your banner/layout untouched.
+	•	Optional: tools keep writing MD (scan + telemetry append) unchanged.
+
+⸻
+
+
+# client/chango/security/voicegate.js
+/* Owner Voiceprint gate: MFCC enroll/match, status flip via bus. */
+import { bus } from "../core/eventBus.js";
+import { device } from "../core/device.js";
+import { MFCC } from "../audio/mfcc.js";
+
+const KEY = "chango_owner_vp";
+
+export class VoiceGate {
+  constructor({ sr = device.sampleRateHint, fftSize = 1024, melBands = 24, coeffs = 13, thresh = 0.82 } = {}) {
+    this.sr = sr; this.mfcc = new MFCC({ fftSize, sampleRate: sr, melBands, coeffs });
+    this.vp = null; this.enabled = false; this.thresh = thresh;
+    this._load();
+  }
+  _load() { try { const arr = JSON.parse(localStorage.getItem(KEY) || "[]"); if (arr.length) this.vp = new Float32Array(arr); } catch {} this._emitStatus(); }
+  _save() { try { localStorage.setItem(KEY, JSON.stringify(Array.from(this.vp || []))); } catch {} }
+  _emitStatus() { bus.emit("status", `Owner: ${this.enabled ? (this.vp ? "LOCKED" : "UNENROLLED") : "UNLOCKED"}`); }
+  enable(on = true) { this.enabled = !!on; this._emitStatus(); }
+  clear() { this.vp = null; this._save(); this._emitStatus(); }
+  async enroll(seconds = 3) {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+    const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: this.sr });
+    const src = ctx.createMediaStreamSource(stream);
+    const rec = ctx.createScriptProcessor(2048, 1, 1);
+    const chunks = [];
+    rec.onaudioprocess = (e) => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    src.connect(rec); rec.connect(ctx.destination);
+    await new Promise(r => setTimeout(r, seconds * 1000));
+    try { rec.disconnect(); src.disconnect(); } catch {}
+    stream.getTracks().forEach(t => t.stop());
+    const len = chunks.reduce((s, a) => s + a.length, 0);
+    const x = new Float32Array(len); let o = 0; for (const a of chunks) { x.set(a, o); o += a.length; }
+    const frames = []; for (let i = 0; i + this.mfcc.fftSize <= x.length; i += (this.mfcc.fftSize >> 1)) frames.push(x.subarray(i, i + this.mfcc.fftSize));
+    this.vp = this.mfcc.voiceprint(frames);
+    this._save(); this.enable(true);
+    return { ok: true, coeffs: this.vp.length };
+  }
+  check(sample, sr = this.sr) {
+    if (!this.enabled || !this.vp) return true;
+    const mf = (sr === this.mfcc.sampleRate) ? this.mfcc : new MFCC({ fftSize: this.mfcc.fftSize, sampleRate: sr, melBands: this.mfcc.melBands, coeffs: this.mfcc.coeffs });
+    const frames = []; for (let i = 0; i + mf.fftSize <= sample.length; i += (mf.fftSize >> 1)) frames.push(sample.subarray(i, i + mf.fftSize));
+    const cur = mf.voiceprint(frames);
+    const score = mf.cosine(this.vp, cur);
+    bus.emit("diag:info", { where: "voicegate", score });
+    return score >= this.thresh;
+  }
+}
+
+export const voiceGate = new VoiceGate();
+// Optional console helpers (no UI change)
+window.ChangoVoice = {
+  enroll: (s = 3) => voiceGate.enroll(s),
+  enableGate: (on = true) => voiceGate.enable(on),
+  clearGate: () => voiceGate.clear()
+};
+
+# client/chango/diag/telemetry.js
+/* Telemetry collector: aggregates counters and beacons to server; powers HUD JSON. */
+import { bus } from "../core/eventBus.js";
+import { device } from "../core/device.js";
+
+export class Telemetry {
+  constructor({ intervalMs = 10000 } = {}) {
+    this.t = null; this.intervalMs = intervalMs;
+    this.payload = {
+      session: { id: Math.random().toString(36).slice(2), start: new Date().toISOString() },
+      device: { type: device.isCar ? "car" : device.isMobile ? "mobile" : "desktop", sampleRate: device.sampleRateHint },
+      tts: { success: 0, error: 0, ms: 0 },
+      stt: { interim: 0, final: 0, error: 0 },
+      vad: { sessions: 0, active: false },
+      mic: { denied: 0, recovered: 0 },
+      diag: { errors: 0, warns: 0, infos: 0 }
+    };
+    this._wire();
+    this._schedule();
+    window.addEventListener("beforeunload", () => this._beacon(true));
+  }
+  _wire() {
+    bus.on("vad:start", () => { if (!this.payload.vad.active) { this.payload.vad.active = true; this.payload.vad.sessions++; } });
+    bus.on("vad:stop",  () => { this.payload.vad.active = false; });
+    bus.on("stt:result", (e) => { if (e?.final) this.payload.stt.final++; else this.payload.stt.interim++; });
+    bus.on("stt:unavailable", () => { this.payload.stt.error++; });
+    bus.on("diag:error", () => { this.payload.diag.errors++; });
+    bus.on("diag:warn",  () => { this.payload.diag.warns++;  });
+    bus.on("diag:info",  () => { this.payload.diag.infos++;  });
+    bus.on("tts:end", (ms) => { this.payload.tts.ms += (ms || 0); this.payload.tts.success++; });
+    bus.on("tts:fail",   () => { this.payload.tts.error++; });
+    bus.on("mic:denied", () => { this.payload.mic.denied++; });
+    bus.on("mic:recovered", () => { this.payload.mic.recovered++; });
+  }
+  _schedule() { clearInterval(this.t); this.t = setInterval(() => this._beacon(false), this.intervalMs); }
+  _beacon(final) {
+    const out = { ...this.payload, session: { ...this.payload.session, end: new Date().toISOString(), final: !!final } };
+    try {
+      const blob = new Blob([JSON.stringify(out)], { type: "application/json" });
+      if (navigator.sendBeacon) navigator.sendBeacon("/api/telemetry", blob);
+      else fetch("/api/telemetry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(out) });
+    } catch {}
+  }
+  snapshot() { return JSON.parse(JSON.stringify(this.payload)); }
+}
+export const telemetry = new Telemetry();
+
+# client/chango/bridge.stt.js
+/* Bridge STT → wake word → TTS, with owner gate check, no UI changes. */
+import { device } from "./core/device.js";
+import { bus } from "./core/eventBus.js";
+import { voiceGate } from "./security/voicegate.js";
+
+class WebSpeechSTT {
+  constructor(){ this.rec=null; this.active=false; this._last=""; }
+  start(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { bus.emit("stt:unavailable"); return; }
+    this.rec = new SR(); this.rec.continuous = true; this.rec.interimResults = true; this.rec.lang = "en-US";
+    this.rec.onresult = async (e) => {
+      const r = e.results[e.resultIndex]; const text = (r[0]?.transcript||"").trim();
+      if (!text) return;
+      if (r.isFinal) {
+        if (text === this._last) return; this._last = text;
+        const trigger = /^(\s*(lolo|chango)[\s,.:;-]*)/i;
+        if (!trigger.test(text)) return;
+        const cleaned = text.replace(trigger, "").trim();
+        if (!cleaned) return;
+
+        // optional owner gate: capture 1.2s mic and compare
+        let pass = true;
+        try {
+          const sr = device.sampleRateHint;
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+          const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: sr });
+          const src = ctx.createMediaStreamSource(stream);
+          const rec = ctx.createScriptProcessor(2048, 1, 1);
+          const chunks=[]; rec.onaudioprocess = ev => chunks.push(new Float32Array(ev.inputBuffer.getChannelData(0)));
+          src.connect(rec); rec.connect(ctx.destination);
+          await new Promise(r=>setTimeout(r, 1200));
+          try { rec.disconnect(); src.disconnect(); } catch {}
+          stream.getTracks().forEach(t=>t.stop());
+          const total = chunks.reduce((s,a)=>s+a.length,0), x=new Float32Array(total); let o=0; for(const a of chunks){ x.set(a,o); o+=a.length; }
+          pass = voiceGate.check(x, sr);
+        } catch { /* permissive fallback */ }
+
+        if (!pass) { bus.emit("diag:warn", { where: "gate", msg: "Blocked non-owner" }); return; }
+        bus.emit("cmd", cleaned);
+      } else {
+        bus.emit("stt:result", { text, final: false });
+      }
+    };
+    this.rec.onend = () => { if (this.active) { try { this.rec.start(); } catch {} } };
+    try { this.rec.start(); this.active = true; } catch {}
+  }
+  stop(){ try{ this.rec && this.rec.stop(); } catch {} this.active = false; }
+}
+const stt = new WebSpeechSTT();
+stt.start();
+
+// route recognized command to your existing speak() without UI changes
+bus.on("cmd", (text) => {
+  try {
+    if (typeof window.speak === "function") window.speak(text);
+    else if (window.Chango && typeof window.Chango.speak === "function") window.Chango.speak(text);
+    else { const u = new SpeechSynthesisUtterance(text); speechSynthesis.speak(u); }
+  } catch {}
+});
+
+# server/state/hud.js
+// In-memory HUD store (ephemeral). Safe for dev; persist if you want later.
+let _last = { ts: null, payload: null };
+export function setHUD(payload) { _last = { ts: Date.now(), payload }; }
+export function getHUD() {
+  const p = _last.payload || {};
+  const stability = pct(p.tts?.success, (p.tts?.success||0)+(p.tts?.error||0));
+  const sttQual   = pct(p.stt?.final, (p.stt?.final||0)+(p.stt?.error||0));
+  return {
+    updated: _last.ts || 0,
+    device: p.device || {},
+    metrics: {
+      voice_stability: stability,
+      stt_quality: sttQual,
+      vad_sessions: p.vad?.sessions || 0,
+      mic_denied: p.mic?.denied || 0,
+      errors: p.diag?.errors || 0
+    }
+  };
+}
+function pct(a=0,b=0){ b=Math.max(1,b); return Math.round((a/b)*100); }
+
+# server/routes/telemetry.js
+import express from "express";
+import { setHUD, getHUD } from "../state/hud.js";
+const router = express.Router();
+
+router.post("/api/telemetry", express.json({ limit: "256kb" }), (req, res) => {
+  try { setHUD(req.body || {}); } catch {}
+  res.json({ ok: true });
+});
+
+router.get("/hud/status.json", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(getHUD());
+});
+
+export default router;
+
+# server/index.js  (additions you must merge if you already have express)
+import express from "express";
+import path from "path";
+import telemetryRoutes from "./routes/telemetry.js";
+
+const app = express();
+// ... your existing middleware & routes
+app.use(telemetryRoutes);
+
+// static client (if not already)
+app.use(express.static(path.join(process.cwd(), "client")));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Chango server on :${PORT}`));
+
+# client/index.html  (ONE new module import; keep your UI exactly as-is)
+<!-- at end of body, after your existing scripts -->
+<script type="module" src="/client/chango/diag/telemetry.js"></script>
+<script type="module" src="/client/chango/security/voicegate.js"></script>
+<script type="module" src="/client/chango/bridge.stt.js"></script>
+
+What this fixes (and how to verify fast)
+	•	Owner Voiceprint gate: in DevTools run:
+
+await ChangoVoice.enroll(3);   // record ~3s
+ChangoVoice.enableGate(true);  // gate ON → status flips to “Owner: LOCKED”
+
+Then say “lolo …” or “chango …” — only your voice should trigger.
+
+	•	“Still not responding”: now STT runs continuously; wake word is required; commands route to your existing speak() with zero UI changes.
+	•	HUD JSON: open http://localhost:3000/hud/status.json. It updates as telemetry beacons arrive. Your HUD can poll this endpoint.
+	•	Docs refresher: your existing tools/refresh_docs.mjs keeps appending to MD. The new endpoint is for the live HUD; both can co-exist.
+
+⸻
+
+a. Want me to add a tiny intent router (client/chango/brain/intent.js) to map commands like “play music”, “what’s the time” to pluggable actions (still no UI changes)?
+b. Want me to persist the HUD snapshot to disk (e.g., telemetry/runtime.json) on the server so it survives restarts?

@@ -1,5 +1,5 @@
 // Headless adapter: binds to existing DOM via data-chango-* without altering layout
-import { bus } from "../core/eventBus.js";
+import { eventBus as bus } from "../core/eventBus.js";
 
 export class UIAdapter {
   constructor() {

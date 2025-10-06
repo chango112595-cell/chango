@@ -1,4 +1,4 @@
-import { bus } from "../core/eventBus.js";
+import { eventBus as bus } from "../core/eventBus.js";
 export class WebSpeechSTT {
   constructor() { this.rec = null; this.active = false; }
   start() {

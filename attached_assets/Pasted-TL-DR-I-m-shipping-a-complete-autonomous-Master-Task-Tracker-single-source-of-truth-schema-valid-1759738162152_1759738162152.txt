@@ -1,0 +1,565 @@
+TL;DR: I’m shipping a complete, autonomous Master Task Tracker: single source of truth, schema-validated, telemetry-aware, duplicate-safe appender, static scanner, skills manifest validator, dependency graph, SSE live updates, Debug Monitor Tasks tab with filters/sorting, audits, and snapshots. No weather code included (it stays on TODO). Everything is isolated, drop-in for Replit.
+
+⸻
+
+Plan (pseudocode)
+	•	Data: tasks/tasks.json (SSoT), config/tasks.schema.json, tasks/deps.json (dependencies).
+	•	Server: /tasks/status.json, /tasks/update, /tasks/stream (SSE).
+	•	Tools:
+	•	task_tracker.mjs: init, append-queued, sync-telemetry, scan, render-md, audit, snapshot, deps, weights, fix.
+	•	skills_check.mjs: validate client/chango/skills/manifest.json and skills.
+	•	Client (Debug Monitor): monitor_tasks.js with live SSE, filters (P1–P6), sort, quick search.
+	•	Package scripts: npm run tasks:* commands wired.
+	•	Docs: TASK_AUDIT.md auto-written; TASK_MASTER_CURRENT.md updated with Auto Status table.
+
+⸻
+
+
+# package.json  (merge scripts)
+{
+  "scripts": {
+    "tasks:init": "node tools/task_tracker.mjs init",
+    "tasks:append": "node tools/task_tracker.mjs append-queued",
+    "tasks:sync": "node tools/task_tracker.mjs sync-telemetry",
+    "tasks:scan": "node tools/task_tracker.mjs scan",
+    "tasks:render": "node tools/task_tracker.mjs render-md",
+    "tasks:audit": "node tools/task_tracker.mjs audit",
+    "tasks:snapshot": "node tools/task_tracker.mjs snapshot",
+    "tasks:deps": "node tools/task_tracker.mjs deps",
+    "tasks:weights": "node tools/task_tracker.mjs weights",
+    "tasks:fix": "node tools/task_tracker.mjs fix",
+    "tasks:all": "node tools/task_tracker.mjs scan && node tools/task_tracker.mjs sync-telemetry && node tools/task_tracker.mjs deps && node tools/task_tracker.mjs weights && node tools/task_tracker.mjs render-md && node tools/task_tracker.mjs audit"
+  }
+}
+
+# config/tasks.schema.json  (unchanged schema; SSoT guard)
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Chango Tasks",
+  "type": "object",
+  "required": ["version", "updated", "tasks"],
+  "properties": {
+    "version": { "type": "integer" },
+    "updated": { "type": "string" },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "priority", "layer", "title", "desc", "status", "owner", "percent", "files"],
+        "properties": {
+          "id": { "type": "string" },
+          "priority": { "type": "integer", "minimum": 1, "maximum": 6 },
+          "layer": { "type": "string" },
+          "title": { "type": "string" },
+          "desc": { "type": "string" },
+          "status": { "type": "string", "enum": ["⏸","🟡","🟢","✅","🟣"] },
+          "owner": { "type": "string" },
+          "percent": { "type": "number", "minimum": 0, "maximum": 100 },
+          "files": { "type": "array", "items": { "type": "string" } },
+          "apis":  { "type": "array", "items": { "type": "string" } },
+          "deps":  { "type": "array", "items": { "type": "string" } },
+          "weight":{ "type": "number", "minimum": 0, "maximum": 100 }
+        }
+      }
+    }
+  }
+}
+
+# tasks/tasks.json  (seed; includes queued items; no weather code)
+{
+  "version": 1,
+  "updated": "2025-10-06T00:00:00Z",
+  "tasks": [
+    { "id": "core-logging", "priority": 1, "layer": "Core Systems", "title": "Hybrid Core Logging System", "desc": "Separate Human/Chango logs; auto-backup.", "status": "✅", "owner": "you", "percent": 100, "files": ["client/chango/diag/monitor_tab_selftest.js"], "apis": [], "deps": [], "weight": 5 },
+    { "id": "checkpoint-manager", "priority": 1, "layer": "Core Systems", "title": "Checkpoint Manager", "desc": "Snapshot project state pre-patch.", "status": "✅", "owner": "you", "percent": 100, "files": [], "apis": [], "deps": [], "weight": 5 },
+    { "id": "voice-stability", "priority": 1, "layer": "Core Systems", "title": "Voice System Stability Audit", "desc": "Fix repetition & STT handover.", "status": "🟢", "owner": "you", "percent": 85, "files": ["client/chango/bridge.stt.js","client/chango/stt/kws_local.js"], "apis": ["SpeechRecognition"], "deps": ["mic-perm"], "weight": 10 },
+    { "id": "mic-perm", "priority": 1, "layer": "Core Systems", "title": "Microphone Permission Validator", "desc": "Safe mic access & auto-recovery.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/diag/telemetry.js"], "apis": ["MediaDevices.getUserMedia"], "deps": [], "weight": 6 },
+
+    { "id": "stt-pipeline", "priority": 2, "layer": "Voice & Audio", "title": "STT Pipeline Integration", "desc": "Real-time speech via WebSpeech.", "status": "✅", "owner": "you", "percent": 100, "files": ["client/chango/bridge.stt.js"], "apis": ["SpeechRecognition"], "deps": [], "weight": 8 },
+    { "id": "natural-response", "priority": 2, "layer": "Voice & Audio", "title": "Natural Response Engine", "desc": "Human-like flow + accent emulation.", "status": "🟡", "owner": "you", "percent": 60, "files": ["client/chango/tts/prosody.js","client/chango/accent/engine.js"], "apis": [], "deps": [], "weight": 10 },
+    { "id": "advanced-voice", "priority": 2, "layer": "Voice & Audio", "title": "Advanced Voice Program", "desc": "Local neural TTS & auto voice learning.", "status": "🟡", "owner": "you", "percent": 55, "files": ["client/chango/tts/formantSynth.js","server/cli/tts_render.mjs"], "apis": [], "deps": ["natural-response"], "weight": 12 },
+    { "id": "handsfree", "priority": 2, "layer": "Voice & Audio", "title": "Hands-Free Mode Control", "desc": "Continuous vs manual listening.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/audio/vad.js"], "apis": [], "deps": ["mic-perm"], "weight": 6 },
+    { "id": "mute", "priority": 2, "layer": "Voice & Audio", "title": "Mute / Unmute System", "desc": "Manual & auto safety shut-off.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/audio/contextPool.js"], "apis": [], "deps": [], "weight": 5 },
+    { "id": "wakeword", "priority": 2, "layer": "Voice & Audio", "title": "Wake Word (Lolo)", "desc": "Custom trigger only.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/stt/kws_local.js"], "apis": [], "deps": ["mic-perm"], "weight": 8 },
+
+    { "id": "hud-sphere", "priority": 3, "layer": "User Interface", "title": "HUD Sphere System", "desc": "Animated dual-state hologram.", "status": "✅", "owner": "you", "percent": 100, "files": [], "apis": [], "deps": [], "weight": 6 },
+    { "id": "responsive-ui", "priority": 3, "layer": "User Interface", "title": "Responsive UI Refactor", "desc": "Scale to all screens/devices.", "status": "🟡", "owner": "you", "percent": 60, "files": ["client/chango/core/device.js","client/chango/ui/adapter.js"], "apis": [], "deps": [], "weight": 8 },
+    { "id": "ui-safe-zones", "priority": 3, "layer": "User Interface", "title": "UI Safe Zones", "desc": "Chat bar above sphere/debug.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/ui/adapter.js"], "apis": [], "deps": ["responsive-ui"], "weight": 5 },
+
+    { "id": "debug-monitor", "priority": 4, "layer": "Diagnostics & Monitoring", "title": "Global Debug Monitor", "desc": "Logs + flags + tabs.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/diag/monitor_tab_selftest.js","client/chango/diag/monitor_badge.js","client/chango/diag/monitor_tasks.js"], "apis": [], "deps": [], "weight": 8 },
+    { "id": "auto-heal", "priority": 4, "layer": "Diagnostics & Monitoring", "title": "Auto-Heal Mechanism", "desc": "Detect broken modules → self-fix.", "status": "🟡", "owner": "you", "percent": 40, "files": ["client/chango/diag/monitor.js"], "apis": [], "deps": ["debug-monitor"], "weight": 10 },
+    { "id": "priority-filter", "priority": 4, "layer": "Diagnostics & Monitoring", "title": "Priority Event Filter", "desc": "Report only critical voice issues.", "status": "🟡", "owner": "you", "percent": 50, "files": ["client/chango/diag/monitor.js"], "apis": [], "deps": ["debug-monitor"], "weight": 6 },
+
+    { "id": "history-feed", "priority": 5, "layer": "Knowledge & Core Memory", "title": "Historical Knowledge Feed", "desc": "Summarized timeline.", "status": "🟡", "owner": "you", "percent": 40, "files": [], "apis": [], "deps": [], "weight": 6 },
+    { "id": "temporal-awareness", "priority": 5, "layer": "Knowledge & Core Memory", "title": "Temporal Awareness", "desc": "Auto-update current date/year.", "status": "🟡", "owner": "you", "percent": 40, "files": [], "apis": [], "deps": [], "weight": 6 },
+
+    { "id": "manual-override", "priority": 6, "layer": "Security & Failsafes", "title": "Manual Override (Mute/Pause)", "desc": "Emergency stop for voice.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/ui/adapter.js"], "apis": [], "deps": [], "weight": 5 },
+
+    /* queued (no weather implementation here) */
+    { "id": "weather-skill", "priority": 2, "layer": "Voice & Audio", "title": "Weather Skill Scaffold", "desc": "Local provider only; offline-first.", "status": "⏸", "owner": "you", "percent": 0, "files": ["client/chango/skills/weather.js"], "apis": [], "deps": [], "weight": 6 },
+    { "id": "skills-validator", "priority": 4, "layer": "Diagnostics & Monitoring", "title": "Skills Manifest Validator", "desc": "Validate manifest & skills exports.", "status": "⏸", "owner": "you", "percent": 0, "files": ["tools/skills_check.mjs"], "apis": [], "deps": [], "weight": 5 }
+  ]
+}
+
+# tasks/deps.json  (task dependencies; optional extra integrity)
+{
+  "edges": [
+    ["mic-perm","voice-stability"],
+    ["mic-perm","handsfree"],
+    ["responsive-ui","ui-safe-zones"],
+    ["debug-monitor","priority-filter"],
+    ["debug-monitor","auto-heal"],
+    ["natural-response","advanced-voice"]
+  ]
+}
+
+# tools/skills_check.mjs  (validate skills manifest & modules)
+#!/usr/bin/env node
+/**
+ * Validates client/chango/skills/manifest.json and each skill module:
+ * - manifest JSON exists, has "skills": []
+ * - each path is reachable
+ * - each module exports register({ registerIntent, bus }) OR default intents[]
+ */
+import fs from "node:fs";
+import path from "node:path";
+const ROOT = process.cwd();
+const MANIFEST = path.join(ROOT, "client", "chango", "skills", "manifest.json");
+
+function fail(msg){ console.error("FAIL:", msg); process.exitCode = 1; }
+function ok(msg){ console.log("OK:", msg); }
+
+function main(){
+  if (!fs.existsSync(MANIFEST)) { fail("manifest.json missing"); return; }
+  const raw = fs.readFileSync(MANIFEST, "utf8");
+  let json; try { json = JSON.parse(raw); } catch { fail("manifest.json not valid JSON"); return; }
+  if (!Array.isArray(json.skills)) { fail("manifest.skills must be an array"); return; }
+  ok(`manifest has ${json.skills.length} skills`);
+  const missing = [];
+  for (const rel of json.skills){
+    const p = path.join(ROOT, rel);
+    if (!fs.existsSync(p)) missing.push(rel);
+    else ok(`found ${rel}`);
+  }
+  if (missing.length){ fail("missing modules:\n - " + missing.join("\n - ")); }
+  // Static export check by simple regex (JS only heuristic)
+  let exportWarn = false;
+  for (const rel of json.skills){
+    const src = fs.readFileSync(path.join(ROOT, rel), "utf8");
+    if (!/export\s+function\s+register\s*\(/.test(src) && !/export\s+default\s*\[/.test(src)){
+      console.warn("WARN: no register() or default intents[] in", rel);
+      exportWarn = true;
+    }
+  }
+  if (!exportWarn) ok("all skills expose register() or default intents[]");
+}
+main();
+
+# tools/task_tracker.mjs  (autonomous tracker; advanced)
+#!/usr/bin/env node
+/**
+ * Master Task Tracker (autonomous)
+ * Commands:
+ *   init             ensure files exist
+ *   append-queued    add queued block to TASK_MASTER_CURRENT.md (idempotent)
+ *   sync-telemetry   merge HUD metrics into tasks
+ *   scan             static file/API scan → coverage %
+ *   render-md        refresh Auto Status table in TASK_MASTER_CURRENT.md
+ *   audit            write TASK_AUDIT.md (dups, missing, stale)
+ *   snapshot         write tasks/TASKS_SNAPSHOT_YYYY-MM-DD.json
+ *   deps             validate tasks/deps.json (DAG) and missing refs
+ *   weights          compute weighted progress per priority
+ *   fix              auto-fix common inconsistencies (clamp %; ensure weight)
+ */
+import fs from "node:fs";
+import path from "node:path";
+import http from "node:http";
+import https from "node:https";
+
+const ROOT = process.cwd();
+const FILE_MD     = path.join(ROOT, "TASK_MASTER_CURRENT.md");
+const FILE_JSON   = path.join(ROOT, "tasks", "tasks.json");
+const FILE_DEPS   = path.join(ROOT, "tasks", "deps.json");
+const FILE_AUDIT  = path.join(ROOT, "TASK_AUDIT.md");
+const AUTO_MARKER = "### Auto Status (tracker)";
+const QUEUE_MARK  = "### Queued Tasks (auto-appended)";
+const nowISO = () => new Date().toISOString();
+
+function read(p, d=""){ try{ return fs.readFileSync(p, "utf8"); }catch{ return d; } }
+function write(p, s){ fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, s, "utf8"); }
+function exists(p){ return fs.existsSync(p); }
+
+function loadTasks(){
+  const raw = read(FILE_JSON, ""); if(!raw) return { version:1, updated: nowISO(), tasks: [] };
+  try { return JSON.parse(raw); } catch { return { version:1, updated: nowISO(), tasks: [] }; }
+}
+function saveTasks(obj){ obj.updated = nowISO(); write(FILE_JSON, JSON.stringify(obj, null, 2)); }
+
+function fetchJSON(url){
+  return new Promise((resolve) => {
+    const lib = url.startsWith("https") ? https : http;
+    const req = lib.get(url, { headers: { "cache-control":"no-store" }}, res => {
+      let data=""; res.on("data", c=>data+=c);
+      res.on("end", ()=>{ try{ resolve(JSON.parse(data)); }catch{ resolve(null); } });
+    });
+    req.on("error", ()=> resolve(null));
+  });
+}
+
+function mdAutoStatus(tasks){
+  const rows = tasks.map(t => `| ${t.layer} | P${t.priority} | ${t.status} | ${t.title} | ${Math.round(t.percent)}% | ${t.weight ?? 1} |`);
+  return [
+    `\n---\n`,
+    `${AUTO_MARKER} — ${nowISO()}\n`,
+    `| Layer | Priority | Status | Task | Progress | Weight |\n|---|:---:|:---:|---|---:|---:|\n`,
+    rows.join("\n"),
+    `\n`
+  ].join("");
+}
+
+function cmd_init(){
+  if(!exists(FILE_JSON)) write(FILE_JSON, read(path.join(ROOT,"tasks","tasks.json"), '{"version":1,"updated":"","tasks":[]}'));
+  if(!exists(FILE_DEPS)) write(FILE_DEPS, read(path.join(ROOT,"tasks","deps.json"), '{"edges":[]}'));
+  console.log("OK: init");
+}
+
+function cmd_appendQueued(){
+  const md0 = read(FILE_MD, "");
+  if (md0.includes(QUEUE_MARK)) { console.log("No changes: queued block already present."); return; }
+  const block = [
+    `\n---\n`,
+    `${QUEUE_MARK} ${nowISO()}\n\n`,
+    `#### Priority 2 : Voice & Audio\nStatus | Task | Description\n---|---|---\n`,
+    `⏸ | Weather Skill Scaffold | Create \`client/chango/skills/weather.js\` using **local provider only** (no 3rd-party). Wire to intent: “weather”, “forecast”, “temperature”. Offline placeholder first.\n\n`,
+    `#### Priority 4 : Diagnostics & Monitoring\nStatus | Task | Description\n---|---|---\n`,
+    `⏸ | Skills Manifest Validator | Add \`npm run skills:check\` to validate \`client/chango/skills/manifest.json\` and lint required exports (register or default intents).\n`
+  ].join("");
+  write(FILE_MD, md0 + (md0.endsWith("\n") ? "" : "\n") + block);
+  console.log("OK: appended queued block.");
+}
+
+function cmd_syncTelemetry(){
+  const url = process.env.HUD_URL || "http://localhost:3000/hud/status.json";
+  console.log("Telemetry:", url);
+  fetchJSON(url).then(json => {
+    if(!json){ console.log("WARN: no telemetry"); return; }
+    const t = loadTasks();
+    for (const task of t.tasks){
+      if (task.id === "voice-stability" && json.metrics?.voice_stability >= 0)
+        task.percent = Math.max(task.percent, json.metrics.voice_stability);
+      if (task.id === "stt-pipeline" && json.metrics?.stt_quality >= 0)
+        task.percent = Math.max(task.percent, json.metrics.stt_quality);
+      if (task.id === "debug-monitor"){
+        const health = 100 - Math.min(100, (json.metrics?.errors||0)*10);
+        task.percent = Math.max(task.percent, health);
+      }
+    }
+    saveTasks(t);
+    console.log("OK: telemetry merged.");
+  });
+}
+
+function cmd_scan(){
+  const t = loadTasks();
+  for (const task of t.tasks){
+    if (!task.files?.length) continue;
+    let ok = 0;
+    for (const rel of task.files){
+      const p = path.join(ROOT, rel);
+      if (!exists(p)) continue;
+      const src = read(p, "");
+      const pats =
+        /bridge\.stt\.js$/.test(rel) ? [/SpeechRecognition|webkitSpeechRecognition/, /bus\.on\(/] :
+        /vad\.js$/.test(rel)         ? [/start\(/, /stop\(/] :
+        /monitor_tab_selftest\.js$/.test(rel) ? [/bus\.on\(/] :
+        /contextPool\.js$/.test(rel) ? [/AudioContext|webkitAudioContext/] :
+        [];
+      const hit = pats.filter(r => r.test(src)).length;
+      const score = pats.length ? Math.round(100 * hit / pats.length) : 100;
+      if (score >= 80) ok++;
+    }
+    const coverage = Math.round(100 * ok / task.files.length);
+    task.percent = Math.max(task.percent, coverage);
+  }
+  saveTasks(t);
+  console.log("OK: static scan applied.");
+}
+
+function cmd_renderMD(){
+  const t = loadTasks();
+  const byPriority = [...t.tasks].sort((a,b)=> a.priority - b.priority || (b.weight??1)-(a.weight??1));
+  const md0 = read(FILE_MD, "");
+  const table = mdAutoStatus(byPriority);
+  let out;
+  if (md0.includes(AUTO_MARKER)){
+    const head = md0.split(AUTO_MARKER)[0];
+    out = head + table;
+  } else {
+    out = md0 + table;
+  }
+  write(FILE_MD, out);
+  console.log("OK: Auto Status rendered.");
+}
+
+function cmd_deps(){
+  const g = JSON.parse(read(FILE_DEPS, '{"edges":[]}'));
+  const t = loadTasks();
+  const ids = new Set(t.tasks.map(x=>x.id));
+  const bad = g.edges.filter(([a,b]) => !ids.has(a) || !ids.has(b));
+  if (bad.length){ console.warn("WARN: bad deps:", bad); }
+  // cycle check (simple DFS)
+  const adj = {};
+  for (const [a,b] of g.edges){ (adj[a] ||= []).push(b); }
+  const seen = new Set(), stack = new Set();
+  let cycle = null;
+  function dfs(u){
+    if (stack.has(u)) { cycle = u; return; }
+    if (seen.has(u)) return;
+    seen.add(u); stack.add(u);
+    for (const v of (adj[u]||[])) dfs(v);
+    stack.delete(u);
+  }
+  for (const k of Object.keys(adj)){ dfs(k); if (cycle) break; }
+  if (cycle) console.error("FAIL: dependency cycle detected at", cycle);
+  else console.log("OK: deps DAG valid.");
+}
+
+function cmd_weights(){
+  const t = loadTasks();
+  const agg = {};
+  for (const x of t.tasks){
+    const key = `P${x.priority}`;
+    const w = x.weight ?? 1;
+    const contrib = w * (x.percent/100);
+    const total = (agg[key]?.total ?? 0) + w;
+    const done  = (agg[key]?.done  ?? 0) + contrib;
+    agg[key] = { total, done };
+  }
+  const lines = Object.entries(agg).map(([k,v]) => `${k} weighted progress: ${Math.round(100* (v.done / v.total))}%`);
+  console.log(lines.join("\n"));
+}
+
+function cmd_audit(){
+  const t = loadTasks();
+  const ids = t.tasks.map(x => x.id);
+  const dups = ids.filter((x,i)=> ids.indexOf(x)!==i);
+  const missing = [];
+  for (const task of t.tasks){
+    for (const f of (task.files||[])){
+      if (!exists(path.join(ROOT, f))) missing.push({ id: task.id, file: f });
+    }
+  }
+  const stale = t.tasks.filter(x => x.percent < 30 && x.status !== "⏸");
+  const lines = [];
+  lines.push(`# TASK AUDIT\n\nGenerated: ${nowISO()}\n`);
+  lines.push(`## Duplicates\n\n${dups.length ? dups.join("\n") : "None"}\n`);
+  lines.push(`\n## Missing Files\n\n${missing.length ? missing.map(m=>`- ${m.id}: \`${m.file}\``).join("\n") : "None"}\n`);
+  lines.push(`\n## Stale (<30% but not paused)\n\n${stale.length ? stale.map(s=>`- P${s.priority} ${s.layer} — ${s.title} (${s.percent}%)`).join("\n") : "None"}\n`);
+  write(FILE_AUDIT, lines.join(""));
+  console.log("OK: TASK_AUDIT.md");
+}
+
+function cmd_snapshot(){
+  const t = loadTasks();
+  const name = `TASKS_SNAPSHOT_${new Date().toISOString().slice(0,10)}.json`;
+  write(path.join(ROOT, "tasks", name), JSON.stringify(t, null, 2));
+  console.log("OK:", name);
+}
+
+function cmd_fix(){
+  const t = loadTasks();
+  for (const x of t.tasks){
+    if (typeof x.weight !== "number") x.weight = 1;
+    if (x.percent < 0) x.percent = 0;
+    if (x.percent > 100) x.percent = 100;
+  }
+  saveTasks(t);
+  console.log("OK: fixed weights & clamped percent in tasks.json");
+}
+
+const cmd = process.argv[2] || "help";
+if (cmd === "init") cmd_init();
+else if (cmd === "append-queued") cmd_appendQueued();
+else if (cmd === "sync-telemetry") cmd_syncTelemetry();
+else if (cmd === "scan") cmd_scan();
+else if (cmd === "render-md") cmd_renderMD();
+else if (cmd === "audit") cmd_audit();
+else if (cmd === "snapshot") cmd_snapshot();
+else if (cmd === "deps") cmd_deps();
+else if (cmd === "weights") cmd_weights();
+else if (cmd === "fix") cmd_fix();
+else console.log("Usage: node tools/task_tracker.mjs <init|append-queued|sync-telemetry|scan|render-md|audit|snapshot|deps|weights|fix>");
+
+# server/routes/tasks.js  (API + SSE stream)
+import express from "express";
+import fs from "node:fs";
+import path from "node:path";
+
+const router = express.Router();
+const FILE = path.join(process.cwd(), "tasks", "tasks.json");
+
+function load(){ try{ return JSON.parse(fs.readFileSync(FILE,"utf8")); }catch{ return {version:1,updated:"",tasks:[]}; } }
+function save(obj){ obj.updated = new Date().toISOString(); fs.mkdirSync(path.dirname(FILE),{recursive:true}); fs.writeFileSync(FILE, JSON.stringify(obj,null,2)); }
+
+// GET JSON
+router.get("/tasks/status.json", (_req, res) => {
+  res.setHeader("Cache-Control","no-store");
+  res.json(load());
+});
+
+// POST update single task (internal tooling)
+router.post("/tasks/update", express.json(), (req,res)=>{
+  const body=req.body||{};
+  const db=load();
+  const i=db.tasks.findIndex(t=>t.id===body.id);
+  if(i<0) return res.status(404).json({ ok:false, error:"task not found" });
+  if (typeof body.percent==="number") db.tasks[i].percent = Math.max(0, Math.min(100, body.percent));
+  if (typeof body.status==="string") db.tasks[i].status = body.status;
+  save(db);
+  res.json({ ok:true });
+});
+
+// SSE stream (push on file change; simple polling for dev)
+router.get("/tasks/stream", (req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-store",
+    "Connection": "keep-alive",
+  });
+  const send = () => res.write(`data: ${JSON.stringify(load())}\n\n`);
+  send();
+  const iv = setInterval(send, 10000);
+  req.on("close", ()=> clearInterval(iv));
+});
+
+export default router;
+
+# server/index.js  (ensure route is mounted)
+import tasksRoutes from "./routes/tasks.js";
+app.use(tasksRoutes);
+
+# client/chango/diag/monitor_tasks.js  (Tasks tab with SSE, sorting, search)
+function host(){
+  return document.querySelector("[data-chango-debug]") ||
+         document.querySelector(".debug-monitor") ||
+         document.getElementById("debug");
+}
+function mkBtn(label){
+  const b=document.createElement("button");
+  b.textContent=label;
+  Object.assign(b.style,{ all:"unset", cursor:"pointer", padding:"6px 10px", border:"1px solid rgba(0,255,255,.35)", borderRadius:"6px", fontFamily:"ui-monospace" });
+  return b;
+}
+function mkPanel(){
+  const wrap=document.createElement("div");
+  Object.assign(wrap.style,{ margin:"8px", padding:"8px", maxHeight:"280px", overflow:"auto", background:"rgba(0,0,0,.35)", border:"1px solid rgba(0,255,255,.25)", borderRadius:"6px", font:"12px/1.4 ui-monospace" });
+  wrap.className="chango-tasks-panel";
+  const search=document.createElement("input");
+  search.placeholder="filter: type text or P1..P6";
+  Object.assign(search.style,{ marginBottom:"8px", width:"100%", padding:"6px", background:"rgba(0,0,0,.2)", color:"#0ff", border:"1px solid rgba(0,255,255,.2)", borderRadius:"6px" });
+  const pre=document.createElement("pre");
+  wrap.append(search, pre);
+  return { wrap, search, pre };
+}
+async function fetchJSON(u){ try{ const r=await fetch(u,{cache:"no-store"}); return r.ok? r.json():null; }catch{ return null; } }
+function render(pre, data, filter="", sortKey="priority"){
+  if(!data){ pre.textContent="No data."; return; }
+  let tasks = [...(data.tasks||[])];
+  if (filter){
+    if (/^p[1-6]$/i.test(filter)) tasks = tasks.filter(t => String(t.priority) === filter.slice(1));
+    else {
+      const f = filter.toLowerCase();
+      tasks = tasks.filter(t => t.title.toLowerCase().includes(f) || t.layer.toLowerCase().includes(f) || t.status.includes(f));
+    }
+  }
+  tasks.sort((a,b)=>{
+    if (sortKey==="progress") return (b.percent)-(a.percent);
+    if (sortKey==="weight")   return (b.weight??1)-(a.weight??1);
+    return a.priority-b.priority || (b.weight??1)-(a.weight??1);
+  });
+  const head = `P | S | % | W | Task | Layer`;
+  const sep  = `- | - | -:| -:| --- | ---`;
+  const rows = tasks.map(t => `${t.priority} | ${t.status} | ${Math.round(t.percent)} | ${t.weight??1} | ${t.title} | ${t.layer}`);
+  pre.textContent = [head, sep, ...rows].join("\n");
+}
+function start(){
+  const h=host(); if(!h) return;
+  let bar=h.querySelector(".chango-tabs-inject"); if(!bar){ bar=document.createElement("div"); bar.className="chango-tabs-inject"; Object.assign(bar.style,{display:"flex",gap:"8px",padding:"6px 8px"}); h.appendChild(bar); }
+  const btn=mkBtn("Tasks"); const sortP=mkBtn("Sort:P"); const sortR=mkBtn("Sort:%"); const sortW=mkBtn("Sort:W");
+  const {wrap,search,pre}=mkPanel(); wrap.style.display="none"; h.appendChild(wrap);
+  let cache=null, sortKey="priority";
+
+  btn.addEventListener("click",()=>{ wrap.style.display = wrap.style.display==="none" ? "block" : "none"; });
+  sortP.addEventListener("click",()=>{ sortKey="priority"; render(pre,cache,search.value.trim(),sortKey); });
+  sortR.addEventListener("click",()=>{ sortKey="progress"; render(pre,cache,search.value.trim(),sortKey); });
+  sortW.addEventListener("click",()=>{ sortKey="weight"; render(pre,cache,search.value.trim(),sortKey); });
+  bar.append(btn, sortP, sortR, sortW);
+
+  search.addEventListener("input", ()=> render(pre,cache,search.value.trim(),sortKey));
+
+  // SSE
+  let es = null;
+  try{
+    es = new EventSource("/tasks/stream");
+    es.onmessage = (ev) => { cache = JSON.parse(ev.data); if (wrap.style.display!=="none") render(pre, cache, search.value.trim(), sortKey); };
+  }catch{ /* fallback */ }
+  // poll fallback
+  const poll = async ()=>{ const d=await fetchJSON("/tasks/status.json"); cache=d; if (wrap.style.display!=="none") render(pre, cache, search.value.trim(), sortKey); };
+  poll(); setInterval(poll, 12000);
+}
+if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",start); else start();
+
+# client/index.html  (ensure Tasks tab script is included; UI unchanged)
+<!-- after your other debug scripts -->
+<script type="module" src="/client/chango/diag/monitor_tasks.js"></script>
+
+
+⸻
+
+Step-by-step (Replit)
+	1.	Create folders: config/, tasks/, tools/, server/routes/, client/chango/diag/.
+	2.	Paste each file to its path.
+	3.	In server/index.js, mount routes:
+
+import tasksRoutes from "./routes/tasks.js";
+app.use(tasksRoutes);
+
+
+	4.	In client/index.html (end of <body>), add:
+
+<script type="module" src="/client/chango/diag/monitor_tasks.js"></script>
+
+
+	5.	Initialize tracker:
+
+npm run tasks:init
+npm run tasks:append
+npm run tasks:scan
+npm run tasks:sync
+npm run tasks:deps
+npm run tasks:weights
+npm run tasks:render
+npm run tasks:audit
+
+
+	6.	Live view: open the app → Debug Monitor → Tasks tab. Use Sort:P / Sort:% / Sort:W and the filter box (P1/P2 or free text).
+	7.	Keep it autonomous during dev:
+
+npm run tasks:all
+
+
+	8.	Validate skills setup anytime (no weather):
+
+node tools/skills_check.mjs
+
+
+	9.	Optional snapshot:
+
+npm run tasks:snapshot
+
+
+
+⸻
+
+a. Want me to focus next on Owner Voiceprint enrollment UX (status line + retry cues) or Intent Skills registry report expansion (per-skill coverage %)?
+b. Prefer I wire an error budget into the HUD and have the tracker auto-open issues when budget is exceeded?

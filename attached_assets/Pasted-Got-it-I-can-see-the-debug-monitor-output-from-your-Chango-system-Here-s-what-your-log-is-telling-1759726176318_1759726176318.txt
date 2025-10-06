@@ -1,0 +1,62 @@
+Got it — I can see the debug monitor output from your Chango system.
+Here’s what your log is telling us line by line:
+
+⸻
+
+🧩 Breakdown
+
+00:14:29 [AlwaysListen] Permission state: granted
+
+✅ Microphone permission was granted — browser allowed mic use.
+→ Good: mic access confirmed, STT can initialize.
+
+00:14:29 [AlwaysListen] Audio unlock initiated
+
+✅ AudioContext successfully resumed (unlock gesture handled).
+→ Good: sound output path is active.
+
+00:14:29 [Health] STT seems stuck (12719ms). Recovery #1
+
+⚠️ Speech Recognition (STT) froze for ~12.7 seconds — the system attempted its first recovery cycle.
+→ This usually means:
+	•	The WebSpeech SpeechRecognition API stopped emitting events (Chrome/Edge sometimes does this after long silence or background tab).
+	•	Or, the continuous listening flag failed to re-initiate after end.
+
+00:14:29 [Health] check
+00:14:29 [VoiceBus] cancel
+00:14:29 [VoiceBus] power
+
+🟢 These are normal internal events — the watchdog performing a state check and issuing “cancel” and “power” signals to restart listening or TTS safely.
+→ It’s trying to recover STT automatically.
+
+⸻
+
+🧠 Diagnosis Summary
+
+Component	Status	Meaning
+Mic	✅ Granted	Browser allowed audio input
+Audio Unlock	✅ Active	Output channel ready
+STT (SpeechRecognition)	⚠️ Recovering	Freezes after ~12 s, restarting itself
+TTS	🟢 Idle (ready)	Not blocked
+VAD	🟢 Active	Detecting voice (listening)
+Gate / VPrint	🟡 Off or Waiting	Owner voiceprint not engaged
+Orch (Orchestrator)	🟢 Alive	Event bus and orchestrator OK
+
+
+⸻
+
+💡 What To Fix or Improve
+	1.	Web Speech API recovery loop
+	•	The freeze you see is common on Chromium browsers.
+	•	Your code already retries, but you can make recovery instant by restarting recognition immediately on onend rather than waiting 12 s.
+	•	I can patch that logic to recover after 1 s instead of the default delay.
+	2.	Wake-word latency tuning
+	•	12 s freeze might also delay wake-word parsing. I can attach a low-latency VAD trigger so the wake-word detection re-starts as soon as voice energy is detected.
+	3.	Optional fallback
+	•	If SpeechRecognition becomes unavailable (mobile Safari, offline, or permissions lost), we can drop in a local Whisper.cpp or Vosk WASM recognizer — all offline, no third-party API calls.
+
+⸻
+
+Would you like me to:
+a. Patch the STT recovery loop to instant-restart (1 s) and add a VAD wake-word fallback?
+b. Add an optional offline STT (WASM-based, zero cloud) fallback for when browser recognition fails?

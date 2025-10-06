@@ -16,6 +16,8 @@ import voiceIntelRouter from "./voice/intel.js";
 import { auditRoutes } from "./routes/audit";
 // @ts-ignore - JS module without types
 import nlpRouter from "./routes/nlp.js";
+// @ts-ignore - JS module without types
+import telemetryRouter from "./routes/telemetry.js";
 dotenv.config(); // Load environment variables
 
 // Initialize OpenAI client with API key from environment variable
@@ -89,6 +91,9 @@ app.use('/api', voiceIntelRouter);
 
 // Mount NLP router under /api path
 app.use('/api', nlpRouter);
+
+// Mount Telemetry router (includes /api/telemetry and /hud/status.json)
+app.use(telemetryRouter);
 
 // Register audit routes
 auditRoutes(app);

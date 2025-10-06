@@ -12,6 +12,9 @@ import { UIAdapter } from "./ui/adapter.js";
 import { speechState } from "./core/state.js";
 import { monitor } from "./diag/monitor.js";
 import { telemetry } from "./diag/telemetry.js";
+import { voiceGate } from "./security/voicegate.js";
+// Import bridge.stt for STT-to-TTS integration with wake word
+import "./bridge.stt.js";
 
 const ui = new UIAdapter();
 const vad = new VAD();
@@ -204,7 +207,11 @@ ui.mount({
 
 // Export for external access if needed
 // Export bus directly (it's the renamed eventBus from import)
-export { ui, vad, mfcc, tts, stt, wake, unlock, speak, stop, bus, ctxPool, speechState, monitor };
+export { ui, vad, mfcc, tts, stt, wake, unlock, speak, stop, bus, ctxPool, speechState, monitor, voiceGate, telemetry };
 // Also export as eventBus for backward compatibility
 const eventBus = bus;
 export { eventBus };
+
+// Expose speak function globally for bridge.stt.js compatibility
+window.speak = speak;
+window.Chango = { speak };

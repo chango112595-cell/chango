@@ -4,12 +4,24 @@ Chango AI is a full-stack TypeScript application featuring a React frontend and 
 
 # Recent Updates (October 6, 2025)
 
+## CLI WAV Exporter and Enhanced Voice Features
+Added CLI tool and advanced voice system enhancements:
+- **CLI WAV Exporter**: Pure Node.js TTS-to-WAV renderer (no third-party deps)
+  - Command: `npm run tts:wav` or `node server/cli/tts_render.mjs`
+  - Renders Chango's formant synthesis to 16-bit PCM WAV files offline
+- **Dev Overlay Hotkey**: Alt+Shift+D toggles phoneme timeline visualization
+- **Device Auto-Adapt**: Detects environment (mobile/car/desktop) and optimizes settings
+- **Speech State Machine**: Prevents STT/TTS loops and transcript duplication  
+- **Permission Validator**: Auto-recovers from mic permission changes
+- **Diagnostic Monitor**: Centralized error/warning tracking with priority filtering
+
 ## Jest Testing Infrastructure and Dev Overlay
 Added comprehensive testing infrastructure and development tools:
 - **Jest + jsdom**: Test harness for unit testing voice modules
 - **Test Coverage**: Tests for EventBus, Prosody, Accent, MFCC, and G2P/Timeline modules
 - **Phoneme Timeline Dev Overlay**: Hidden visualization tool for TTS timeline
   - Activated via `?changoDev=1` URL parameter or `localStorage.setItem('changoDev','1')`
+  - Toggle with Alt+Shift+D hotkey
   - Shows real-time phoneme generation and timeline events
 - **Module Updates**: Refined implementations for all core voice modules
 

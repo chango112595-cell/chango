@@ -185,7 +185,7 @@ export default function Chat() {
                 }`}
               >
                 <div
-                  className={`flex gap-2 max-w-[80%] ${
+                  className={`flex gap-2 max-w-[80%] overflow-hidden ${
                     message.sender === "user" ? "flex-row-reverse" : "flex-row"
                   }`}
                 >
@@ -211,7 +211,7 @@ export default function Chat() {
                       }`}
                       data-testid={`message-${message.sender}-${message.id}`}
                     >
-                      <p className="text-sm">{message.text}</p>
+                      <p className="text-sm break-words overflow-wrap-anywhere">{message.text}</p>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1 px-1">
                       {formatTime(message.timestamp)}

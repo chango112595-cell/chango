@@ -1,5 +1,5 @@
 // Tiny mel-template DTW matcher for wake word; expects short-cut template vectors
-import { bus } from "../core/eventBus.js";
+import { eventBus as bus } from "../core/eventBus.js";
 import { MFCC } from "../audio/mfcc.js";
 
 export class WakeWordDetector {

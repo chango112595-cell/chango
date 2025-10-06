@@ -1,64 +1,8 @@
-/**
- * EventBus - Central pub/sub messaging system for the voice application
- * Handles all inter-module communication with isolated error handling
- */
 export class EventBus {
-  constructor() {
-    this.events = new Map();
-  }
-
-  /**
-   * Subscribe to an event
-   * @param {string} event - Event name
-   * @param {Function} handler - Event handler function
-   */
-  on(event, handler) {
-    if (!this.events.has(event)) {
-      this.events.set(event, []);
-    }
-    this.events.get(event).push(handler);
-  }
-
-  /**
-   * Unsubscribe from an event
-   * @param {string} event - Event name
-   * @param {Function} handler - Event handler function to remove
-   */
-  off(event, handler) {
-    if (!this.events.has(event)) return;
-    
-    const handlers = this.events.get(event);
-    const index = handlers.indexOf(handler);
-    
-    if (index > -1) {
-      handlers.splice(index, 1);
-    }
-    
-    if (handlers.length === 0) {
-      this.events.delete(event);
-    }
-  }
-
-  /**
-   * Emit an event to all subscribers
-   * @param {string} event - Event name
-   * @param {...any} args - Arguments to pass to handlers
-   */
-  emit(event, ...args) {
-    if (!this.events.has(event)) return;
-    
-    const handlers = this.events.get(event);
-    
-    // Isolated error handling - one handler's error doesn't affect others
-    handlers.forEach(handler => {
-      try {
-        handler(...args);
-      } catch (error) {
-        console.error(`[EventBus] Error in handler for event '${event}':`, error);
-      }
-    });
-  }
+  constructor() { this.map = new Map(); }
+  on(type, fn) { (this.map.get(type) || this.map.set(type, new Set()).get(type)).add(fn); return () => this.off(type, fn); }
+  off(type, fn) { const s = this.map.get(type); if (s) s.delete(fn); }
+  emit(type, payload) { const s = this.map.get(type); if (!s) return; for (const fn of s) { try { fn(payload); } catch {} } }
 }
-
-// Export singleton instance for global use
 export const eventBus = new EventBus();
+export const bus = eventBus; // for compatibility

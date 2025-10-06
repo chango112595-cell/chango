@@ -1,6 +1,6 @@
 // Entry: keeps UI intact; only behavior added. Requires user gesture to unlock audio.
-import { bus } from "./core/eventBus.js";
-import { ctxPool } from "./audio/contextPool.js";
+import { eventBus as bus } from "./core/eventBus.js";
+import { audioContextPool as ctxPool } from "./audio/contextPool.js";
 import { VAD } from "./audio/vad.js";
 import { MFCC } from "./audio/mfcc.js";
 import { prosodyPlan } from "./tts/prosody.js";
@@ -35,7 +35,8 @@ async function speak(text) {
 }
 
 function stop() {
-  ctxPool.stop(); bus.emit("status", "stopped");
+  // AudioContextPool doesn't have a stop method - just emit status
+  bus.emit("status", "stopped");
 }
 
 function wordsToPhones(plan) {

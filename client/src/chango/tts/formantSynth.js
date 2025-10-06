@@ -1,5 +1,5 @@
 // Advanced local TTS: LF-glottal-ish source + 3 formants + nasal/aspiration; coarticulation smoothing
-import { ctxPool } from "../audio/contextPool.js";
+import { audioContextPool as ctxPool } from "../audio/contextPool.js";
 
 const VOWELS = {
   iy: [270, 2290, 3010], 
@@ -32,14 +32,14 @@ export class FormantSynth {
   }
   
   async ensure() { 
-    await ctxPool.ensure(); 
-    this.ctx = ctxPool.ctx; 
-    this.master = ctxPool.node(); 
+    await ctxPool.unlock(); 
+    this.ctx = ctxPool.getContext(); 
+    this.master = ctxPool.getMasterGain(); 
   }
   
   async speak(timeline, { rate = 1, pitch = 1, volume = 1 } = {}) {
     await this.ensure(); 
-    ctxPool.master && (ctxPool.master.gain.value = volume);
+    this.master && (this.master.gain.value = volume);
     const start = this.ctx.currentTime + 0.02;
     let t = start;
     for (const item of timeline) {

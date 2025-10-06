@@ -328,12 +328,12 @@ function AppContent() {
         />
       </ErrorBoundary>
       
-      {/* Use HeaderCompact as the primary header */}
-      <ErrorBoundary name="HeaderCompact" fallback={<div className="p-2 text-center">Header unavailable</div>}>
+      {/* HeaderCompact removed - was covering settings banners */}
+      {/* <ErrorBoundary name="HeaderCompact" fallback={<div className="p-2 text-center">Header unavailable</div>}>
         <Suspense fallback={<div className="p-2 text-center">Loading header...</div>}>
           <HeaderCompact />
         </Suspense>
-      </ErrorBoundary>
+      </ErrorBoundary> */}
       
       {/* Conditionally render HeaderBar when mode is "header" (legacy support) */}
       {mode === "header" && FEATURES.LEGACY_HEADER && (

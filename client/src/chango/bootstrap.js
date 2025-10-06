@@ -11,6 +11,7 @@ import { WebSpeechSTT } from "./stt/webspeech.js";
 import { UIAdapter } from "./ui/adapter.js";
 import { speechState } from "./core/state.js";
 import { monitor } from "./diag/monitor.js";
+import { telemetry } from "./diag/telemetry.js";
 
 const ui = new UIAdapter();
 const vad = new VAD();
@@ -36,7 +37,17 @@ async function speak(text) {
   const plan = prosodyPlan(text);
   const phonemes = wordsToPhones(plan);
   const acc = accentize(phonemes, "neutral");
-  await tts.speak(timeline(acc), { rate: 1, pitch: 1, volume: 1 });
+  const tl = timeline(acc);
+  bus.emit("tts:timeline", { items: tl });
+  
+  try {
+    bus.emit("tts:begin");
+    await tts.speak(tl, { rate: 1, pitch: 1, volume: 1 });
+    bus.emit("tts:end");
+  } catch (e) {
+    bus.emit("tts:fail");
+    bus.emit("diag:error", { where: "tts", e: e?.message });
+  }
   
   // Set speech state back to idle
   speechState.set("idle", "TTS finished");

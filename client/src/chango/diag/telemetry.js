@@ -10,7 +10,7 @@ export class Telemetry {
       session: { id: Math.random().toString(36).slice(2), start: new Date().toISOString() },
       device: { type: device.isCar ? "car" : device.isMobile ? "mobile" : "desktop", sampleRate: device.sampleRateHint },
       tts: { success: 0, error: 0, ms: 0 },
-      stt: { interim: 0, final: 0, error: 0 },
+      stt: { interim: 0, final: 0, error: 0, recoveries: 0, last_recovery_ms: 0 },
       vad: { sessions: 0, active: false },
       mic: { denied: 0, recovered: 0 },
       diag: { errors: 0, warns: 0, infos: 0 }
@@ -43,6 +43,7 @@ export class Telemetry {
     bus.on("tts:fail",   () => { this.payload.tts.error++; });
     bus.on("mic:denied", () => { this.payload.mic.denied++; });
     bus.on("mic:recovered", () => { this.payload.mic.recovered++; });
+    bus.on("diag:recovery", ({count, idle_ms}) => { this.payload.stt.recoveries = count; this.payload.stt.last_recovery_ms = idle_ms||0; });
   }
   
   _schedule() { 

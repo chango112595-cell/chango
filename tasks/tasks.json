@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "updated": "2025-10-06T00:00:00Z",
+  "tasks": [
+    { "id": "core-logging", "priority": 1, "layer": "Core Systems", "title": "Hybrid Core Logging System", "desc": "Separate Human/Chango logs; auto-backup.", "status": "✅", "owner": "you", "percent": 100, "files": ["client/chango/diag/monitor_tab_selftest.js"], "apis": [], "deps": [], "weight": 5 },
+    { "id": "checkpoint-manager", "priority": 1, "layer": "Core Systems", "title": "Checkpoint Manager", "desc": "Snapshot project state pre-patch.", "status": "✅", "owner": "you", "percent": 100, "files": [], "apis": [], "deps": [], "weight": 5 },
+    { "id": "voice-stability", "priority": 1, "layer": "Core Systems", "title": "Voice System Stability Audit", "desc": "Fix repetition & STT handover.", "status": "🟢", "owner": "you", "percent": 85, "files": ["client/chango/bridge.stt.js","client/chango/stt/kws_local.js"], "apis": ["SpeechRecognition"], "deps": ["mic-perm"], "weight": 10 },
+    { "id": "mic-perm", "priority": 1, "layer": "Core Systems", "title": "Microphone Permission Validator", "desc": "Safe mic access & auto-recovery.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/diag/telemetry.js"], "apis": ["MediaDevices.getUserMedia"], "deps": [], "weight": 6 },
+
+    { "id": "stt-pipeline", "priority": 2, "layer": "Voice & Audio", "title": "STT Pipeline Integration", "desc": "Real-time speech via WebSpeech.", "status": "✅", "owner": "you", "percent": 100, "files": ["client/chango/bridge.stt.js"], "apis": ["SpeechRecognition"], "deps": [], "weight": 8 },
+    { "id": "natural-response", "priority": 2, "layer": "Voice & Audio", "title": "Natural Response Engine", "desc": "Human-like flow + accent emulation.", "status": "🟡", "owner": "you", "percent": 60, "files": ["client/chango/tts/prosody.js","client/chango/accent/engine.js"], "apis": [], "deps": [], "weight": 10 },
+    { "id": "advanced-voice", "priority": 2, "layer": "Voice & Audio", "title": "Advanced Voice Program", "desc": "Local neural TTS & auto voice learning.", "status": "🟡", "owner": "you", "percent": 55, "files": ["client/chango/tts/formantSynth.js","server/cli/tts_render.mjs"], "apis": [], "deps": ["natural-response"], "weight": 12 },
+    { "id": "handsfree", "priority": 2, "layer": "Voice & Audio", "title": "Hands-Free Mode Control", "desc": "Continuous vs manual listening.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/audio/vad.js"], "apis": [], "deps": ["mic-perm"], "weight": 6 },
+    { "id": "mute", "priority": 2, "layer": "Voice & Audio", "title": "Mute / Unmute System", "desc": "Manual & auto safety shut-off.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/audio/contextPool.js"], "apis": [], "deps": [], "weight": 5 },
+    { "id": "wakeword", "priority": 2, "layer": "Voice & Audio", "title": "Wake Word (Lolo)", "desc": "Custom trigger only.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/stt/kws_local.js"], "apis": [], "deps": ["mic-perm"], "weight": 8 },
+
+    { "id": "hud-sphere", "priority": 3, "layer": "User Interface", "title": "HUD Sphere System", "desc": "Animated dual-state hologram.", "status": "✅", "owner": "you", "percent": 100, "files": [], "apis": [], "deps": [], "weight": 6 },
+    { "id": "responsive-ui", "priority": 3, "layer": "User Interface", "title": "Responsive UI Refactor", "desc": "Scale to all screens/devices.", "status": "🟡", "owner": "you", "percent": 60, "files": ["client/chango/core/device.js","client/chango/ui/adapter.js"], "apis": [], "deps": [], "weight": 8 },
+    { "id": "ui-safe-zones", "priority": 3, "layer": "User Interface", "title": "UI Safe Zones", "desc": "Chat bar above sphere/debug.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/ui/adapter.js"], "apis": [], "deps": ["responsive-ui"], "weight": 5 },
+
+    { "id": "debug-monitor", "priority": 4, "layer": "Diagnostics & Monitoring", "title": "Global Debug Monitor", "desc": "Logs + flags + tabs.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/diag/monitor_tab_selftest.js","client/chango/diag/monitor_badge.js","client/chango/diag/monitor_tasks.js"], "apis": [], "deps": [], "weight": 8 },
+    { "id": "auto-heal", "priority": 4, "layer": "Diagnostics & Monitoring", "title": "Auto-Heal Mechanism", "desc": "Detect broken modules → self-fix.", "status": "🟡", "owner": "you", "percent": 40, "files": ["client/chango/diag/monitor.js"], "apis": [], "deps": ["debug-monitor"], "weight": 10 },
+    { "id": "priority-filter", "priority": 4, "layer": "Diagnostics & Monitoring", "title": "Priority Event Filter", "desc": "Report only critical voice issues.", "status": "🟡", "owner": "you", "percent": 50, "files": ["client/chango/diag/monitor.js"], "apis": [], "deps": ["debug-monitor"], "weight": 6 },
+
+    { "id": "history-feed", "priority": 5, "layer": "Knowledge & Core Memory", "title": "Historical Knowledge Feed", "desc": "Summarized timeline.", "status": "🟡", "owner": "you", "percent": 40, "files": [], "apis": [], "deps": [], "weight": 6 },
+    { "id": "temporal-awareness", "priority": 5, "layer": "Knowledge & Core Memory", "title": "Temporal Awareness", "desc": "Auto-update current date/year.", "status": "🟡", "owner": "you", "percent": 40, "files": [], "apis": [], "deps": [], "weight": 6 },
+
+    { "id": "manual-override", "priority": 6, "layer": "Security & Failsafes", "title": "Manual Override (Mute/Pause)", "desc": "Emergency stop for voice.", "status": "🟢", "owner": "you", "percent": 90, "files": ["client/chango/ui/adapter.js"], "apis": [], "deps": [], "weight": 5 },
+
+    { "id": "weather-skill", "priority": 2, "layer": "Voice & Audio", "title": "Weather Skill Scaffold", "desc": "Local provider only; offline-first.", "status": "⏸", "owner": "you", "percent": 0, "files": ["client/chango/skills/weather.js"], "apis": [], "deps": [], "weight": 6 },
+    { "id": "skills-validator", "priority": 4, "layer": "Diagnostics & Monitoring", "title": "Skills Manifest Validator", "desc": "Validate manifest & skills exports.", "status": "⏸", "owner": "you", "percent": 0, "files": ["tools/skills_check.mjs"], "apis": [], "deps": [], "weight": 5 }
+  ]
+}

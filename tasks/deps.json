@@ -1,0 +1,11 @@
+{
+  "edges": [
+    ["mic-perm","voice-stability"],
+    ["mic-perm","handsfree"],
+    ["mic-perm","wakeword"],
+    ["responsive-ui","ui-safe-zones"],
+    ["debug-monitor","priority-filter"],
+    ["debug-monitor","auto-heal"],
+    ["natural-response","advanced-voice"]
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Chango Tasks",
+  "type": "object",
+  "required": ["version", "updated", "tasks"],
+  "properties": {
+    "version": { "type": "integer" },
+    "updated": { "type": "string" },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "priority", "layer", "title", "desc", "status", "owner", "percent", "files"],
+        "properties": {
+          "id": { "type": "string" },
+          "priority": { "type": "integer", "minimum": 1, "maximum": 6 },
+          "layer": { "type": "string" },
+          "title": { "type": "string" },
+          "desc": { "type": "string" },
+          "status": { "type": "string", "enum": ["⏸","🟡","🟢","✅","🟣"] },
+          "owner": { "type": "string" },
+          "percent": { "type": "number", "minimum": 0, "maximum": 100 },
+          "files": { "type": "array", "items": { "type": "string" } },
+          "apis":  { "type": "array", "items": { "type": "string" } },
+          "deps":  { "type": "array", "items": { "type": "string" } },
+          "weight":{ "type": "number", "minimum": 0, "maximum": 100 }
+        }
+      }
+    }
+  }
+}

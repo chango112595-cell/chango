@@ -2,6 +2,17 @@
 
 Chango AI is a full-stack TypeScript application featuring a React frontend and Node.js/Express backend with PostgreSQL. It provides advanced voice synthesis and accent emulation capabilities using its proprietary Chango Voice Engine (CVE). Key functionalities include speech synthesis with various accents, custom voice profile creation from recordings, and an interactive holographic interface that delivers curiosity-driven, natural, and personality-driven AI responses. The system also incorporates robust voice security features like voiceprint authentication and advanced voice activity detection (VAD).
 
+# Recent Updates (October 6, 2025)
+
+## Jest Testing Infrastructure and Dev Overlay
+Added comprehensive testing infrastructure and development tools:
+- **Jest + jsdom**: Test harness for unit testing voice modules
+- **Test Coverage**: Tests for EventBus, Prosody, Accent, MFCC, and G2P/Timeline modules
+- **Phoneme Timeline Dev Overlay**: Hidden visualization tool for TTS timeline
+  - Activated via `?changoDev=1` URL parameter or `localStorage.setItem('changoDev','1')`
+  - Shows real-time phoneme generation and timeline events
+- **Module Updates**: Refined implementations for all core voice modules
+
 # Recent Updates (October 4, 2025)
 
 ## Global Debug Monitor with Self-Healing

@@ -1,5 +1,3 @@
-import { useState, useEffect } from "react";
-import { Button } from "@/components/ui/button";
 import VoiceControls from "@/components/VoiceControls";
 import HandsFreeMode from "@/components/HandsFreeMode";
 import VoiceRouteSelector from "@/components/VoiceRouteSelector";
@@ -11,15 +9,11 @@ import CuriosityEngine from "@/components/CuriosityEngine";
 import Chat from "@/components/Chat";
 import { SystemDiagnostics } from "@/components/SystemDiagnostics";
 import VoiceProfiles from "@/components/VoiceProfiles";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
 import { FEATURES } from "@/config/features";
 import type { SystemSettings } from "@shared/schema";
 
 export default function Dashboard() {
-  const [theme, setTheme] = useState("classic");
-  const queryClient = useQueryClient();
-
   // Load system settings
   const { data: settingsData } = useQuery({
     queryKey: ["/api/settings"],
@@ -27,52 +21,8 @@ export default function Dashboard() {
 
   const settings = (settingsData as any)?.settings as SystemSettings | undefined;
 
-  // Update settings mutation
-  const updateSettingsMutation = useMutation({
-    mutationFn: async (newSettings: Partial<SystemSettings>) => {
-      return apiRequest("POST", "/api/settings", newSettings);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
-    },
-  });
-
-  // Initialize theme from settings
-  useEffect(() => {
-    if (settings?.theme) {
-      setTheme(settings.theme);
-      document.body.classList.remove("theme-classic", "theme-hud");
-      document.body.classList.add(`theme-${settings.theme}`);
-    }
-  }, [settings?.theme]);
-
-  const toggleTheme = () => {
-    const newTheme = theme === "classic" ? "hud" : "classic";
-    setTheme(newTheme);
-    
-    document.body.classList.remove("theme-classic", "theme-hud");
-    document.body.classList.add(`theme-${newTheme}`);
-    
-    updateSettingsMutation.mutate({ 
-      userId: "default",
-      theme: newTheme 
-    });
-  };
-
   return (
     <div className="min-h-screen bg-background">
-      {/* Theme Toggle - simplified header since StatusDock handles the main UI */}
-      <div className="absolute top-4 right-4 z-20">
-        <Button 
-          onClick={toggleTheme}
-          variant="secondary"
-          size="sm"
-          data-testid="button-theme-toggle"
-        >
-          {theme === "classic" ? "HUD" : "Classic"}
-        </Button>
-      </div>
-
       <div className="container mx-auto px-6 py-8 max-w-7xl mt-16">
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Left Column - Main Controls */}

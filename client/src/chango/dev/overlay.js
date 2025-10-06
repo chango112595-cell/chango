@@ -6,12 +6,41 @@ export class PhonemeOverlay {
     this.root = null; this.canvas = null; this.ctx = null;
     if (this.enabled) this._mount();
     bus.on("tts:timeline", (payload) => { if (this.enabled) this._draw(payload); });
+    
+    // Add Alt+Shift+D hotkey handler
+    this._setupHotkey();
   }
   _shouldEnable() {
     // Why: keep default off; opt-in via query or localStorage.
     const qs = new URLSearchParams(location.search);
     if (qs.get("changoDev") === "1") return true;
     try { return localStorage.getItem("changoDev") === "1"; } catch { return false; }
+  }
+  _setupHotkey() {
+    document.addEventListener("keydown", (e) => {
+      // Check for Alt+Shift+D
+      if (e.altKey && e.shiftKey && e.key === "D") {
+        e.preventDefault();
+        this.toggle();
+      }
+    });
+  }
+  toggle() {
+    this.enabled = !this.enabled;
+    
+    // Save to localStorage
+    try {
+      localStorage.setItem("changoDev", this.enabled ? "1" : "0");
+    } catch {}
+    
+    if (this.enabled) {
+      if (!this.root) this._mount();
+      this.show();
+    } else {
+      this.hide();
+    }
+    
+    bus.emit("diag:info", { where: "overlay", msg: `Dev overlay ${this.enabled ? "enabled" : "disabled"}` });
   }
   _mount() {
     this.root = document.createElement("div");

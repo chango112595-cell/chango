@@ -1,13 +1,13 @@
 {
   "session": {
-    "id": "0wj14qkae58",
-    "start": "2025-10-06T06:04:29.278Z",
-    "end": "2025-10-06T06:09:09.286Z",
+    "id": "a9c0r6hdp75",
+    "start": "2025-10-06T06:14:13.829Z",
+    "end": "2025-10-06T06:14:33.841Z",
     "final": false
   },
   "device": {
-    "type": "desktop",
-    "sampleRate": 48000
+    "type": "mobile",
+    "sampleRate": 44100
   },
   "tts": {
     "success": 0,
@@ -18,8 +18,8 @@
     "interim": 0,
     "final": 0,
     "error": 0,
-    "recoveries": 12,
-    "last_recovery_ms": 75072
+    "recoveries": 5,
+    "last_recovery_ms": 17674
   },
   "vad": {
     "sessions": 0,

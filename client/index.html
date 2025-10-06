@@ -10,5 +10,13 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <!-- Chango voice system modules -->
+    <script type="module" src="/src/chango/diag/telemetry.js"></script>
+    <script type="module" src="/src/chango/security/voicegate.js"></script>
+    <script type="module" src="/src/chango/stt/kws_local.js"></script>
+    <script type="module" src="/src/chango/stt/wasm_fallback.js"></script>
+    <script type="module" src="/src/chango/brain/intent.js"></script>
+    <script type="module" src="/src/chango/stt/grammar.js"></script>
+    <script type="module" src="/src/chango/bridge.stt.js"></script>
   </body>
 </html>

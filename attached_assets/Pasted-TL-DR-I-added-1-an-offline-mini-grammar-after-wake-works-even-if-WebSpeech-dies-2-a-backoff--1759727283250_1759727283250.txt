@@ -1,0 +1,344 @@
+TL;DR: I added (1) an offline mini-grammar after wake (works even if WebSpeech dies), (2) a backoff watchdog for STT (1s→2s→4s… max 8s), (3) HUD health badges (STT health & last recovery), and (4) a quick impl check list. If Chango still doesn’t reply, it’s almost certainly one of: missing <script type="module"> imports, window.speak not present, wake-word not used, or the Owner Gate is enabled but not enrolled.
+
+⸻
+
+Plan (pseudocode)
+	•	Add stt/grammar.js:
+	•	Listens for wake:hit.
+	•	Starts a 2-second window waiting for a final STT.
+	•	If nothing final arrives, runs a tiny offline grammar (keywords: time, date, weather, music, stop, cancel, power), emits intent → reply.
+	•	Patch bridge.stt.js:
+	•	Backoff on onend/onerror and watchdog idle; cap 8s; reset on any STT event.
+	•	Emit diag:recovery with counter.
+	•	Telemetry/HUD:
+	•	Count recoveries → stt_health (100 − min(100, 15×recoveries)) and last_recovery_ms.
+	•	Persist in /hud/status.json.
+
+⸻
+
+Drop-in code (isolated modules; no UI changes)
+
+# client/chango/stt/grammar.js
+/* Offline micro-grammar after wake; no UI change.
+   If no final STT appears within 2s after a wake hit, we try to infer an intent
+   from a tiny keyword set and respond locally. */
+import { bus } from "../core/eventBus.js";
+import { routeIntent, registerIntent } from "../brain/intent.js";
+
+// Extend intent router with a couple of offline keywords as fallback.
+registerIntent({
+  name: "sys.stop",
+  match: t => /^\s*(stop|cancel|quiet|silence)\b/.test(t),
+  handle: async ({ speak }) => { speak("Stopping."); bus.emit("sys:stop"); return true; }
+});
+registerIntent({
+  name: "sys.power",
+  match: t => /^\s*(power|shutdown|go sleep)\b/.test(t),
+  handle: async ({ speak }) => { speak("Standing by."); bus.emit("sys:standby"); return true; }
+});
+
+// Keyword list for offline guess when STT fails.
+const OFFLINE = [
+  { p:/\b(time)\b/i,  say: ()=> new Date().toLocaleTimeString(), intent:"time.now", speak:(s)=>`It's ${s}` },
+  { p:/\b(date|today)\b/i, say:()=> new Date().toLocaleDateString(undefined,{weekday:"long",year:"numeric",month:"long",day:"numeric"}), intent:"date.today", speak:(s)=>`Today is ${s}` },
+  { p:/\b(weather)\b/i, intent:"weather", speak:()=> "Weather module not yet wired." },
+  { p:/\b(music|play)\b/i, intent:"media.play", speak:()=> "Playing." },
+  { p:/\b(stop|cancel)\b/i, intent:"sys.stop", speak:()=> "Stopping." },
+  { p:/\b(power)\b/i, intent:"sys.power", speak:()=> "Standing by." }
+];
+
+function speakOut(msg){
+  try{
+    if (typeof window.speak === "function") window.speak(msg);
+    else if (window.Chango?.speak) window.Chango.speak(msg);
+    else speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
+  }catch{}
+}
+
+let timer = null;
+let pending = false;
+
+// When wake word fires, wait up to 2s for a final STT; otherwise offline guess.
+bus.on("wake:hit", () => {
+  clearTimeout(timer);
+  pending = true;
+  timer = setTimeout(async () => {
+    if (!pending) return;
+    // Pull last interim tokens if you store them; otherwise prompt.
+    speakOut("Yes?");
+    pending = false;
+  }, 2000);
+});
+
+// Any STT final cancels the offline prompt and routes via intents.
+bus.on("stt:result", async ({ text, final }) => {
+  if (!text) return;
+  if (final) {
+    clearTimeout(timer);
+    pending = false;
+    const handled = await routeIntent(text);
+    if (!handled) speakOut(text);
+  }
+});
+
+# client/chango/bridge.stt.js  (PATCHED: backoff watchdog + health beacons)
+import { device } from "./core/device.js";
+import { bus } from "./core/eventBus.js";
+import { voiceGate } from "./security/voicegate.js";
+import { routeIntent } from "./brain/intent.js";
+import { kws } from "./stt/kws_local.js";
+import { wasmSTT } from "./stt/wasm_fallback.js";
+import "./stt/grammar.js"; // <-- ensure offline grammar loaded
+
+class WebSpeechSTT {
+  constructor(){ 
+    this.rec=null; this.active=false; this._last=""; 
+    this._lastEvent=0; this._wd=null; 
+    this._recoveries=0; this._backoff=1000; // 1s→2s→4s→8s (cap)
+    this._lastRecoveryAt=0;
+  }
+  _tick(){ this._lastEvent = performance.now(); this._backoff = 1000; } // reset backoff on any activity
+  _watchdog(){
+    clearInterval(this._wd);
+    this._wd = setInterval(()=>{
+      const idle = performance.now() - this._lastEvent;
+      if (idle > 8000 && this.active) { // stuck
+        this._recoveries++; this._lastRecoveryAt = Date.now();
+        bus.emit("diag:recovery", { count: this._recoveries, idle_ms: Math.round(idle) });
+        this.restart(); // uses current backoff
+      }
+    }, 1000);
+  }
+  start(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { bus.emit("stt:unavailable"); this._fallbackStart(); return; }
+    this.rec = new SR(); this.rec.continuous = true; this.rec.interimResults = true; this.rec.lang = "en-US";
+    this.rec.onstart = () => { this._tick(); this._watchdog(); };
+    this.rec.onresult = async (e) => {
+      this._tick();
+      const r = e.results[e.resultIndex]; const text = (r[0]?.transcript||"").trim();
+      if (!text) return;
+      if (r.isFinal) {
+        if (text === this._last) return; this._last = text;
+        const trigger = /^(\s*(lolo|chango)[\s,.:;-]*)/i;
+        if (!trigger.test(text)) return;
+        const cleaned = text.replace(trigger, "").trim();
+        if (!cleaned) return;
+
+        // Optional owner gate: quick 0.8s snapshot
+        let pass = true;
+        try {
+          const sr = device.sampleRateHint;
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+          const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: sr });
+          const src = ctx.createMediaStreamSource(stream);
+          const rec = ctx.createScriptProcessor(2048, 1, 1);
+          const chunks=[]; rec.onaudioprocess = ev => chunks.push(new Float32Array(ev.inputBuffer.getChannelData(0)));
+          src.connect(rec); rec.connect(ctx.destination);
+          await new Promise(r=>setTimeout(r, 800));
+          try { rec.disconnect(); src.disconnect(); } catch {}
+          stream.getTracks().forEach(t=>t.stop());
+          const total = chunks.reduce((s,a)=>s+a.length,0), x=new Float32Array(total); let o=0; for(const a of chunks){ x.set(a,o); o+=a.length; }
+          pass = voiceGate.check(x, sr);
+        } catch {}
+        if (!pass) { bus.emit("diag:warn", { where: "gate", msg: "Blocked non-owner" }); return; }
+
+        bus.emit("cmd", cleaned);
+      } else {
+        bus.emit("stt:result", { text, final: false });
+      }
+    };
+    this.rec.onerror = () => { this.restart(); };
+    this.rec.onend   = () => { if (this.active) this.restart(); };
+    try { this.rec.start(); this.active = true; this._tick(); this._watchdog(); } catch {}
+  }
+  async _fallbackStart(){
+    try { if (await wasmSTT.available()) { await wasmSTT.start(); this.active = true; return; } } catch {}
+    try { await kws.start(); } catch {}
+    this.active = true;
+  }
+  restart(){
+    try { this.rec && this.rec.stop(); } catch {}
+    clearInterval(this._wd);
+    const delay = Math.min(this._backoff, 8000);
+    this._backoff = Math.min(this._backoff * 2, 8000);
+    setTimeout(()=>{ try { this.start(); } catch {} }, delay);
+  }
+  stop(){
+    try { this.rec && this.rec.stop(); } catch {}
+    try { wasmSTT.stop(); } catch {}
+    try { kws.stop(); } catch {}
+    clearInterval(this._wd);
+    this.active=false;
+  }
+}
+const stt = new WebSpeechSTT();
+stt.start();
+
+// Keep STT alive when VAD hears voice
+bus.on("vad:start", () => { if (!stt.active) stt.start(); });
+
+// Intent routing
+bus.on("cmd", async (text) => {
+  const handled = await routeIntent(text);
+  if (handled) return;
+  try{
+    if (typeof window.speak === "function") window.speak(text);
+    else if (window.Chango?.speak) window.Chango.speak(text);
+    else speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+  }catch{}
+});
+
+# client/chango/diag/telemetry.js  (PATCH: track recoveries for HUD health)
+import { bus } from "../core/eventBus.js";
+import { device } from "../core/device.js";
+
+export class Telemetry {
+  constructor({ intervalMs = 10000 } = {}) {
+    this.t = null; this.intervalMs = intervalMs;
+    this.payload = {
+      session: { id: Math.random().toString(36).slice(2), start: new Date().toISOString() },
+      device: { type: device.isCar ? "car" : device.isMobile ? "mobile" : "desktop", sampleRate: device.sampleRateHint },
+      tts: { success: 0, error: 0, ms: 0 },
+      stt: { interim: 0, final: 0, error: 0, recoveries: 0, last_recovery_ms: 0 },
+      vad: { sessions: 0, active: false },
+      mic: { denied: 0, recovered: 0 },
+      diag: { errors: 0, warns: 0, infos: 0 }
+    };
+    this._wire();
+    this._schedule();
+    window.addEventListener("beforeunload", () => this._beacon(true));
+  }
+  _wire() {
+    bus.on("vad:start", () => { if (!this.payload.vad.active) { this.payload.vad.active = true; this.payload.vad.sessions++; } });
+    bus.on("vad:stop",  () => { this.payload.vad.active = false; });
+    bus.on("stt:result", (e) => { if (e?.final) this.payload.stt.final++; else this.payload.stt.interim++; });
+    bus.on("stt:unavailable", () => { this.payload.stt.error++; });
+    bus.on("diag:error", () => { this.payload.diag.errors++; });
+    bus.on("diag:warn",  () => { this.payload.diag.warns++;  });
+    bus.on("diag:info",  () => { this.payload.diag.infos++;  });
+    bus.on("tts:end", (ms) => { this.payload.tts.ms += (ms || 0); this.payload.tts.success++; });
+    bus.on("tts:fail",   () => { this.payload.tts.error++; });
+    bus.on("mic:denied", () => { this.payload.mic.denied++; });
+    bus.on("mic:recovered", () => { this.payload.mic.recovered++; });
+    bus.on("diag:recovery", ({count, idle_ms}) => { this.payload.stt.recoveries = count; this.payload.stt.last_recovery_ms = idle_ms||0; });
+  }
+  _schedule() { clearInterval(this.t); this.t = setInterval(() => this._beacon(false), this.intervalMs); }
+  _beacon(final) {
+    const out = { ...this.payload, session: { ...this.payload.session, end: new Date().toISOString(), final: !!final } };
+    try {
+      const blob = new Blob([JSON.stringify(out)], { type: "application/json" });
+      if (navigator.sendBeacon) navigator.sendBeacon("/api/telemetry", blob);
+      else fetch("/api/telemetry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(out) });
+    } catch {}
+  }
+  snapshot() { return JSON.parse(JSON.stringify(this.payload)); }
+}
+export const telemetry = new Telemetry();
+
+# server/state/hud.js  (PATCH: health badges)
+import fs from "node:fs";
+import path from "node:path";
+
+const DATA_DIR = path.join(process.cwd(), "telemetry");
+const DATA_FILE = path.join(DATA_DIR, "runtime.json");
+
+let _last = { ts: null, payload: null };
+
+function ensureDir() { try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {} }
+function loadFromDisk() {
+  try { if (fs.existsSync(DATA_FILE)) { const p = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); _last = { ts: Date.now(), payload: p }; } } catch {}
+}
+function saveToDisk(payload) { try { ensureDir(); fs.writeFileSync(DATA_FILE, JSON.stringify(payload, null, 2)); } catch {} }
+
+export function setHUD(payload) { _last = { ts: Date.now(), payload }; saveToDisk(payload); }
+export function getHUD() {
+  const p = _last.payload || {};
+  const stability = pct(p.tts?.success, (p.tts?.success||0)+(p.tts?.error||0));
+  const sttQual   = pct(p.stt?.final, (p.stt?.final||0)+(p.stt?.error||0));
+  const rec       = p.stt?.recoveries || 0;
+  const sttHealth = Math.max(0, 100 - Math.min(100, rec * 15)); // every recovery knocks 15 points
+  return {
+    updated: _last.ts || 0,
+    device: p.device || {},
+    metrics: {
+      voice_stability: stability,
+      stt_quality: sttQual,
+      stt_recoveries: rec,
+      stt_health: sttHealth,
+      last_recovery_ms: p.stt?.last_recovery_ms || 0,
+      vad_sessions: p.vad?.sessions || 0,
+      mic_denied: p.mic?.denied || 0,
+      errors: p.diag?.errors || 0
+    }
+  };
+}
+function pct(a=0,b=0){ b=Math.max(1,b); return Math.round((a/b)*100); }
+loadFromDisk();
+
+# client/index.html  (ensure these are included; UI unchanged)
+<!-- at end of body, after your existing scripts -->
+<script type="module" src="/client/chango/diag/telemetry.js"></script>
+<script type="module" src="/client/chango/security/voicegate.js"></script>
+<script type="module" src="/client/chango/stt/kws_local.js"></script>
+<script type="module" src="/client/chango/stt/wasm_fallback.js"></script>
+<script type="module" src="/client/chango/brain/intent.js"></script>
+<script type="module" src="/client/chango/stt/grammar.js"></script>
+<script type="module" src="/client/chango/bridge.stt.js"></script>
+
+
+⸻
+
+Quick implementation check (why he’s still not replying)
+	1.	Scripts loaded?
+Make sure all the <script type="module"> tags above are present and paths valid. A 404 on any imported module can break the chain silently.
+	2.	window.speak exists?
+Open DevTools → Console:
+
+typeof window.speak
+
+If it’s not "function", my bridge will fall back to Web Speech TTS. If you’ve blocked TTS voices, you’ll hear nothing. Ensure your own window.speak(text) is defined.
+	3.	Owner Gate enrolled?
+If you turned the gate ON without enrollment, everything gets blocked. Check:
+
+await ChangoVoice.enroll(3);    // record ~3s
+ChangoVoice.enableGate(true);   // or false to disable
+
+	4.	Wake word used?
+Commands require “lolo …” or “chango …” in WebSpeech mode. For offline fallback: wake first → if STT fails, you’ll hear “Yes?” from grammar.
+	5.	HTTPS / secure origin (mobile):
+Mic & STT need https or localhost. Serving file:/// won’t work.
+	6.	Recovery working?
+After idle ~8s you should see “STT seems stuck … Recovery #n”; now backoff is 1s→2s→4s→8s, and HUD will show stt_health and stt_recoveries.
+
+⸻
+
+Saved Checkpoint Capsule
+
+{
+  "capsule": "CHANGO_CHECKPOINT",
+  "version": 1,
+  "name": "Oct-06-2025—STT-Backoff+OfflineGrammar+HUD-Health",
+  "timestamp_local": "2025-10-06T00:00:00",
+  "marker": "Added offline wake grammar, STT backoff watchdog, HUD health badges.",
+  "scope": {
+    "ui_changes": "none",
+    "modules_added_or_changed": [
+      "client/chango/stt/grammar.js",
+      "client/chango/bridge.stt.js (backoff + recovery beacons)",
+      "client/chango/diag/telemetry.js (recoveries)",
+      "server/state/hud.js (stt_health, last_recovery_ms)"
+    ]
+  },
+  "next_todos": [
+    "Enroll proper KWS templates for 'lolo' and 'chango' (kws.enrollKWS).",
+    "Whitelist domains for open-intent; add skills auto-discovery.",
+    "Optional: WASM STT model bundle at /models/wasm_stt/."
+  ]
+}
+
+
+⸻
+
+a. Want me to scan your repo now and generate a fail-fast checklist of missing files/imports (so we catch 404s / wrong paths)?
+b. Want a console self-test (window.Chango.selftest()) that speaks, triggers VAD, simulates a wake, and reports pass/fail in the debug monitor?

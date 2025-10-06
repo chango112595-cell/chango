@@ -63,7 +63,9 @@
 | Security & Failsafes | Voice Recognition Security | 100% |
 
 ---
-### Auto Status (tracker) — 2025-10-06T08:15:25.376Z
+
+---
+### Auto Status (tracker) — 2025-10-06T08:18:34.297Z
 | Layer | Priority | Status | Task | Progress | Weight |
 |---|:---:|:---:|---|---:|---:|
 | Core Systems | P1 | 🟢 | Voice System Stability Audit | 85% | 10 |
@@ -87,16 +89,3 @@
 | Knowledge & Core Memory | P5 | 🟡 | Historical Knowledge Feed | 40% | 6 |
 | Knowledge & Core Memory | P5 | 🟡 | Temporal Awareness | 40% | 6 |
 | Security & Failsafes | P6 | 🟢 | Manual Override (Mute/Pause) | 90% | 5 |
-
----
-### Queued Tasks (auto-appended) 2025-10-06T08:16:05.886Z
-
-#### Priority 2 : Voice & Audio
-Status | Task | Description
----|---|---
-⏸ | Weather Skill Scaffold | Create `client/chango/skills/weather.js` using **local provider only** (no 3rd-party). Wire to intent: "weather", "forecast", "temperature". Offline placeholder first.
-
-#### Priority 4 : Diagnostics & Monitoring
-Status | Task | Description
----|---|---
-⏸ | Skills Manifest Validator | Add `npm run skills:check` to validate `client/chango/skills/manifest.json` and lint required exports (register or default intents).

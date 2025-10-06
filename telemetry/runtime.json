@@ -1,16 +1,16 @@
 {
   "session": {
-    "id": "d02x5d8i1bp",
-    "start": "2025-10-06T05:50:54.297Z",
-    "end": "2025-10-06T05:59:04.307Z",
+    "id": "ourb7n0244",
+    "start": "2025-10-06T05:59:49.659Z",
+    "end": "2025-10-06T06:00:02.426Z",
     "final": false
   },
   "device": {
-    "type": "desktop",
-    "sampleRate": 48000
+    "type": "mobile",
+    "sampleRate": 44100
   },
   "tts": {
-    "success": 7,
+    "success": 0,
     "error": 0,
     "ms": 0
   },
@@ -18,8 +18,8 @@
     "interim": 0,
     "final": 0,
     "error": 0,
-    "recoveries": 12,
-    "last_recovery_ms": 71670
+    "recoveries": 0,
+    "last_recovery_ms": 0
   },
   "vad": {
     "sessions": 0,
@@ -35,8 +35,8 @@
     "infos": 0
   },
   "selftest": {
-    "last_pass": true,
-    "took_ms": 1510,
-    "at": "2025-10-06T05:56:26.235Z"
+    "last_pass": null,
+    "took_ms": null,
+    "at": null
   }
 }

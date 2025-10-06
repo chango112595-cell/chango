@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SpeechCoordinationProvider } from "@/lib/speechCoordination";
 import { ConversationProvider } from "@/lib/conversationContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ThemeProvider } from "@/contexts/ThemeProvider";
 
 // Safe imports with fallbacks for hotfix components
 const HeaderCompact = lazy(() => 
@@ -407,15 +408,17 @@ function AppContent() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <UIModeProvider>
-        <SpeechCoordinationProvider>
-          <ConversationProvider>
-            <TooltipProvider>
-              <AppContent />
-            </TooltipProvider>
-          </ConversationProvider>
-        </SpeechCoordinationProvider>
-      </UIModeProvider>
+      <ThemeProvider defaultTheme="classic">
+        <UIModeProvider>
+          <SpeechCoordinationProvider>
+            <ConversationProvider>
+              <TooltipProvider>
+                <AppContent />
+              </TooltipProvider>
+            </ConversationProvider>
+          </SpeechCoordinationProvider>
+        </UIModeProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

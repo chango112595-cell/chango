@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SecurityPanel } from '@/components/settings/SecurityPanel';
 import { Settings, Shield, Volume2, Info, Palette } from 'lucide-react';
+import { useTheme } from '@/contexts/ThemeProvider';
 
 interface SettingsModalProps {
   trigger?: React.ReactNode;
@@ -26,6 +27,7 @@ interface SettingsModalProps {
 
 export function SettingsModal({ trigger, open, onOpenChange }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState('security');
+  const { theme, setTheme } = useTheme();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -132,11 +134,12 @@ export function SettingsModal({ trigger, open, onOpenChange }: SettingsModalProp
                     <p className="text-xs text-muted-foreground mb-2">Choose your preferred color theme</p>
                     <select 
                       className="w-full px-3 py-2 rounded-md bg-background border border-cyan-500/20"
-                      defaultValue="dark"
+                      value={theme}
+                      onChange={(e) => setTheme(e.target.value as 'classic' | 'hud' | 'auto')}
                       data-testid="select-theme"
                     >
-                      <option value="dark">Dark</option>
-                      <option value="light">Light</option>
+                      <option value="classic">Classic</option>
+                      <option value="hud">HUD</option>
                       <option value="auto">System</option>
                     </select>
                   </div>

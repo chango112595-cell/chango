@@ -285,7 +285,7 @@ export function useVoiceSynthesis() {
     console.log("[VoiceSynthesis] setAccentConfig is deprecated in simplified version");
   }, []);
 
-  const applyAccent = useCallback((config: any) => {
+  const applyAccent = useCallback((config: { profile: string; intensity: number; rate: number; pitch: number; emotion?: string }) => {
     // This is a no-op in the simplified version
     console.log("[VoiceSynthesis] applyAccent is deprecated in simplified version", config);
   }, []);

@@ -235,9 +235,10 @@ export function useVoiceSynthesis() {
   }, [initializeSpeechSynthesis]);
 
   // Public API matching the original interface
-  const speak = useCallback((text: string) => {
+  const speak = useCallback((text: string, _force?: boolean) => {
     // Emit speak event to VoiceBus instead of speaking directly
     // This allows other components to intercept and process the text
+    // _force parameter is ignored for backward compatibility
     voiceBus.emitSpeak(text, 'system');
   }, []);
 
@@ -284,6 +285,23 @@ export function useVoiceSynthesis() {
     console.log("[VoiceSynthesis] setAccentConfig is deprecated in simplified version");
   }, []);
 
+  const applyAccent = useCallback((config: any) => {
+    // This is a no-op in the simplified version
+    console.log("[VoiceSynthesis] applyAccent is deprecated in simplified version", config);
+  }, []);
+
+  const repeatWithAccent = useCallback(() => {
+    // This is a no-op in the simplified version
+    console.log("[VoiceSynthesis] repeatWithAccent is deprecated in simplified version");
+    if (utteranceRef.current) {
+      speakText(utteranceRef.current.text);
+    }
+  }, [speakText]);
+
+  const isSpeaking = useCallback(() => {
+    return state.isPlaying;
+  }, [state.isPlaying]);
+
   return {
     ...state,
     speak,
@@ -297,6 +315,9 @@ export function useVoiceSynthesis() {
     repeatLast,
     changeAccent,
     setAccentConfig,
+    applyAccent,
+    repeatWithAccent,
+    isSpeaking,
     // For backward compatibility, expose dummy accentConfig
     accentConfig: {
       profile: "neutral",

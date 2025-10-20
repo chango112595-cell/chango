@@ -1,0 +1,29 @@
+# Configuration for labeler workflow
+# See https://github.com/actions/labeler for more information
+
+# Add 'client' label to any changes within client folder
+client:
+  - changed-files:
+    - any-glob-to-any-file: 'client/**/*'
+
+# Add 'server' label to any changes within server folder
+server:
+  - changed-files:
+    - any-glob-to-any-file: 'server/**/*'
+
+# Add 'documentation' label to any markdown file changes
+documentation:
+  - changed-files:
+    - any-glob-to-any-file: '**/*.md'
+
+# Add 'dependencies' label to package.json changes
+dependencies:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'package.json'
+      - 'package-lock.json'
+
+# Add 'workflow' label to any GitHub workflow changes
+workflow:
+  - changed-files:
+    - any-glob-to-any-file: '.github/**/*'
